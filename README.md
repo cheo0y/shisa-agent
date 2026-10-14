@@ -79,7 +79,12 @@ AI 없이 쓰는 중에 캐릭터를 두 번 누르면 춤을 추면서 「연�
 brew install node git
 ```
 
-`node -v`를 쳐서 `v26` 이상이 나오면 됩니다.
+`node -v`를 쳐서 `v26` 이상이 나오고, `git --version`을 쳐서 버전 숫자가 나오면 됩니다.
+
+git은 코드를 내려받는 프로그램입니다. 1단계에서 Homebrew를 깔 때 함께 설치되는 Command Line Tools에도 들어 있어서, 위 명령을 실행했다면 따로 할 일은 없습니다. Homebrew 없이 git만 설치하고 싶다면 아래 방법 중 하나를 쓰면 됩니다.
+
+- 터미널에 `xcode-select --install`을 입력하고, 뜨는 창에서 설치를 누릅니다. 애플이 제공하는 기본 도구라 가장 간단합니다.
+- [git 공식 다운로드 페이지](https://git-scm.com/download/mac)에서 맥용 설치 방법을 따라 합니다.
 
 #### 3. 시사 받기
 
@@ -87,7 +92,9 @@ brew install node git
 git clone https://github.com/cheo0y/shisa-agent.git ~/shisa-agent
 ```
 
-공개 레포라서 로그인 없이 바로 받아집니다. 개발자라면 Fork해서 내 계정으로 받아 두고 마음대로 고쳐 쓰셔도 됩니다.
+공개 레포라서 GitHub 계정이나 로그인 없이 바로 받아집니다. 계정은 Fork를 하거나 Issue, PR을 올릴 때만 필요합니다. 개발자라면 Fork해서 내 계정으로 받아 두고 마음대로 고쳐 쓰셔도 됩니다.
+
+git이 없다면 [레포 페이지](https://github.com/cheo0y/shisa-agent)에서 초록색 Code 버튼 → Download ZIP으로 받아도 됩니다. 압축을 풀고 폴더 이름을 `shisa-agent`로 바꾼 뒤 홈 폴더로 옮겨 두면 다음 단계는 똑같습니다. 다만 이 방법으로 받으면 새 버전도 ZIP을 다시 받아 설치해야 합니다.
 
 #### 4. 설치 실행
 
@@ -117,6 +124,7 @@ cd ~/shisa-agent && ./ops/install.sh
 | 증상 | 해결 |
 |---|---|
 | `command not found: brew` | 1번 끝에 나온 Next steps 두 줄을 실행했는지 확인하고, 터미널을 껐다 다시 열어 보세요 |
+| `command not found: git` | 터미널에 `xcode-select --install`을 입력해 설치하거나, Download ZIP으로 받아 주세요(3단계) |
 | `node -v`가 26보다 낮게 나옴 | `brew upgrade node` |
 | 캐릭터가 안 보임 | `open ~/Applications/cy.app` |
 | 그래도 안 됨 | `tail -50 ~/.cy-agent/logs/*.log` 결과를 [의견 보내기](#의견-보내기)로 보내 주세요 |
