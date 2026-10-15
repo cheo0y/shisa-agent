@@ -62,6 +62,12 @@ test('updateBubble: dmg 앱은 「받으러 가기」, 터미널 설치는 ./ops
   const term = normalizeBubble(updateBubble({ version: '0.2.0', url: RELEASES_PAGE, checkout: true }));
   assert.match(term.text, /\.\/ops\/update\.sh/);
   assert.ok(!/—/.test(app.text + term.text));
+  // 서명된 dmg 가 있어 앱 안에서 바꿀 수 있으면 설정 「이 앱」으로 안내, 링크는 바뀐 점
+  const inApp = normalizeBubble(updateBubble({ version: '0.2.0', url: `${RELEASES_PAGE}/tag/v0.2.0`, inApp: true }));
+  assert.match(inApp.text, /설정의 「이 앱」에서 「지금 바꾸기」/);
+  assert.equal(inApp.linkLabel, '바뀐 점 보기');
+  // 터미널 설치는 서명 dmg 가 있어도 update.sh 안내
+  assert.match(normalizeBubble(updateBubble({ version: '0.2.0', url: RELEASES_PAGE, checkout: true, inApp: true })).text, /update\.sh/);
 });
 
 test('normalizeBubble: linkLabel 은 링크가 있을 때만, 짧게', () => {

@@ -151,9 +151,39 @@ function renderBrains() {
 
 // ---- 이 앱(로그인할 때 켜기 · 새 버전 알림) ----
 let appPrefs = null;
+// 앱 안 업데이트(src/self-update.js): 새 판이 있으면 「지금 바꾸기」, 못 바꾸면 이유, 이전 판이 있으면 「되돌리기」
+function renderAppUpdate() {
+  const u = appPrefs?.update;
+  const wrap = $('app-update');
+  wrap.hidden = !u || (!u.latest && !u.previous);
+  if (wrap.hidden) return;
+  const lines = [];
+  if (u.latest) lines.push(u.available ? `새 버전 v${u.latest} 가 있어요. 받은 파일의 서명을 확인한 뒤 바꾸고 시사가 다시 켜져요.` : `새 버전 v${u.latest} 가 있어요. ${u.hint}`);
+  if (u.previous) lines.push(`문제가 생기면 이전 판(v${u.previous})으로 되돌릴 수 있어요.`);
+  $('app-update-hint').textContent = lines.join(' ');
+  const box = $('app-update-actions');
+  box.replaceChildren();
+  const action = (label, patch, busy) => {
+    const b = el('button', null, label);
+    b.type = 'button';
+    b.addEventListener('click', async () => {
+      for (const x of box.querySelectorAll('button')) x.disabled = true;
+      b.textContent = busy;
+      const res = await cy.setAppPrefs?.(patch).catch(() => null);
+      if (res?.ok) appPrefs = res;
+      else if (res?.error) flash(res.error, true);
+      renderAppPrefs();
+    });
+    box.append(b);
+  };
+  if (u.latest && u.available) action('지금 바꾸기', { updateNow: true }, '받는 중…');
+  if (u.previous) action(`v${u.previous}로 되돌리기`, { rollback: true }, '되돌리는 중…');
+  box.hidden = !box.children.length;
+}
 function renderAppPrefs() {
   const box = $('app-prefs');
   box.replaceChildren();
+  renderAppUpdate();
   if (!appPrefs) return;
   $('app-version').textContent = appPrefs.version ? `지금 버전 v${appPrefs.version}` : '';
   const login = appPrefs.openAtLogin ?? {};

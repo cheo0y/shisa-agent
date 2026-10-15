@@ -72,7 +72,30 @@ gh release create v<버전> desktop/dist/Shisa-<버전>-arm64.dmg desktop/dist/S
 
 같은 태그가 이미 있으면 멈춥니다. 파일만 바꾸려면 `gh release upload v<버전> <파일> --clobber --repo cheo0y/shisa-agent`를 씁니다.
 
+## 앱 안 업데이트 서명
+
+릴리스에 dmg 서명 파일(`Shisa-<버전>-<arch>.dmg.sig`)이 있으면, 사용자가 설정 「이 앱」의 「지금 바꾸기」로 앱 안에서 바꿀 수 있습니다(`desktop/src/self-update.js`). 서명이 없거나 앱에 공개 키가 없으면 예전처럼 릴리스 페이지만 엽니다.
+
+처음 한 번 키를 만듭니다.
+
+```bash
+node ops/update-key.mjs                  # ~/.shisa-update-key.pem(나만 읽기 600)을 만들고 공개 키를 보여 줍니다
+```
+
+보여 준 공개 키를 `desktop/src/update-key.js`의 `UPDATE_PUBLIC_KEYS`에 넣어 커밋합니다. 그 버전부터 앱이 서명을 확인할 수 있습니다. 개인 키는 레포에 넣지 않고 따로 보관합니다(잃어버리면 새 키로 바꾸고, 옛 키를 한 릴리스 동안 같이 둡니다).
+
+릴리스 때 개인 키를 알려 주면 `.sig`도 만들어 같이 올립니다.
+
+```bash
+SHISA_UPDATE_KEY=~/.shisa-update-key.pem sh ops/release.sh --publish
+```
+
+- 서명하는 글은 「`shisa-update-v1`, 파일 이름, SHA-256」입니다. 다른 버전이나 아키텍처의 dmg로 바꿔치기하면 맞지 않습니다.
+- `ops/sign-update.mjs`는 개인 키의 짝인 공개 키가 `update-key.js`에 없으면 멈춥니다.
+- 앱은 받은 dmg의 서명을 확인한 뒤 읽기 전용으로 붙이고, 안의 앱 버전이 릴리스 버전과 같은지 봅니다. 그다음 응용 프로그램 폴더에 복사하고 `codesign --verify`를 통과하면 지금 앱과 바꿉니다. 바꾸기 전 앱은 `~/Library/Application Support/cy-agent-desktop/updates/previous`에 남아서 「이전 판으로 되돌리기」로 돌아갈 수 있습니다. 중간에 실패하면 지금 앱을 그대로 둡니다.
+- 응용 프로그램 폴더에 쓸 수 없거나(일반 사용자 계정), 앱을 응용 프로그램 폴더로 옮기지 않고 dmg에서 바로 연 경우(앱 번역)에는 앱 안에서 바꾸지 않고 안내만 합니다.
+
 ## 남은 것
 
 - 애플 개발자 서명과 공증을 하지 않아서, 처음 열 때 「그래도 열기」를 한 번 거쳐야 합니다(README 「쉬운 설치(앱)」). 개발자 계정이 생기면 `@electron/packager`의 `osxSign`·`osxNotarize` 옵션으로 바꿀 수 있습니다.
-- 자동 업데이트는 하지 않습니다. 새 버전 알림을 보고 dmg를 받아 덮어씁니다.
+- 저절로 바꾸지는 않습니다. 새 버전 알림을 보고 사용자가 「지금 바꾸기」를 누르거나(서명 키를 넣은 뒤), dmg를 받아 덮어씁니다.

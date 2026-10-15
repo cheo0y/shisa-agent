@@ -24,6 +24,16 @@ for a in $ARCHS; do FILES="$FILES $DIST/Shisa-$VER-$a.dmg"; done
 # 받은 파일이 맞는지 확인할 수 있게 SHA-256 목록도 함께 올린다
 (cd "$DIST" && shasum -a 256 $(for a in $ARCHS; do printf '%s ' "Shisa-$VER-$a.dmg"; done) > "SHA256SUMS-$VER.txt")
 FILES="$FILES $DIST/SHA256SUMS-$VER.txt"
+# 앱 안 업데이트용 서명(desktop/src/self-update.js): 레포 밖 개인 키(SHISA_UPDATE_KEY)가 있을 때만 .sig 를 만들어 같이 올린다.
+# 없으면 앱은 예전처럼 릴리스 페이지만 연다. 키 만들기는 docs/release.md 「앱 안 업데이트 서명」
+if [ -n "${SHISA_UPDATE_KEY:-}" ]; then
+  for a in $ARCHS; do
+    node "$ROOT/ops/sign-update.mjs" "$DIST/Shisa-$VER-$a.dmg"
+    FILES="$FILES $DIST/Shisa-$VER-$a.dmg.sig"
+  done
+else
+  echo "(앱 안 업데이트 서명 없이 만듭니다. SHISA_UPDATE_KEY=<개인 키> 를 주면 .sig 도 만들어 올려요)"
+fi
 
 NOTES="$DIST/release-notes-$VER.md"
 cat > "$NOTES" <<EOF

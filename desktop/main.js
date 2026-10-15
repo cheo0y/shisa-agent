@@ -40,6 +40,8 @@ import { attachConsole, assembleBundle, collectLogFiles, createRing, formatLogLi
 import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, loginItemPlan, loginItemHint, defaultLoginPref, LAUNCHD_DAEMON, DAEMON_LOG } from './src/bundle.js';
 import { createDaemonHost } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, latestRelease, shouldNotify, updateBubble } from './src/update-check.js';
+import { UpdateError, installUpdate, newerThan, pickAssets, previousVersion, rollbackUpdate, updateHint, updatePlan } from './src/self-update.js';
+import { UPDATE_PUBLIC_KEYS } from './src/update-key.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.CY_AGENT_PORT) || 47823;
@@ -1723,13 +1725,89 @@ async function checkForUpdate() {
   try {
     const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'shisa-agent-desktop' }, signal: AbortSignal.timeout(15000) });
     if (!r.ok) return; // 아직 릴리스가 없으면 404
-    const rel = latestRelease(await r.json());
-    if (!rel || !shouldNotify({ latest: rel.version, current: app.getVersion(), notified: state.updateNotified })) return;
+    const json = await r.json();
+    const rel = latestRelease(json);
+    if (!rel) return;
+    // 설정 「이 앱」이 보여 줄 최신판(앱 안에서 바꿀 수 있는지: 서명된 이 아키텍처 dmg 가 있나)
+    const inApp = selfUpdatePlan().available && !!pickAssets(json, { arch: process.arch });
+    state.updateLatest = { version: rel.version, url: rel.url, inApp };
+    saveState();
+    if (!shouldNotify({ latest: rel.version, current: app.getVersion(), notified: state.updateNotified })) return;
     state.updateNotified = rel.version;
     saveState();
-    send('bubble', updateBubble({ version: rel.version, url: rel.url, checkout: isCheckout() }));
+    send('bubble', updateBubble({ version: rel.version, url: rel.url, checkout: isCheckout(), inApp }));
   } catch (e) {
     if (DEBUG) console.error('[update]', e?.message ?? e);
+  }
+}
+
+// ---- 앱 안에서 업데이트하고 되돌리기(src/self-update.js): 서명(ed25519)이 맞는 dmg 만, 누를 때만 ----
+const updatesDir = () => path.join(app.getPath('userData'), 'updates');
+const selfUpdatePlan = () => updatePlan({ packaged: app.isPackaged, checkout: isCheckout(), keys: UPDATE_PUBLIC_KEYS, execPath: process.execPath });
+let updating = false;
+
+// 설정 「이 앱」에 보일 것: 새 판(지금보다 새로울 때만) · 앱 안에서 바꿀 수 있나(아니면 이유) · 되돌릴 판
+function updateView() {
+  const plan = selfUpdatePlan();
+  const latest = state.updateLatest?.version && newerThan(state.updateLatest.version, app.getVersion()) ? state.updateLatest : null;
+  const available = !!latest && plan.available && latest.inApp === true;
+  const why = !latest ? '' : !plan.available ? updateHint(plan.reason) : !latest.inApp ? '이 새 버전에는 이 맥에 맞는 서명 파일이 없어서 앱 안에서는 못 바꿔요. 새 dmg 를 받아 덮어 넣어 주세요.' : '';
+  return { latest: latest?.version ?? null, url: latest?.url ?? null, available, hint: why, previous: plan.available ? previousVersion(updatesDir()) : null };
+}
+
+async function confirmBox(message, detail, yes) {
+  const parent = [settingsUi?.window, panel].find((w) => w && !w.isDestroyed() && w.isFocused());
+  const r = await dialog.showMessageBox(parent ?? undefined, { type: 'question', buttons: [yes, '그대로 두기'], defaultId: 0, cancelId: 1, message, detail });
+  return r.response === 0;
+}
+
+// 지금 바꾸기: 릴리스를 다시 읽어(주소·서명은 그때 것) 받고, 서명 확인 뒤 바꾸고 다시 켠다. 실패하면 지금 앱 그대로
+async function runUpdate() {
+  if (updating) return { ok: false, error: '이미 바꾸는 중이에요.' };
+  const plan = selfUpdatePlan();
+  if (!plan.available) return { ok: false, error: updateHint(plan.reason) };
+  updating = true;
+  try {
+    const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'shisa-agent-desktop' }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return { ok: false, error: `새 버전을 확인하지 못했어요(${r.status}).` };
+    const assets = pickAssets(await r.json(), { arch: process.arch });
+    if (!assets) return { ok: false, error: '이 맥에 맞는 서명된 새 버전이 없어요.' };
+    if (!newerThan(assets.version, app.getVersion())) return { ok: false, error: '이미 최신 버전이에요.' };
+    if (!(await confirmBox(`v${assets.version}로 바꿀까요?`, '받은 파일의 서명을 확인한 뒤 바꾸고, 시사가 다시 켜져요. 할 일·대화·설정은 그대로예요. 지금 판은 「이전 판으로 되돌리기」로 돌아올 수 있게 남겨 둬요.', '바꾸기'))) return { ok: false, cancelled: true };
+    send('bubble', { id: 'local-update-progress', kind: 'info', text: `v${assets.version} 를 받고 있어요. 다 되면 시사가 다시 켜져요.`, ttlMs: 10 * 60 * 1000 });
+    await installUpdate({ assets, appPath: plan.appPath, workDir: updatesDir(), keys: UPDATE_PUBLIC_KEYS });
+    state.updateNotified = assets.version;
+    saveState();
+    app.relaunch();
+    app.quit();
+    return { ok: true, relaunching: true };
+  } catch (e) {
+    console.error('[update]', e?.code ?? '', e?.message ?? e);
+    const text = e instanceof UpdateError ? e.message : '바꾸지 못했어요. 지금 판 그대로예요.';
+    send('bubble', { id: 'local-update-progress', kind: 'error', text, ttlMs: 12000 });
+    return { ok: false, error: text };
+  } finally {
+    updating = false;
+  }
+}
+
+// 이전 판으로 되돌리기(한 단계). 방금까지 쓰던 판이 다시 「이전 판」이 된다
+async function runRollback() {
+  if (updating) return { ok: false, error: '이미 바꾸는 중이에요.' };
+  const plan = selfUpdatePlan();
+  const prev = plan.available ? previousVersion(updatesDir()) : null;
+  if (!prev) return { ok: false, error: '되돌릴 이전 판이 없어요.' };
+  if (!(await confirmBox(`v${prev}로 되돌릴까요?`, '시사가 다시 켜져요. 할 일·대화·설정은 그대로예요.', '되돌리기'))) return { ok: false, cancelled: true };
+  updating = true;
+  try {
+    await rollbackUpdate({ appPath: plan.appPath, workDir: updatesDir() });
+    app.relaunch();
+    app.quit();
+    return { ok: true, relaunching: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof UpdateError ? e.message : '되돌리지 못했어요.' };
+  } finally {
+    updating = false;
   }
 }
 
@@ -1741,9 +1819,13 @@ const appPrefs = {
     if (p.manage) {
       try { on = app.getLoginItemSettings().openAtLogin === true; } catch { on = state.openAtLogin === true; }
     }
-    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false };
+    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, update: updateView() };
   },
-  set(patch) {
+  async set(patch) {
+    if ('updateNow' in patch || 'rollback' in patch) {
+      const r = await ('updateNow' in patch ? runUpdate() : runRollback());
+      return r.ok || r.cancelled ? appPrefs.get() : { ok: false, error: r.error };
+    }
     if ('openAtLogin' in patch) {
       const p = loginPlan();
       if (!p.manage) return { ok: false, error: loginItemHint(p.reason) };

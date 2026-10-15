@@ -262,9 +262,11 @@ export function metaText(row, now = new Date()) {
 }
 
 // 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean } — 그 밖의 키·모양이면 null
+// 지금 바꾸기(updateNow)·이전 판으로 되돌리기(rollback)도 따로 하나만, true 로만(src/self-update.js — 확인 창 뒤 앱이 다시 켜진다)
 export function sanitizeAppPrefs(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const keys = Object.keys(p);
+  if (keys.length === 1 && (keys[0] === 'updateNow' || keys[0] === 'rollback')) return p[keys[0]] === true ? { [keys[0]]: true } : null;
   if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck')) return null;
   const out = {};
   for (const k of keys) {

@@ -8,7 +8,7 @@ export const SETTINGS_SIZE = { width: 720, height: 760 };
 
 // deps: { BrowserWindow, ipcMain, shell, request(method, path, body?, timeoutMs?), preload, html, fromOurs(e), debug?, openPanel?(section), caps?(),
 //         sisa?() 앱의 AI 저장(publicView), disconnectBrain?(id), disconnectConnector?(cap), copyText?(text),
-//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck }, set(patch) } 「이 앱」 칸 }
+//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck, update: { latest, available, hint, previous } }, set(patch) } 「이 앱」 칸 }
 export function setupSettings(deps) {
   let win = null;
 
