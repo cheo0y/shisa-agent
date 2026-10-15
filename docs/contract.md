@@ -178,7 +178,7 @@ type Bubble = {
 - 고르기·빼기: `POST /todos/:id { today: true | false | null }` (빼도 할 일은 남는다)
 - `GET /dashboard` 의 `todos[].today`, `today: { date, asked, items: [{ id, title, done, priority, source }] }`
 - 예전 `POST /today` 표 저장은 없다. 예전 표의 오늘 줄은 데몬이 켜질 때 할 일로 옮긴다
-- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번. 모델 없이 정해진 말로 알린다
+- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번. 모델 없이 정해진 말로 알린다. 말풍선 `detail`에는 오늘 남은 일정(시작 순)과 안 끝낸 오늘 할 일(우선순위 순)을 다섯 줄까지, 넘치면 「그 밖에 N개」. 오늘 할 일을 아직 안 골랐으면 P1 할 일을 「급한 일」로 붙인다(`daily-plan.ts` `agendaDetail`)
 
 ### 집중하기
 

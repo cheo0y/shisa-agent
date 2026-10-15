@@ -1,7 +1,7 @@
 // 데몬 엔트리포인트: 버스 + Slack + 주기 작업(세션·Slack 수집, 프로필 학습, 브리핑)
 import { installFileLog, stallLag } from "./log.ts";
 import { loadConfig } from "./config.ts";
-import { DEFAULT_TODAY_REMINDER } from "./daily-plan.ts";
+import { DEFAULT_TODAY_REMINDER, agendaDetail } from "./daily-plan.ts";
 import { localAsk } from "./local-mode.ts";
 import { Store } from "./store.ts";
 import { Bus } from "./bus.ts";
@@ -102,12 +102,16 @@ safe("close-dangling", () => { const k = agent.closeDanglingTurns(); if (k) cons
 
 // 오늘 할 일 알림: 설정(todayReminder)대로, 모델 없이 정해진 말로(뇌가 없거나 local 이어도 뜬다)
 // 아침 안내(ask)는 예전처럼 패널 '오늘 할 일'도 연다. 오버레이가 붙을 때(앱 첫 실행)와 1분마다 확인
+// 말풍선 아래(detail)에는 오늘 남은 일정과 아직 안 끝낸 오늘 할 일을 다섯 줄까지(daily-plan.ts agendaDetail)
 function remindToday(opened = false) {
   const r = agent.dailyPlan().remind(cfg.todayReminder ?? DEFAULT_TODAY_REMINDER, { opened });
   if (!r) return;
+  const now = new Date();
+  const detail = agendaDetail({ plan: r.plan, meetings: calendar.upcoming(now), urgent: store.openTodos(), now });
   bus.bubble({
     id: `today:${r.plan.date}`,
     text: r.text,
+    ...(detail ? { detail } : {}),
     kind: "todo",
     ttlMs: 60e3,
     open: { section: "today" },

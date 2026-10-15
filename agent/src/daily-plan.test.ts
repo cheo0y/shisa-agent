@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
-import { DailyPlanService, DEFAULT_TODAY_REMINDER, reminderText, todayReminderOf, validateTodayReminder } from "./daily-plan.ts";
+import { AGENDA_MAX, DailyPlanService, DEFAULT_TODAY_REMINDER, agendaDetail, reminderText, todayReminderOf, validateTodayReminder } from "./daily-plan.ts";
 import { Agent } from "./core.ts";
 import { Bus } from "./bus.ts";
 import { Reactions } from "./reactions.ts";
@@ -132,3 +132,35 @@ test("오늘 할 일 진행률: 패널에서 끝내면(할 일 API) 절반·다 
   assert.equal(bubbles.filter((x) => x.image === "daily_all_complete").length, 1, "다 완료도 하루 한 번");
   assert.ok(bubbles.length >= m);
 });
+
+test("알림 아래 오늘 볼 것: 남은 일정(시작 순) → 안 끝낸 오늘 할 일(우선순위 순), 다섯 줄 넘으면 그 밖에, 없으면 없음", () => {
+  const now = new Date("2026-10-07T01:00:00Z"); // KST 수 10:00
+  const plan = { date: "2026-10-07", asked: true, items: [
+    { id: "a", title: "보고서  정리", done: false, priority: 2, source: "user" },
+    { id: "b", title: "메일 답장", done: true, priority: 1, source: "user" },
+    { id: "c", title: "회의 준비", done: false, priority: 1, source: "user" },
+  ] };
+  const meetings = [
+    { subject: "주간 회의", start: "2026-10-07T05:00:00Z", end: "2026-10-07T06:00:00Z" },   // 14:00
+    { subject: "아침 스탠드업", start: "2026-10-07T00:00:00Z", end: "2026-10-07T00:30:00Z" }, // 09:00, 이미 끝남
+    { subject: "1:1", start: "2026-10-07T02:30:00Z", end: "2026-10-07T03:00:00Z" },        // 11:30
+    { subject: "내일 일정", start: "2026-10-08T01:00:00Z", end: "2026-10-08T02:00:00Z" },   // 내일
+    { subject: "진행 중", start: "2026-10-07T00:50:00Z", end: "2026-10-07T01:30:00Z" },     // 09:50~10:30, 지금 하는 중
+  ];
+  assert.equal(agendaDetail({ plan, meetings, now }), [
+    "- 09:50 진행 중", "- 11:30 1:1", "- 14:00 주간 회의", "- 할 일: 회의 준비", "- 할 일: 보고서 정리",
+  ].join("\n"));
+  // 다섯 줄 넘으면 그 밖에 N개
+  const many = { ...plan, items: Array.from({ length: 7 }, (_, i) => ({ id: `t${i}`, title: `일 ${i}`, done: false, priority: 2, source: "user" })) };
+  const d = agendaDetail({ plan: many, now })!.split("\n");
+  assert.equal(d.length, AGENDA_MAX + 1);
+  assert.equal(d.at(-1), "- 그 밖에 2개");
+  // 오늘 할 일을 아직 안 골랐으면 급한 할 일(P1)만 고를 거리로
+  const empty = { date: "2026-10-07", asked: false, items: [] };
+  assert.equal(agendaDetail({ plan: empty, urgent: [{ title: "장애 대응", priority: 1 }, { title: "나중 일", priority: 3 }], now }), "- 급한 일: 장애 대응");
+  assert.equal(agendaDetail({ plan, urgent: [{ title: "장애 대응", priority: 1 }], meetings: [], now })?.includes("급한 일"), false);
+  // 볼 게 없으면 detail 없음 · 시각이 이상한 일정은 건너뛴다
+  assert.equal(agendaDetail({ plan: empty, meetings: [{ subject: "x", start: "nope", end: "nope" }], now }), undefined);
+  assert.equal(agendaDetail({ plan: { ...plan, items: plan.items.map((x) => ({ ...x, done: true })) }, now }), undefined);
+});
+

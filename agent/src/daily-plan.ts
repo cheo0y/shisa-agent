@@ -99,6 +99,28 @@ export function reminderText(plan: DailyPlan): string | null {
   return `오늘 할 일 ${open}개 남았어요. 하나씩 해 봐요 (스이시~사)`;
 }
 
+// ---- 알림 아래 「오늘 볼 것」(모델 없이, 말풍선 detail) ----
+// 오늘 남은 일정(시작 순) → 아직 안 끝낸 오늘 할 일(우선순위 순). 오늘 할 일을 아직 안 골랐으면 급한 할 일(P1)을 고를 거리로.
+// max 줄까지, 넘치면 「그 밖에 N개」. 볼 게 없으면 undefined(detail 을 안 붙인다). 시각은 이 맥의 시간대
+export const AGENDA_MAX = 5;
+export type AgendaMeeting = { subject: string; start: string; end: string };
+export function agendaDetail(input: { plan: DailyPlan; meetings?: AgendaMeeting[]; urgent?: Pick<Todo, "title" | "priority">[]; now: Date; max?: number }): string | undefined {
+  const { plan, now } = input;
+  const max = input.max ?? AGENDA_MAX;
+  const line = (s: string) => tidy(s).slice(0, 80);
+  const meetings = (input.meetings ?? [])
+    .filter((m) => Number.isFinite(Date.parse(m.start)) && localDate(new Date(m.start)) === plan.date && Date.parse(m.end) > now.getTime())
+    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
+    .map((m) => `- ${localHhmm(new Date(m.start))} ${line(m.subject) || "일정"}`);
+  const open = plan.items.filter((x) => !x.done).sort((a, b) => a.priority - b.priority).map((x) => `- 할 일: ${line(x.title)}`);
+  const urgent = plan.items.length ? [] : (input.urgent ?? []).filter((t) => t.priority === 1).map((t) => `- 급한 일: ${line(t.title)}`);
+  const all = [...meetings, ...open, ...urgent];
+  if (!all.length) return undefined;
+  const lines = all.slice(0, max);
+  if (all.length > max) lines.push(`- 그 밖에 ${all.length - max}개`);
+  return lines.join("\n");
+}
+
 export class DailyPlanService {
   private store: Store;
   private now: () => Date;
