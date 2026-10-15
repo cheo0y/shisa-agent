@@ -4,7 +4,7 @@
 //   뒤에서 혼자 도는 정리(끝난 할 일 판정·진행 확인·지식그래프·프로필 학습)는 features.background — Claude Code 나 Codex 뇌
 //   MCP 커넥터(메일·이슈·Slack·캘린더 MCP)는 Claude Code 뇌일 때만 읽는다 — features.mcp, connectors[].needs
 // 비밀값(키·토큰·ICS 주소)은 넣지 않는다. 있나 없나만.
-import type { Config } from "./config.ts";
+import type { AgentMode, Config } from "./config.ts";
 import { authFailText, brainAuthFailed, brainKeyReady, commandOnPath } from "./providers.ts";
 import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./connectors.ts";
 import { BRAIN_LABEL } from "./connections.ts";
@@ -25,6 +25,7 @@ export type Features = {
   code: boolean | null;  // 코드 고치기·워크트리·백그라운드 에이전트(Claude Code 로그인)
 };
 export type Status = {
+  mode: AgentMode | null; // 업무·개인 모드(앱 설정 「이 앱」). 모드마다 데이터 폴더가 따로다. null = 모드를 나누지 않음
   brain: BrainStatus;
   chat: boolean | null;  // 말 걸 수 있나(뇌 준비 + 로컬 아님). null = 모름
   coder: { claude: boolean | null; codex: boolean };
@@ -45,7 +46,7 @@ export type StatusDeps = {
 
 const KEY_LABEL: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", anthropic: "Claude" };
 
-export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes">>, deps: StatusDeps = {}): Status {
+export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes" | "mode">>, deps: StatusDeps = {}): Status {
   const env = deps.env ?? process.env;
   const provider = cfg.brain?.provider ?? "claude-code";
   const claude = deps.claude?.();
@@ -71,6 +72,7 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
     : { by: null, ready: false, detail: cfg.onboarded === false ? WAIT_SETUP : provider === "codex" ? "Codex 를 찾을 수 없어요" : NEEDS_CODER };
   const mcp = provider === "claude-code";
   return {
+    mode: cfg.mode ?? null,
     brain: { provider, label, ready, local, detail },
     chat: local ? false : ready,
     coder: { claude: claude ?? null, codex },

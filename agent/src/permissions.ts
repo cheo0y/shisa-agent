@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
-import { HOME_DIR } from "./config.ts";
+import { HOME_DIR, cyHomesOf } from "./config.ts";
 import type { Store } from "./store.ts";
 import { isReadOnlyCall, type Verdict } from "./guard.ts";
 import { READ_WORDS, isWriteName } from "./connectors.ts";
@@ -66,7 +66,7 @@ export const HARD_DENY: readonly { id: string; what: string }[] = [
   { id: "git-write", what: "git commit · push · merge — cy-agent 워크트리(~/.cy-agent/worktrees · 레포의 .claude/worktrees)나 cy/ 브랜치 밖에서, 또는 기본·보호 브랜치(main·master·develop·origin 기본 브랜치)에서 · 그리로 푸시 · force push · --delete/--mirror/--all 푸시 · 명령 치환·sh -c 안의 git 쓰기" },
   { id: "gh-merge", what: "gh pr merge · gh api …/merge (대신 답의 merges — 사용자가 말로 시켰거나 자동 머지 레포면 데몬이 검사 뒤 바로 머지, 아니면 그 대화에 머지 승인 카드. 채팅·캐릭터 대화에서 시도하면 데몬이 받아 카드로 띄운다)" },
   { id: "rm-rf", what: "rm -rf 로 / · ~ · 허용 루트(repoRoots)와 ~/.cy-agent/brain 밖을 지우기" },
-  { id: "cy-config", what: "~/.cy-agent/config.json(토큰) · cy.db(데몬 상태) 읽기·쓰기" },
+  { id: "cy-config", what: "~/.cy-agent/config.json(토큰) · cy.db(데몬 상태) 읽기·쓰기 — 모드별 폴더(~/.cy-agent-work · ~/.cy-agent-personal)도, 지금 모드가 아닌 쪽도" },
   { id: "claude-creds", what: "~/.claude* (Claude 설정·자격 증명) 읽기·쓰기" },
   { id: "env-secrets", what: ".env* 비밀 파일 읽기(.env.example/.sample/.template 은 괜찮음). 만들기·쓰기(Write·Edit · 셸의 > .env · touch · cp/mv 대상)는 된다" },
   { id: "daemon-api", what: "데몬 로컬 API 직접 호출(승인 카드를 스스로 누르는 우회)" },
@@ -78,7 +78,8 @@ const READ_FILE_TOOLS = new Set(["Read", "Glob", "Grep", "LS"]);
 const ENV_OK = /^\.env\.(example|sample|template|dist)$/i;
 
 const homeOf = (c: PermCtx) => c.home ?? homedir();
-const cyHomes = (c: PermCtx) => [...new Set([c.cyHome ?? HOME_DIR, resolve(homeOf(c), ".cy-agent")])];
+// 지금 데이터 폴더 + 모드별 폴더(~/.cy-agent · ~/.cy-agent-work · ~/.cy-agent-personal). 다른 모드의 토큰·DB 도 막는다
+const cyHomes = (c: PermCtx) => cyHomesOf(homeOf(c), c.cyHome ?? HOME_DIR);
 const within = (p: string, dir: string) => p === dir || p.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 const expandHome = (p: string, c: PermCtx) => (p === "~" ? homeOf(c) : p.startsWith("~/") ? resolve(homeOf(c), p.slice(2)) : p);
 
@@ -100,7 +101,7 @@ export function secretPathWhy(raw: string, c: PermCtx, env = true): string | und
 function bashSecretWhy(cmd: string, c: PermCtx): string | undefined {
   const home = homeOf(c);
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (/\.cy-agent\/config\.json|\bcy\.db\b/.test(cmd)) return "~/.cy-agent 의 토큰·데몬 상태(config.json · cy.db)";
+  if (/\.cy-agent(-work|-personal)?\/config\.json|\bcy\.db\b/.test(cmd)) return "~/.cy-agent 의 토큰·데몬 상태(config.json · cy.db)";
   for (const h of cyHomes(c)) if (cmd.includes(resolve(h, "config.json"))) return "~/.cy-agent/config.json(토큰)";
   if (new RegExp(`(~|\\$HOME|\\$\\{HOME\\}|${esc(home)})/\\.claude`).test(cmd)) return "~/.claude*(Claude 설정·자격 증명)";
   const env = bashEnvRead(cmd);

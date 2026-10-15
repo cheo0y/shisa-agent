@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, statSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_ERROR, ensureHomeDir, loadConfig, parseConfigText, repoRootsOf } from "./config.ts";
+import { CONFIG_ERROR, agentModeOf, cyHomesOf, ensureHomeDir, loadConfig, parseConfigText, repoRootsOf } from "./config.ts";
 import { statusOf } from "./status.ts";
 import { Settings } from "./settings.ts";
 import { modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
@@ -100,4 +100,15 @@ test("cy.db 는 0600", async () => {
   const s = new Store(p);
   assert.equal(statSync(p).mode & 0o777, 0o600);
   s.db.close();
+});
+
+test("모드: CY_AGENT_MODE 가 work·personal 이면 그 모드, 없거나 다른 값이면 없음 · 데이터 폴더 목록은 지금 폴더와 모드별 폴더", () => {
+  assert.equal(loadConfig({}, {}).mode, undefined);
+  assert.equal(loadConfig({ CY_AGENT_MODE: "work" }, {}).mode, "work");
+  assert.equal(loadConfig({ CY_AGENT_MODE: "personal" }, {}).mode, "personal");
+  assert.equal(loadConfig({ CY_AGENT_MODE: "WORK" }, {}).mode, undefined);
+  assert.equal(agentModeOf(undefined), undefined);
+  const homes = cyHomesOf("/Users/u", "/tmp/cy-test");
+  assert.deepEqual(homes, ["/tmp/cy-test", "/Users/u/.cy-agent", "/Users/u/.cy-agent-work", "/Users/u/.cy-agent-personal"]);
+  assert.deepEqual(cyHomesOf("/Users/u", "/Users/u/.cy-agent-work"), ["/Users/u/.cy-agent-work", "/Users/u/.cy-agent", "/Users/u/.cy-agent-personal"]);
 });

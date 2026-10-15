@@ -1,6 +1,8 @@
 // 데스크톱 마스코트 — 메인 프로세스.
 // 데몬 SSE 를 여기서 받고 IPC 로 렌더러에 넘긴다. 렌더러는 네트워크 접근 없음.
 import { app, BrowserWindow, Menu, Tray, clipboard, dialog, globalShortcut, ipcMain, nativeImage, net, protocol, screen, shell } from 'electron';
+// 업무·개인 모드: 다른 import 보다 먼저 이 프로세스의 데이터 폴더·포트(CY_AGENT_HOME·CY_AGENT_PORT)를 정한다
+import { MODE } from './src/mode-boot.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -40,6 +42,7 @@ import { attachConsole, assembleBundle, collectLogFiles, createRing, formatLogLi
 import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, loginItemPlan, loginItemHint, defaultLoginPref, LAUNCHD_DAEMON, DAEMON_LOG } from './src/bundle.js';
 import { createDaemonHost } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, latestRelease, shouldNotify, updateBubble } from './src/update-check.js';
+import { MODE_LABEL, justSwitched, modeBubble, modeHomeName, modeView, okMode, switchPrompt } from './src/mode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.CY_AGENT_PORT) || 47823;
@@ -47,8 +50,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const SIZE = { width: 420, height: 580 }; // 그림 말풍선(스티커)+넓은 목록 말풍선(380px)이 들어가게. 투명·클릭 투과라 커도 안 보인다
 const OLD_HEIGHT = 420; // 예전 창 높이 — 저장된 위치를 그만큼 올려 캐릭터 자리를 유지
 const OLD_WIDTH = 360; // 예전 창 너비 — 넓어진 만큼의 절반을 왼쪽으로(캐릭터는 가운데라 자리 유지)
-// 개인 캐릭터 그림(저장소 밖). 없으면 번들 플레이스홀더
-const USER_ASSETS = path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'assets');
+// 개인 캐릭터 그림(저장소 밖). 없으면 번들 플레이스홀더. 모드를 나눠 다른 모드로 켜도 그림은 처음부터 쓰던 폴더(~/.cy-agent)의 것을 같이 쓴다
+const USER_ASSETS = path.join(MODE.owned ? path.join(os.homedir(), '.cy-agent') : (process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent')), 'assets');
 // 레포 assets/(설치 때 USER_ASSETS 로 복사하는 원본). 홈에 없을 때 대신 읽는다
 const REPO_ASSETS = path.join(__dirname, '..', 'assets');
 // 앱 번들(dmg)이면 Contents/Resources 의 데몬(agent/)·그림(assets/). 개발 실행이면 데몬은 레포에서 따로(CY_BUNDLED_DAEMON=1 이면 레포 agent/ 를 띄움)
@@ -61,11 +64,12 @@ const logRing = createRing();
 attachConsole(logRing, console, process);
 
 // 기본 포트가 아니면 따로 노는 인스턴스(가짜 데몬 등) — 저장소·단일 인스턴스 잠금을 분리.
+// 다만 모드(src/mode.js)가 정한 포트는 같은 앱이다 — 창 자리·로그인 설정·잠금을 같이 쓴다(한 번에 한 모드).
 // 앱 이름은 "cy"(메뉴·정보 창). userData 는 이름이 바뀌어도 원래 자리(cy-agent-desktop[-포트])에 고정.
 // 앱 번들 이름(시사)·productName 이 바뀌어도 같은 자리를 쓰게 package.json name 으로 고정
 const userData = path.join(app.getPath('appData'), 'cy-agent-desktop');
 app.setName('시사 비서');
-app.setPath('userData', PORT !== 47823 ? `${userData}-${PORT}` : userData);
+app.setPath('userData', PORT !== 47823 && !MODE.owned ? `${userData}-${PORT}` : userData);
 
 const AI_IDS = new Set(KEY_PROVIDERS);
 const HUB_IDS = new Set(['claude', 'codex', 'gcal', 'outlook', 'jira', 'slack']);
@@ -526,7 +530,7 @@ function createPanel() {
   panel.loadFile(path.join(__dirname, 'renderer', 'panel.html'), { query: mac ? { vibrancy: '1' } : {} });
   panel.webContents.on('did-finish-load', () => {
     panelReady = true;
-    sendPanel('connection', { connected });
+    sendPanel('connection', { connected, mode: MODE.mode });
     if (panelSection) sendPanel('section', panelFocusId ? { section: panelSection, id: panelFocusId } : { section: panelSection });
     panelSection = null;
     panelFocusId = null;
@@ -677,7 +681,7 @@ function setConnected(v) {
   connected = v;
   if (agentCounts.size) { agentCounts.clear(); send('agents', { running: 0 }); } // 데몬이 다시 뜨면 돌던 것은 끊겼다
   send('connection', { connected: v });
-  sendPanel('connection', { connected: v });
+  sendPanel('connection', { connected: v, mode: MODE.mode });
   sendSession('connection', { connected: v });
   rebuildTrayMenu();
   if (v) refreshStatus(); // 뇌·Claude Code·커넥터 연결 상태
@@ -826,6 +830,7 @@ function menuTemplate() {
     { label: '지금 브리핑', click: triggerBriefing },
     { label: '설정…', click: () => settingsUi?.show() },
     { label: '사용법 다시 보기', click: startTour },
+    ...modeMenu(),
     { type: 'separator' },
     {
       label: state.bubblesHidden ? '말풍선 보이기' : '말풍선 숨기기',
@@ -842,6 +847,16 @@ function menuTemplate() {
   ];
 }
 
+// 업무·개인 모드: 나눴으면 지금 모드에 점, 고르면 확인 뒤 다시 켠다. 아직이면 설정 창의 「이 앱」으로
+function modeMenu() {
+  if (!MODE.available) return [];
+  if (!MODE.base) return [{ type: 'separator' }, { label: '업무·개인 모드 나누기…', click: () => settingsUi?.show() }];
+  return [
+    { type: 'separator' },
+    ...['work', 'personal'].map((m) => ({ label: MODE_LABEL[m], type: 'radio', checked: MODE.mode === m, click: () => switchMode(m) })),
+  ];
+}
+
 function rebuildTrayMenu() {
   if (tray) tray.setContextMenu(Menu.buildFromTemplate(menuTemplate()));
 }
@@ -850,7 +865,7 @@ function createTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'));
   img.setTemplateImage(true);
   tray = new Tray(img);
-  tray.setToolTip('시사 비서');
+  tray.setToolTip(MODE.mode ? `시사 비서 · ${MODE_LABEL[MODE.mode]}` : '시사 비서');
   rebuildTrayMenu();
 }
 
@@ -1683,7 +1698,8 @@ async function startDaemonHost() {
 }
 
 // ---- 로그인할 때 자동 실행(app.setLoginItemSettings) — dmg 로 깐 앱만. 터미널 설치·개발·시험 실행은 건드리지 않는다 ----
-const loginPlan = () => loginItemPlan({ platform: process.platform, packaged: app.isPackaged, launchd: launchdPlist(), env: process.env, pref: state.openAtLogin });
+// env: 모드가 바꾸기 전 환경(다른 모드의 데이터 폴더·포트는 시험 실행이 아니다)
+const loginPlan = () => loginItemPlan({ platform: process.platform, packaged: app.isPackaged, launchd: launchdPlist(), env: MODE.planEnv, pref: state.openAtLogin });
 
 function applyLoginItem() {
   const p = loginPlan();
@@ -1733,6 +1749,67 @@ async function checkForUpdate() {
   }
 }
 
+// ---- 업무 모드·개인 모드(src/mode.js · src/mode-boot.js): 모드마다 데이터 폴더·포트가 따로, 한 번에 한 모드 ----
+function writeModeFile(data) {
+  fs.mkdirSync(path.dirname(MODE.file), { recursive: true });
+  fs.writeFileSync(MODE.file, JSON.stringify(data), { mode: 0o600 });
+}
+
+// 처음 나눌 때: 지금까지 쓰던 자료(~/.cy-agent)가 어느 모드인지 적는다. 자료·데몬은 그대로라 다시 켜지 않는다
+// (데몬의 모드 표시 CY_AGENT_MODE 는 다음에 켤 때부터)
+function setModeBase(base) {
+  if (!MODE.available) return { ok: false, error: modeView(MODE).hint };
+  if (MODE.base) return { ok: false, error: '이미 나눴어요.' };
+  if (!okMode(base)) return { ok: false, error: '업무나 개인 중에 골라 주세요.' };
+  try { writeModeFile({ base, mode: base }); } catch { return { ok: false, error: '모드를 저장하지 못했어요.' }; }
+  Object.assign(MODE, { base, mode: base, saved: { base, mode: base } });
+  process.env.CY_AGENT_MODE = base;
+  rebuildTrayMenu();
+  if (tray) tray.setToolTip(`시사 비서 · ${MODE_LABEL[base]}`);
+  sendPanel('connection', { connected, mode: MODE.mode });
+  return appPrefs.get();
+}
+
+// 그 모드를 처음 쓰면(설정 파일이 없으면) 새 설치처럼 만들고, 지금 고른 AI 는 미리 적어 둔다(키는 앱 저장소에 이미 있다). 만들었으면 true
+function seedModeHome(mode) {
+  const home = path.join(os.homedir(), modeHomeName(mode, MODE.base));
+  const file = path.join(home, 'config.json');
+  if (fs.existsSync(file)) return false;
+  const patch = daemonBrainPatch(readSisa());
+  const cfg = patch ? withDaemonBrain({ ...NEW_DAEMON_CONFIG }, patch) : { ...NEW_DAEMON_CONFIG };
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 }); // 수집한 메시지·토큰이 들어가니 나만
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  return true;
+}
+
+// 다른 모드로: 확인 → (처음이면 폴더 준비) → mode.json → 앱을 다시 켠다. 앱이 띄운 데몬은 종료 처리에서 같이 꺼진다
+async function switchMode(next) {
+  if (!MODE.available || !MODE.base) return { ok: false, error: modeView(MODE).hint || '먼저 모드를 나눠 주세요.' };
+  if (!okMode(next)) return { ok: false, error: '업무나 개인 중에 골라 주세요.' };
+  if (next === MODE.mode) return { ok: true, same: true };
+  const p = switchPrompt(next);
+  const parent = [settingsUi?.window, panel].find((w) => w && !w.isDestroyed() && w.isFocused());
+  const r = await dialog.showMessageBox(parent ?? undefined, { type: 'question', buttons: p.buttons, defaultId: 0, cancelId: 1, message: p.message, detail: p.detail });
+  if (r.response !== 0) {
+    rebuildTrayMenu(); // 메뉴의 점을 되돌린다
+    return { ok: false, cancelled: true };
+  }
+  let fresh = false;
+  try { fresh = seedModeHome(next); } catch (e) { console.error('[mode]', e?.message ?? e); }
+  try { writeModeFile({ base: MODE.base, mode: next, switchedAt: Date.now(), ...(fresh ? { fresh: true } : {}) }); } catch { return { ok: false, error: '모드를 저장하지 못했어요.' }; }
+  app.relaunch();
+  app.quit();
+  return { ok: true, relaunching: true };
+}
+
+// 모드를 막 바꿔 켜졌으면 한 번 알리고, 처음 쓰는 모드면 설치 마법사를 연다. 알린 뒤 표시는 지운다
+function noteModeSwitch() {
+  if (!MODE.base || !justSwitched(MODE.saved, Date.now())) return;
+  send('bubble', modeBubble(MODE.mode, { fresh: MODE.saved.fresh }));
+  if (MODE.saved.fresh) setTimeout(() => showPanel('setup'), 600);
+  try { writeModeFile({ base: MODE.base, mode: MODE.mode }); } catch { /* 다음에 켤 때 또 알려도 괜찮다 */ }
+}
+
 // 설정 창 「이 앱」 칸
 const appPrefs = {
   get() {
@@ -1741,9 +1818,14 @@ const appPrefs = {
     if (p.manage) {
       try { on = app.getLoginItemSettings().openAtLogin === true; } catch { on = state.openAtLogin === true; }
     }
-    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false };
+    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, mode: modeView(MODE) };
   },
-  set(patch) {
+  async set(patch) {
+    if ('modeBase' in patch) return setModeBase(patch.modeBase);
+    if ('mode' in patch) {
+      const r = await switchMode(patch.mode);
+      return r.ok || r.cancelled ? appPrefs.get() : { ok: false, error: r.error };
+    }
     if ('openAtLogin' in patch) {
       const p = loginPlan();
       if (!p.manage) return { ok: false, error: loginItemHint(p.reason) };
@@ -1782,6 +1864,7 @@ if (!app.requestSingleInstanceLock()) {
     setInterval(checkForUpdate, 60 * 60 * 1000);
     refreshCaps(true);
     if (openSetupAtLaunch({ firstRun, env: process.env })) setTimeout(() => showPanel('setup'), 400);
+    noteModeSwitch();
 
     // 디스플레이 구성 바뀌면 화면 밖으로 나갔는지 확인
     screen.on('display-removed', () => {

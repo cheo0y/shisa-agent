@@ -76,6 +76,7 @@ select { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); ba
 
 /* 브리핑 출처 */
 .toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-mode { margin-bottom: 14px; }
 .toggle { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; user-select: none; }
 .toggle input { margin: 0; accent-color: var(--accent); }
 .toggle.off { color: var(--faint); text-decoration: line-through; }

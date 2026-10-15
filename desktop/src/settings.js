@@ -262,9 +262,11 @@ export function metaText(row, now = new Date()) {
 }
 
 // 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean } — 그 밖의 키·모양이면 null
+// 모드(mode: 바꾸기 · modeBase: 처음 나눌 때 지금 자료의 모드)는 따로 하나만 온다 — 바꾸면 앱이 다시 켜진다(src/mode.js)
 export function sanitizeAppPrefs(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const keys = Object.keys(p);
+  if (keys.length === 1 && (keys[0] === 'mode' || keys[0] === 'modeBase')) return p[keys[0]] === 'work' || p[keys[0]] === 'personal' ? { [keys[0]]: p[keys[0]] } : null;
   if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck')) return null;
   const out = {};
   for (const k of keys) {

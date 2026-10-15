@@ -51,6 +51,7 @@ type Bubble = {
 
 ```jsonc
 {
+  "mode": "work|personal|null",      // 업무·개인 모드(앱 설정 「이 앱」). null = 모드를 나누지 않음
   "brain": { "provider": "claude-code|codex|anthropic|gemini|openai|local", "label": "Claude Code",
              "ready": true,          // null = 아직 모름(Claude Code 로그인 확인 전)
              "local": false, "detail": "Claude Code 연결됨" },
@@ -64,6 +65,7 @@ type Bubble = {
 }
 ```
 
+- `mode`: 앱이 모드를 나눴으면 `CY_AGENT_MODE`로 데몬에 알려 준다. 모드마다 데이터 폴더(`~/.cy-agent` 그리고 `~/.cy-agent-work`나 `~/.cy-agent-personal`)와 포트(47823·47824)가 따로라 할 일·대화·설정·연결이 섞이지 않는다. 밖으로 자료를 보내는 기능(확장 포함)은 이 값을 보고 `work`나 `null`이면 보내지 않는다.
 - `configError`: `config.json`이 JSON 문법 오류이거나 `{ … }` 모양이 아니면 데몬은 안전 모드로 켠다. 설치 마법사 전처럼 작업 기록·레포를 읽지 않고, 뇌는 `local`이다. 로그에도 크게 남긴다. 파일을 고친 뒤 데몬을 다시 켜면 풀린다.
 - `configNotes`: 모르는 `brain.provider`(→ `local`), 1분보다 작거나 숫자가 아닌 분 간격(`briefingIntervalMin`·`ingestIntervalMin`·`slackIngestIntervalMin`·`progressCheckMin`, `progressCheckMin`만 0 = 끔), 0이 아니면서 0.25시간보다 작은 `todayReminder.everyHours`, 숫자가 아닌 `port`(→ 47823), `repoRoots`의 상대 경로·`/` 같은 값. 위쪽 상한은 없다.
 - API 키 뇌(`openai`·`gemini`·`anthropic`)가 401·403을 받으면 `brain.ready: false`, `detail`은 「… API 키가 맞지 않아요. 키를 확인해 주세요」가 되고 SSE `status`로 알린다. 그 키로는 정기 브리핑을 쉬어서 실패 말풍선이 매번 뜨지 않는다. 키를 바꾸거나 호출이 한 번 성공하면 풀린다.

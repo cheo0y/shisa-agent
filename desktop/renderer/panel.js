@@ -2985,7 +2985,16 @@ async function openOrigin(origin) {
 }
 cy.onOpenOrigin?.(openOrigin);
 
-cy.onConnection(({ connected: c }) => {
+// 업무·개인 모드(앱 설정 「이 앱」·메뉴 막대). 모드를 나누지 않았으면 숨긴다
+function renderModeLabel(mode) {
+  const el = $('mode-label');
+  if (!el) return;
+  el.hidden = mode !== 'work' && mode !== 'personal';
+  el.textContent = mode === 'work' ? '업무 모드' : '개인 모드';
+}
+
+cy.onConnection(({ connected: c, mode }) => {
+  renderModeLabel(mode);
   const was = connected;
   connected = !!c;
   const el = $('conn');

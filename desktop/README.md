@@ -156,7 +156,8 @@ preload-panel.cjs  패널용 최소 API(window.cy)
 renderer/          index.html · style.css · renderer.js (오버레이)
                    panel.html · panel.css · panel.js (패널). 번들러 없음, CSP 적용
 renderer/vendor/   marked.js · purify.js: npm 패키지를 그대로 복사(`npm run vendor`), CDN 없음
-src/               순수 로직: sse, bubbles, geometry, dashboard(뷰모델·상대 시각), chat(리듀서), markdown
+src/               순수 로직: sse, bubbles, geometry, dashboard(뷰모델·상대 시각), chat(리듀서), markdown, mode(업무·개인 모드)
+src/mode-boot.js   켜질 때 맨 먼저: 고른 모드(mode.json)로 이 프로세스와 데몬의 데이터 폴더·포트를 정한다
 scripts/           fake-daemon.mjs(+ fake-focus.mjs 등), make-assets.mjs, vendor.mjs, make-icon.mjs(앱 아이콘), package.mjs(cy.app), dist.mjs(시사.app·dmg)
 test/              node --test
 ```

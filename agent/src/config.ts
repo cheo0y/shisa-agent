@@ -13,8 +13,22 @@ import { calendarAlertOf, type CalendarAlertConfig } from "./calendar-alert.ts";
 
 export const HOME_DIR = process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent");
 
+// 업무 모드·개인 모드(앱 설정 「이 앱」, desktop/src/mode.js): 모드를 나누면 처음부터 쓰던 자료(~/.cy-agent·47823)가 한 모드가 되고,
+// 다른 모드는 ~/.cy-agent-work 나 ~/.cy-agent-personal(47824)을 따로 쓴다. 앱이 CY_AGENT_HOME·CY_AGENT_PORT·CY_AGENT_MODE 로 넘긴다.
+// 모드를 나누지 않았으면(터미널 설치·예전 앱) CY_AGENT_MODE 가 없고 mode 도 없다
+export type AgentMode = "personal" | "work";
+export const MODE_HOME_NAMES = [".cy-agent", ".cy-agent-work", ".cy-agent-personal"] as const;
+export const agentModeOf = (v: unknown): AgentMode | undefined => (v === "work" || v === "personal" ? v : undefined);
+// 이 맥의 시사 데이터 폴더 전부: 지금 쓰는 폴더 + 모드별 폴더.
+// 뇌·도구가 지금 모드뿐 아니라 다른 모드의 토큰·DB 도 읽지 못하게 이 목록을 다 막는다(permissions.ts·code-read.ts)
+export function cyHomesOf(home = homedir(), current = HOME_DIR): string[] {
+  return [...new Set([resolve(current), ...MODE_HOME_NAMES.map((n) => resolve(home, n))])];
+}
+
 export type Config = {
   port: number;
+  // 업무·개인 모드(CY_AGENT_MODE). 모드를 나누지 않았으면 없다
+  mode?: AgentMode;
   dbPath: string;
   claudeProjectsDir: string;
   codexSessionsDir: string;
@@ -263,6 +277,7 @@ export function loadConfig(env = process.env, file: FileConfig = readFileConfig(
   const notes: string[] = [];
   const cfg: Config = {
     port: portOf(env.CY_AGENT_PORT ?? f.port, 47823, notes),
+    mode: agentModeOf(env.CY_AGENT_MODE),
     dbPath: env.CY_AGENT_DB ?? (f.dbPath as string) ?? join(HOME_DIR, "cy.db"),
     claudeProjectsDir: (f.claudeProjectsDir as string) ?? join(homedir(), ".claude", "projects"),
     codexSessionsDir: (f.codexSessionsDir as string) ?? join(homedir(), ".codex", "sessions"),

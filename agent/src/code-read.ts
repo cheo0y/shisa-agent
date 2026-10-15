@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { HOME_DIR, type Config } from "./config.ts";
+import { cyHomesOf, type Config } from "./config.ts";
 import { findRepos } from "./git.ts";
 import type { Store, Todo, ChatTurn } from "./store.ts";
 import type { Verdict } from "./guard.ts";
@@ -14,7 +14,7 @@ export const CODE_TOOLS = ["Read", "Glob", "Grep"] as const;
 const SECRET_NAMES = [/^\.env(\..*)?$/i, /\.pem$/i, /\.key$/i, /\.p12$/i, /\.pfx$/i, /^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i, /^\.npmrc$/i, /^\.netrc$/i, /^\.pypirc$/i, /^credentials(\.json)?$/i, /\.keystore$/i];
 export function isSecretPath(p: string): boolean {
   const abs = resolve(p);
-  if (abs === resolve(HOME_DIR, "config.json") || abs.startsWith(resolve(HOME_DIR) + sep)) return true; // ~/.cy-agent(토큰·DB)
+  if (cyHomesOf().some((h) => abs.startsWith(h + sep))) return true; // 시사 데이터 폴더(토큰·DB) — 모드별 폴더 다(~/.cy-agent · ~/.cy-agent-work · ~/.cy-agent-personal)
   return abs.split(sep).some((part) => SECRET_NAMES.some((re) => re.test(part)));
 }
 

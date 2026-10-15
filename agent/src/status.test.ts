@@ -75,3 +75,9 @@ test("뇌 바꾸기는 데몬을 다시 켜지 않아도 바로: PUT /settings b
     bus.close();
   }
 });
+
+test("GET /status 모양: mode — 모드를 나눴으면 그 모드, 아니면 null", () => {
+  assert.equal(statusOf(cfgWith({ provider: "local" }), { env: { PATH: "" }, hasServer: noServer }).mode, null);
+  assert.equal(statusOf({ ...cfgWith({ provider: "local" }), mode: "personal" }, { env: { PATH: "" }, hasServer: noServer }).mode, "personal");
+  assert.equal(statusOf({ ...cfgWith({ provider: "local" }), mode: "work" }, { env: { PATH: "" }, hasServer: noServer }).mode, "work");
+});

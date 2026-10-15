@@ -8,7 +8,7 @@ export const SETTINGS_SIZE = { width: 720, height: 760 };
 
 // deps: { BrowserWindow, ipcMain, shell, request(method, path, body?, timeoutMs?), preload, html, fromOurs(e), debug?, openPanel?(section), caps?(),
 //         sisa?() 앱의 AI 저장(publicView), disconnectBrain?(id), disconnectConnector?(cap), copyText?(text),
-//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck }, set(patch) } 「이 앱」 칸 }
+//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck, mode: { available, hint, base, current } }, set(patch) } 「이 앱」 칸 }
 export function setupSettings(deps) {
   let win = null;
 
@@ -75,7 +75,7 @@ export function setupSettings(deps) {
     if (isMine(e) && okPanelTarget(section)) deps.openPanel?.(section);
   });
 
-  // 「이 앱」: 로그인할 때 켜기 · 새 버전 알림(앱의 state.json)
+  // 「이 앱」: 로그인할 때 켜기 · 새 버전 알림(앱의 state.json) · 업무·개인 모드(mode.json — 바꾸면 앱이 다시 켜진다)
   ipcMain.handle('settings-app-get', (e) => (isMine(e) && deps.appPrefs ? deps.appPrefs.get() : denied()));
   ipcMain.handle('settings-app-set', (e, patch) => {
     const p = isMine(e) && deps.appPrefs ? sanitizeAppPrefs(patch) : null;

@@ -82,7 +82,7 @@ const SECRET_PARTS = [
 const ENV_OK = /^\.env\.(example|sample|template|dist)$/i;
 const secretPart = (part: string) => !ENV_OK.test(part) && SECRET_PARTS.some((re) => re.test(part));
 // 인자 글에만 보는 것(셸 위치가 이전 명령으로 바뀌었을 수 있어서 이름으로도): Claude 설정 · 데몬 토큰·DB
-const SECRET_ARG_PARTS = [/^\.claude/, /^cy\.db/, /^\.cy-agent$/];
+const SECRET_ARG_PARTS = [/^\.claude/, /^cy\.db/, /^\.cy-agent(-work|-personal)?$/]; // 데이터 폴더는 모드별 폴더 다
 const secretArg = (piece: string) => piece.split("/").some((p) => secretPart(p) || SECRET_ARG_PARTS.some((re) => re.test(p)));
 
 // 읽기 명령 표: 이름 → 인자 검사(true = 괜찮음). 파일 내용을 읽는 명령은 따옴표 밖 glob 을 안 받는다(.env 로 펼쳐질 수 있어서)

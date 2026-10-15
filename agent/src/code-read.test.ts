@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { isCodeReadCall, isSecretPath, relatedRepo, repoOf, codeBlock, checkoutState, checkoutNote } from "./code-read.ts";
 import { execFileSync } from "node:child_process";
@@ -156,4 +156,12 @@ test("로컬 체크아웃 상태: 지금 브랜치 + origin/HEAD·origin/develop
   // 최신이면 확인하라는 말은 없다, git 레포가 아니면 메모 없음
   assert.doesNotMatch(checkoutNote({ branch: "main", behind: [{ ref: "origin/main", n: 0 }] })!, /git show/);
   assert.equal(checkoutState(mkdtempSync(join(tmpdir(), "cy-nogit-"))), undefined);
+});
+
+test("코드 보기: 시사 데이터 폴더는 모드별 폴더 다 비밀(~/.cy-agent · ~/.cy-agent-work · ~/.cy-agent-personal)", () => {
+  for (const name of [".cy-agent", ".cy-agent-work", ".cy-agent-personal"]) {
+    assert.ok(isSecretPath(join(homedir(), name, "config.json")), name);
+    assert.ok(isSecretPath(join(homedir(), name, "logs", "daemon.log")), name);
+  }
+  assert.ok(!isSecretPath(join(homedir(), "code", "cy-agent-work", "README.md")));
 });

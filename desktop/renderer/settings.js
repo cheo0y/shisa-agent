@@ -149,11 +149,58 @@ function renderBrains() {
   }
 }
 
-// ---- 이 앱(로그인할 때 켜기 · 새 버전 알림) ----
+// ---- 이 앱(업무·개인 모드 · 로그인할 때 켜기 · 새 버전 알림) ----
 let appPrefs = null;
+// 업무·개인 모드(src/mode.js): 처음엔 지금까지 쓰던 자료가 어느 쪽인지 한 번 묻고, 나눈 뒤엔 바꾸기(앱이 다시 켜진다)
+async function saveMode(patch) {
+  const res = await cy.setAppPrefs?.(patch).catch(() => null);
+  if (res?.ok) appPrefs = res;
+  else if (res?.error) flash(res.error, true);
+  renderAppPrefs();
+  return res;
+}
+function renderAppMode() {
+  const m = appPrefs?.mode;
+  $('app-mode').hidden = !m;
+  if (!m) return;
+  const box = $('app-mode-choices');
+  box.replaceChildren();
+  box.hidden = !m.available;
+  if (!m.available) { $('app-mode-hint').textContent = m.hint; return; }
+  if (!m.base) {
+    $('app-mode-hint').textContent = '할 일·대화·설정·연결을 업무용과 개인용으로 나눠 쓸 수 있어요. 지금까지 쓰던 자료는 어느 쪽인가요? 고른 쪽에 그대로 남고, 다른 모드는 새로 시작해요.';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', '지금까지 쓰던 자료');
+    for (const [mode, label, done] of [['work', '업무용이에요', '업무'], ['personal', '개인용이에요', '개인']]) {
+      const b = el('button', null, label);
+      b.type = 'button';
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        const res = await saveMode({ modeBase: mode });
+        if (res?.ok) flash(`지금까지 쓰던 자료를 ${done} 모드로 두었어요. 메뉴 막대에서 모드를 바꿀 수 있어요`);
+      });
+      box.append(b);
+    }
+    return;
+  }
+  $('app-mode-hint').textContent = '모드마다 할 일·대화·설정·연결이 따로예요. 바꾸면 시사가 다시 켜져요.';
+  box.setAttribute('role', 'radiogroup');
+  box.setAttribute('aria-label', '업무·개인 모드');
+  for (const [mode, label] of [['work', '업무 모드'], ['personal', '개인 모드']]) {
+    const lab = el('label', 'toggle');
+    const rb = el('input');
+    rb.type = 'radio';
+    rb.name = 'app-mode';
+    rb.checked = m.current === mode;
+    rb.addEventListener('change', () => { if (rb.checked) saveMode({ mode }); });
+    lab.append(rb, document.createTextNode(label));
+    box.append(lab);
+  }
+}
 function renderAppPrefs() {
   const box = $('app-prefs');
   box.replaceChildren();
+  renderAppMode();
   if (!appPrefs) return;
   $('app-version').textContent = appPrefs.version ? `지금 버전 v${appPrefs.version}` : '';
   const login = appPrefs.openAtLogin ?? {};

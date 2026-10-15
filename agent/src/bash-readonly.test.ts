@@ -54,3 +54,8 @@ test("낱말 나누기: 따옴표·이스케이프 풀기, 리디렉션은 /dev/
   assert.equal(splitReadOnly("ls 2>&1 >/dev/null")?.[0].length, 1);
   assert.equal(splitReadOnly("ls > out"), undefined);
 });
+
+test("모드별 데이터 폴더(~/.cy-agent-work · ~/.cy-agent-personal)도 읽기 전용으로 보지 않는다", () => {
+  for (const c of ["ls ~/.cy-agent-work", "ls ~/.cy-agent-personal", "cat ../.cy-agent-work/cy.db", "cd ~/.cy-agent-personal && ls"]) assert.ok(!ro(c), c);
+  assert.ok(ro("ls cy-agent-work-notes"));
+});

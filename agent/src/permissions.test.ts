@@ -624,3 +624,19 @@ test("우회 막기: .env·~/.cy-agent 를 언급하거나 치환으로 만들 �
   for (const c of ["npm test", "cat .env.example", "cd ~/.cy-agent/worktrees/x && npm test", `cd ${join(root, "cy", "worktrees", "a")} && git status`, "echo $HOME"])
     assert.equal(r.broker.quick("Bash", { command: c }, local).decision, "allow", c);
 });
+
+test("업무·개인 모드: 지금 모드가 아닌 쪽 데이터 폴더(토큰·DB)도 하드 차단", () => {
+  for (const name of [".cy-agent", ".cy-agent-work", ".cy-agent-personal"]) {
+    assert.ok(deny("Read", { file_path: join(HOME, name, "config.json") }), name);
+    assert.ok(deny("Read", { file_path: join(HOME, name, "cy.db") }), name);
+    assert.ok(deny("Grep", { pattern: "token", path: join(HOME, name, "cy.db") }), name);
+    assert.ok(bash(`cat ${join(HOME, name, "config.json")}`), name);
+  }
+  for (const c of ["cat ~/.cy-agent-work/config.json", "cat ~/.cy-agent-personal/config.json", "sqlite3 ~/.cy-agent-work/cy.db .tables"]) assert.ok(bash(c), c);
+  // 따로 띄운 모드의 데몬(cyHome = ~/.cy-agent-work)에서는 처음 쓰던 폴더가 다른 모드 쪽이다
+  const work: PermCtx = { ...ctx, cyHome: join(HOME, ".cy-agent-work") };
+  assert.equal(hardDeny("Read", { file_path: join(HOME, ".cy-agent", "config.json") }, work).allow, false);
+  assert.equal(hardDeny("Read", { file_path: join(HOME, ".cy-agent", "cy.db") }, work).allow, false);
+  // 이름만 비슷한 레포 파일은 그대로 읽는다
+  assert.equal(hardDeny("Read", { file_path: join(repo, "cy-agent-work.md") }, work).allow, true);
+});
