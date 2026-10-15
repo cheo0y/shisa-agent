@@ -12,7 +12,7 @@
     "fake-daemon": "node scripts/fake-daemon.mjs",
     "assets": "node scripts/make-assets.mjs",
     "vendor": "node scripts/vendor.mjs",
-    "test": "node --test test/",
+    "test": "node --test 'test/**/*.test.js'",
     "icon": "node scripts/make-icon.mjs",
     "package": "node scripts/package.mjs",
     "dist": "node scripts/dist.mjs",
