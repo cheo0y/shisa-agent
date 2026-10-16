@@ -16,6 +16,7 @@ import { who, setWho, onWho } from './who.js';
 onWho(() => { for (const n of document.querySelectorAll('.who')) n.textContent = who(); });
 import { brainRows, brainDisconnectCopy, connectorAction, capOfRow, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { calendarRemoveCopy } from '../src/calendars.js';
+import { gmailConnectable, GMAIL_COPY } from '../src/gmail.js';
 
 const cy = window.cy;
 const $ = (id) => document.getElementById(id);
@@ -40,6 +41,7 @@ const busy = new Set(); // 지금 도는 확인(check id)
 let sisaView = null; // 앱의 AI 저장(키 없음). 연결된 AI 줄
 let confirming = ''; // [연결 해제] 확인을 열어 둔 줄(brain:id · connector:cap · calendar:id). 다시 그려도 그대로
 let calendars = []; // 연결된 캘린더(가린 이름만, 주소 없음) — 캘린더 줄 아래 목록
+let gmailForm = null; // [Gmail로 연결] 클라이언트 입력 칸을 열어 뒀나({ clientId, clientSecret, error }). 다시 그려도 그대로
 
 // ---- 저장 알림 ----
 let savedTimer = null;
@@ -880,6 +882,53 @@ function loadCalendars() {
   return cy.getCalendars?.().then((r) => { if (r?.ok && Array.isArray(r.items)) { calendars = r.items; renderRows(); } }).catch(() => {});
 }
 
+// 메일 줄: [Gmail로 연결](읽기 전용). 데몬에 OAuth 클라이언트가 없으면 그 자리에서 클라이언트 ID·보안 비밀을 묻는다
+function gmailBox() {
+  const box = el('div', 'cals');
+  const start = async (creds, btn) => {
+    btn.disabled = true;
+    const res = await cy.connectGmail(creds).catch(() => null);
+    btn.disabled = false;
+    if (res?.ok) { gmailForm = null; flash(GMAIL_COPY.opened); renderRows(); return; }
+    if (res?.code === 'no-client') { gmailForm = { clientId: '', clientSecret: '', ...(gmailForm ?? {}), error: gmailForm ? res.error : '' }; renderRows(); return; }
+    if (gmailForm) { gmailForm.error = res?.error || `${who()}에 연결되지 않았어요`; renderRows(); } else flash(res?.error || `${who()}에 연결되지 않았어요`, true);
+  };
+  if (!gmailForm) {
+    const b = el('button', 'small primary', GMAIL_COPY.button);
+    b.type = 'button';
+    b.title = GMAIL_COPY.title;
+    b.addEventListener('click', () => start({}, b));
+    box.append(b);
+    return box;
+  }
+  box.append(el('p', 'meta', GMAIL_COPY.ask));
+  const field = (key, ph, type) => {
+    const i = el('input', 'gl-edit');
+    i.type = type;
+    i.placeholder = ph;
+    i.value = gmailForm[key];
+    i.autocomplete = 'off';
+    i.spellcheck = false;
+    i.addEventListener('input', () => { gmailForm[key] = i.value; });
+    return i;
+  };
+  box.append(field('clientId', '클라이언트 ID (….apps.googleusercontent.com)', 'text'), field('clientSecret', '클라이언트 보안 비밀', 'password'));
+  if (gmailForm.error) box.append(el('div', 'error', gmailForm.error));
+  const acts = el('div', 'dc-acts');
+  const go = el('button', 'small primary', '연결');
+  go.type = 'button';
+  go.addEventListener('click', () => {
+    if (!gmailForm.clientId.trim()) { gmailForm.error = '클라이언트 ID를 넣어 주세요'; renderRows(); return; }
+    start({ clientId: gmailForm.clientId, clientSecret: gmailForm.clientSecret }, go);
+  });
+  const no = el('button', 'small ghost', '취소');
+  no.type = 'button';
+  no.addEventListener('click', () => { gmailForm = null; renderRows(); });
+  acts.append(go, no);
+  box.append(acts);
+  return box;
+}
+
 function rowEl(r) {
   const n = el('div', 'conn');
   n.dataset.id = r.id;
@@ -921,6 +970,7 @@ function rowEl(r) {
     }));
     if (cap === 'calendar') main.append(calendarList());
   }
+  if (gmailConnectable(r)) main.append(gmailBox());
   if (needsSetupHint(r)) {
     const b = el('button', 'small primary', '설치 안내');
     b.type = 'button';

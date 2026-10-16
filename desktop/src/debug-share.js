@@ -56,7 +56,7 @@ const RULES = [
   [/Authorization:\s*\S+/gi, `Authorization: ${REDACT}`],
   [/(?:Set-Cookie|Cookie):\s*[^\n]+/gi, (m) => `${String(m).split(':')[0]}: ${REDACT}`],
   [/\buserToken\s*[:=]\s*[^\s"',}]+/gi, `userToken=${REDACT}`],
-  [/"((?:apiKey|api_key|icsUrl|icsUrls|slackBotToken|slackAppToken|userToken|access_token|refresh_token|cookie|cookies))"\s*:\s*(?:"[^"]*"|[^\s,}\]]+)/gi, `"$1":${REDACT}`],
+  [/"((?:apiKey|api_key|icsUrl|icsUrls|slackBotToken|slackAppToken|userToken|clientSecret|access_token|refresh_token|cookie|cookies))"\s*:\s*(?:"[^"]*"|[^\s,}\]]+)/gi, `"$1":${REDACT}`],
   [/"keys"\s*:\s*\{[^}]*\}/gi, `"keys":${REDACT}`],
   [/(?:webcal|https?):\/\/\S+?\.ics(?:\?\S*)?/gi, '[달력주소 숨김]'],
   [/(?:webcal|https?):\/\/\S*?\/calendar\/ical\/\S+/gi, '[달력주소 숨김]'],

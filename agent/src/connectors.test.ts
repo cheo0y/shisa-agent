@@ -28,8 +28,8 @@ test("개인 설정: api·프리셋·도구 덮어쓰기·모르는 값", () => 
   });
   assert.deepEqual(c.slack, { cap: "slack", mode: "api", userToken: "xoxp-1" });
   assert.deepEqual(c.calendar, { cap: "calendar", mode: "api", icsUrls: ["https://example.com/a.ics", "https://example.com/b.ics"], timeZone: "Asia/Seoul", email: "me@example.com" });
-  assert.equal(c.mail.mode, "off");
-  assert.match((c.mail as any).reason, /지원하지 않아요/);
+  assert.deepEqual(c.mail, { cap: "mail", mode: "api" }); // Gmail api 모드(클라이언트는 아직 없음)
+  assert.match((resolveConnectors({}, { connectors: { issues: { mode: "api" } } }).issues as any).reason, /지원하지 않아요/);
   assert.equal(c.issues.mode, "mcp");
   assert.equal((c.issues as any).server, "gh");
   assert.deepEqual((c.issues as any).tools, { ...PRESETS.issues!.github.tools, read: "get_issue" });

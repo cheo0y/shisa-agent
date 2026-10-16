@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('cy', {
   // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label }] }(주소는 없음) · 하나 빼기(id) → { ok, items, note?, error? }
   getCalendars: () => ipcRenderer.invoke('settings-calendars'),
   removeCalendar: (id) => ipcRenderer.invoke('settings-calendar-remove', String(id || '')),
+  // Gmail 연결(읽기 전용): { clientId?, clientSecret? } → { ok, error?, code?: 'no-client' }. 잘 되면 브라우저에 구글 로그인이 뜬다
+  connectGmail: (creds) => ipcRenderer.invoke('settings-gmail-connect', creds && typeof creds === 'object' ? JSON.parse(JSON.stringify(creds)) : {}),
   copyText: (text) => ipcRenderer.invoke('settings-copy', String(text || '')),
   openPanel: (section) => ipcRenderer.send('settings-open-panel', String(section)), // 'setup'(설치 안내) | 'models'(AI 고르기)
   getAppPrefs: () => ipcRenderer.invoke('settings-app-get'), // { version, openAtLogin: { available, on, hint }, updateCheck }

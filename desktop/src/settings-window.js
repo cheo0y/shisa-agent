@@ -7,12 +7,13 @@ import { sanitizeGuidelineAdd, sanitizeGuidelinePatch, okGuidelineId } from './g
 import { okBrainId, okCap } from './disconnect.js';
 import { okCalendarId } from './calendars.js';
 import { denied } from './denied.js';
+import { sanitizeGmailCreds } from './gmail.js';
 
 export const SETTINGS_SIZE = { width: 720, height: 760 };
 
 // deps: { BrowserWindow, ipcMain, shell, request(method, path, body?, timeoutMs?), preload, html, fromOurs(e), debug?, openPanel?(section), caps?(),
 //         sisa?() 앱의 AI 저장(publicView), disconnectBrain?(id), disconnectConnector?(cap), copyText?(text),
-//         calendars?() 연결된 캘린더(가린 이름), removeCalendar?(id) 하나 빼기,
+//         calendars?() 연결된 캘린더(가린 이름), removeCalendar?(id) 하나 빼기, gmailConnect?({ clientId?, clientSecret? }) Gmail 연결(브라우저로 구글 로그인),
 //         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck }, set(patch) } 「이 앱」 칸,
 //         upload?(method, path, name, mime, bytes) 파일 바이트 그대로 올리기(캐릭터 그림) }
 export function setupSettings(deps) {
@@ -78,6 +79,10 @@ export function setupSettings(deps) {
   // 캘린더 여러 개: 목록(가린 이름만) · 하나 빼기(id). 빼는 일은 main 이(패널과 같은 함수)
   ipcMain.handle('settings-calendars', (e) => (isMine(e) && deps.calendars ? deps.calendars() : denied()));
   ipcMain.handle('settings-calendar-remove', (e, id) => (isMine(e) && okCalendarId(id) && deps.removeCalendar ? deps.removeCalendar(id) : denied()));
+  ipcMain.handle('settings-gmail-connect', (e, creds) => {
+    const c = sanitizeGmailCreds(creds);
+    return isMine(e) && c && deps.gmailConnect ? deps.gmailConnect(c) : denied();
+  });
   ipcMain.handle('settings-copy', (e, text) => (isMine(e) && typeof text === 'string' && text && deps.copyText ? deps.copyText(text) : denied()));
   // [설치 안내]·[AI 고르기] → 패널의 그 탭
   ipcMain.on('settings-open-panel', (e, section) => {

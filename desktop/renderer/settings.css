@@ -171,6 +171,7 @@ button.danger { background: var(--err-fg); color: #fff; }
 .char-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* 캘린더 줄 아래: 연결된 캘린더(가린 이름) · [빼기] · [하나 더 추가] */
 .cals { margin-top: 6px; display: grid; gap: 6px; justify-items: start; }
+.cals .gl-edit { width: min(420px, 100%); } /* [Gmail로 연결] 클라이언트 입력 */
 .cal-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; width: 100%; }
 .cal-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
 .cal-list .cal-kind { color: var(--muted); }

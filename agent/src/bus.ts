@@ -129,6 +129,8 @@ export type BusHandlers = {
   connectorsReload?: () => { changed: boolean; restarting: boolean };
   // [연결 해제]: config.json 의 connectors[cap] 을 off 로(토큰·ICS 주소도 지움) + 다시 읽기(disconnect.ts). POST /connectors/disconnect { cap }. 없으면 503
   connectorDisconnect?: (cap: unknown) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
+  // [Gmail로 연결](gmail.ts): 구글 동의 화면 주소. POST /connectors/mail/google/start { clientId?, clientSecret? }. 없으면 503
+  gmailConnect?: (body: unknown) => Promise<{ ok: true; url: string } | { ok: false; status: number; error: string; code?: string }>;
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
   guidelines?: GuidelinesApi;
   // 집중하기(focus.ts): GET /focus · GET /focus/stats?from&to · POST /focus/start|pause|resume|stop. 없으면 503
@@ -549,6 +551,13 @@ export class Bus {
         for (const k of Object.keys(body)) if (k !== "cap") throw new BadRequest(`unknown key: ${k}`);
         const r = h.connectorDisconnect(body.cap);
         return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
+      }
+      if (url.pathname === "/connectors/mail/google/start") {
+        if (!h.gmailConnect) return json(res, 503, { error: "gmail connect unavailable" });
+        const body = await readJson(req);
+        for (const k of Object.keys(body)) if (k !== "clientId" && k !== "clientSecret") throw new BadRequest(`unknown key: ${k}`);
+        const r = await h.gmailConnect(body);
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
       }
       // 첨부 올리기: 본문 = 파일 바이트, 이름은 x-file-name(encodeURIComponent), 종류는 content-type → 201 { attachment }
       if (url.pathname === "/chat/attachments") {

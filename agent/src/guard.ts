@@ -12,7 +12,7 @@ const GH_TOOLS = new Set(GH_TOOL_NAMES.map((n) => `mcp__${GH_SERVER}__${n}`));
 // 맥락 도구(ctx-tools.ts, 인프로세스 MCP "cy"): 로컬 DB(할 일·지식그래프·세션·Slack 미답·프로필)를 읽기만 한다 — 그 이름들은 통과.
 // 이름은 여기 둔다(ctx-tools 가 ingest/slack 을 읽고, ingest/slack 이 guard 를 읽어서 — 순환 import 를 피한다)
 export const CTX_SERVER = "cy";
-export const CTX_TOOL_NAMES = ["kg_search", "kg_node", "kg_overview", "profile_get", "todos_list", "sessions_recent", "session_get", "slack_unanswered", "dashboard_summary", "projects_recent", "meetings_upcoming"] as const;
+export const CTX_TOOL_NAMES = ["kg_search", "kg_node", "kg_overview", "profile_get", "todos_list", "sessions_recent", "session_get", "slack_unanswered", "dashboard_summary", "projects_recent", "meetings_upcoming", "mail_search", "mail_get"] as const;
 const CTX_TOOLS = new Set(CTX_TOOL_NAMES.map((n) => `mcp__${CTX_SERVER}__${n}`));
 
 export type Verdict = { allow: true } | { allow: false; reason: string };

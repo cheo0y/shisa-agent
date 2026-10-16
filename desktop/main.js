@@ -11,6 +11,7 @@ import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterF
 import { cleanMergeQuestion, normalizeOpen } from './src/bubbles.js';
 import { createSSEParser, backoffDelay } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
+import { isGoogleAuthUrl } from './src/gmail.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
 import { normalizeSection } from './src/dashboard.js';
 import { sanitizeTodoPatch } from './src/todos.js';
@@ -255,6 +256,17 @@ async function disconnectConnector(cap) {
   sendPanel('sisa', sisaPublic(next));
   sendPanel('dashboard', {});
   return { ...res, note: reloadNote(res) };
+}
+
+// [Gmail로 연결]: 데몬이 콜백 서버를 띄우고 준 구글 동의 화면을 브라우저로 연다. 로그인이 끝나면 데몬이 메일을 api 모드로 바꾼다
+async function gmailConnect(creds) {
+  if (!connected) return { ok: false, error: `${who()}가 꺼져 있어요. 켠 뒤에 다시 해 주세요.` };
+  const r = await post('/connectors/mail/google/start', creds);
+  if (r.ok && isGoogleAuthUrl(r.data?.url)) {
+    await shell.openExternal(r.data.url).catch(() => {});
+    return { ok: true };
+  }
+  return { ok: false, ...(r.data?.code ? { code: r.data.code } : {}), error: r.data?.error || 'Gmail 연결을 시작하지 못했어요.' };
 }
 
 function sisaPublic(data) {
@@ -1197,6 +1209,7 @@ function setupIPC() {
     disconnectConnector: (cap) => disconnectConnector(cap),
     calendars: () => ({ ok: true, items: calendarList() }),
     removeCalendar: (id) => removeCalendar(id),
+    gmailConnect: (creds) => gmailConnect(creds),
     copyText: (text) => { clipboard.writeText(text); return { ok: true }; },
     appPrefs,
     upload: (method, pathname, name, mime, bytes) => uploadBytes(method, pathname, name, mime, bytes),
