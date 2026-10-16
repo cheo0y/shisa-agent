@@ -1,12 +1,12 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
-import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
+import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons, chatReplyBubble } from '../src/bubbles.js';
 import { quickBubble, chipsOf, chipAction, answerBubble, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
 import { Marked } from './vendor/marked.js';
 import { createMarkdown } from '../src/markdown.js';
-import { initialChat, chatReducer, isBusy, summarizeReply, stopTargets, busyCaption } from '../src/chat.js';
+import { initialChat, chatReducer, isBusy, stopTargets, busyCaption } from '../src/chat.js';
 import { createAttachTray } from './attach-tray.js';
 import { hasFiles, filesFromTransfer, ATTACH_ERRORS } from '../src/attachments.js';
 import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
@@ -227,8 +227,8 @@ function schedule(b) {
   if (!b.ttlMs) return;
   timers.set(b.id, setTimeout(() => {
     const el = els.get(b.id);
-    // 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다
-    if (el && (el.matches(':hover') || el.querySelector('.merge-ask:not([hidden])'))) return schedule({ ...b, ttlMs: 3000 });
+    // 마우스 올려두거나 추가질문·답장 입력 중이면 조금 더 둔다
+    if (el && (el.matches(':hover') || el.querySelector('.merge-ask:not([hidden])') || replyTyping(el))) return schedule({ ...b, ttlMs: 3000 });
     dismiss(b.id);
   }, b.ttlMs));
 }
@@ -251,7 +251,7 @@ function buildEl(b) {
   const meta = document.createElement('div');
   meta.className = 'meta';
   const askRow = buildMergeAsk(b.id);
-  bubble.append(text, detail, meta, askRow);
+  bubble.append(text, detail, meta, askRow, buildReplyAsk(b.id));
   bubble.addEventListener('click', (e) => {
     const a = e.target.closest('a[href]');
     if (a) { e.preventDefault(); e.stopPropagation(); cy.openLink(a.getAttribute('href')); return; } // 메인이 스킴을 다시 확인
@@ -313,6 +313,8 @@ function fillEl(item, b) {
   bubble.classList.toggle('no-text', !b.text);
   bubble.classList.toggle('has-detail', !!b.detail);
   bubble.classList.toggle('clickable', !!b.open);
+  bubble.classList.toggle('reply', !!b.reply);
+  bubble.querySelector('.reply-ask').hidden = !b.reply;
   const wide = isListBubble(b);
   bubble.classList.toggle('wide', wide);
   setRich(bubble.querySelector('.text'), b.text);
@@ -547,6 +549,54 @@ async function sendMergeAsk(id, q) {
   render();
 }
 
+// ---- 채팅 답 말풍선 아래 답장 입력줄: Enter 면 캐릭터 대화로 이어서 보낸다(sendChat — 호버 입력창과 같은 길) ----
+let replyFocused = null; // 답장을 적는 말풍선 id
+const replyTyping = (el) => { const i = el.querySelector('.reply-ask:not([hidden]) input'); return !!i && (!!i.value || document.activeElement === i); };
+function buildReplyAsk(id) {
+  const row = document.createElement('div');
+  row.className = 'reply-ask';
+  row.hidden = true;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.autocomplete = 'off';
+  input.placeholder = '답장 · Enter';
+  input.setAttribute('aria-label', '이어서 말하기');
+  // 오버레이는 평소 포커스를 안 받는다 — 누를 때 창을 포커스 가능하게 바꾸고 입력줄에 커서를 둔다
+  input.addEventListener('mousedown', async (e) => {
+    e.stopPropagation();
+    if (replyFocused === id && document.activeElement === input) return;
+    e.preventDefault();
+    hideAsk();
+    if (mergeAskFocused) closeMergeAsk(mergeAskFocused, false);
+    const ok = await cy.chatFocus(true).catch(() => false);
+    if (!els.has(id)) return;
+    input.focus();
+    replyFocused = ok ? id : null;
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); input.value = ''; return releaseReply(id); }
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    releaseReply(id);
+    dismiss(id); // 답은 새 말풍선으로 온다
+    sendChat(text);
+  });
+  input.addEventListener('blur', (e) => { if (replyFocused === id && !input.value) releaseReply(id, !!e.relatedTarget); }); // 다른 입력줄로 옮겨 가면 창 포커스는 그대로
+  row.append(input);
+  return row;
+}
+function releaseReply(id, keepFocus = false) {
+  els.get(id)?.querySelector('.reply-ask input')?.blur();
+  if (replyFocused !== id) return;
+  replyFocused = null;
+  if (!keepFocus && !askOpen && !mergeAskFocused) cy.chatFocus(false).catch(() => {}); // 호버 입력창·추가질문으로 옮겨 갔으면 포커스는 그쪽이 쓴다
+  const b = current(id);
+  if (b) schedule(b); // 적다 만 동안 멈췄던 자동 사라짐을 다시
+}
+
 function render() {
   const vis = queue.visible();
   const ids = new Set(vis.map((b) => b.id));
@@ -557,6 +607,7 @@ function render() {
     els.delete(id);
     clearTimeout(el._stickerTimer);
     if (mergeAskFocused === id) { mergeAskFocused = null; cy.chatFocus(false).catch(() => {}); }
+    if (replyFocused === id) { replyFocused = null; cy.chatFocus(false).catch(() => {}); }
     el.classList.add('leaving');
     el.addEventListener('transitionend', () => el.remove(), { once: true });
     setTimeout(() => el.remove(), 500);
@@ -746,11 +797,9 @@ function syncChat() {
 }
 
 function showReply(r) {
-  const { text, truncated } = summarizeReply(r.text);
-  const b = { id: `chat-${r.chatId}`, text: text || '(빈 답)', kind: r.error ? 'error' : 'info', ttlMs: r.stopped ? 5000 : 20000 };
-  // 캐릭터 대화방(스레드)의 답 — "패널에서 보기"는 그 대화를 연다
-  if (r.threadId) b.open = { section: 'chat', id: r.threadId };
-  else if (truncated) b.panelSection = 'chat';
+  // 답 본문을 그대로 머리 위에(채팅 창을 안 열어도) + 아래 답장 입력줄
+  const b = chatReplyBubble(r);
+  if (!b) return;
   queue.add(b);
   schedule(b);
   render();
@@ -867,7 +916,7 @@ askInput.addEventListener('keydown', async (e) => {
   sendChat(text, ids);
 });
 askInput.addEventListener('blur', () => { if (askFocused && !picking && !askPauseTimer) hideAsk(); }); // 칩 행동 동안 잠깐 숨긴 건 닫는 게 아니다
-window.addEventListener('blur', () => { if (askFocused && !picking && !askPauseTimer) hideAsk(); if (mergeAskFocused) closeMergeAsk(mergeAskFocused, true); });
+window.addEventListener('blur', () => { if (askFocused && !picking && !askPauseTimer) hideAsk(); if (mergeAskFocused) closeMergeAsk(mergeAskFocused, true); if (replyFocused) releaseReply(replyFocused); });
 
 // 호버 판정 — 클릭 투과 중에도 mousemove 는 넘어오니 좌표로 본다
 function updateHover(el) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BubbleQueue, normalizeBubble, isSafeLink, DEFAULT_TTL } from '../src/bubbles.js';
+import { BubbleQueue, normalizeBubble, isSafeLink, DEFAULT_TTL, chatReplyBubble } from '../src/bubbles.js';
 
 const b = (id, kind = 'info') => normalizeBubble({ id, text: id, kind });
 
@@ -191,4 +191,35 @@ test('승인 말풍선 버튼: [허용]/[항상 허용](범위 있을 때만)/[�
   assert.deepEqual(approvalButtons(act).map((x) => x.label), ['✓ 실행', '✗ 취소']);
   assert.deepEqual(approvalButtons({ ...appr('a'), decided: true }), []);
   assert.equal(normalizeBubble({ id: 'x', text: 't', kind: 'proposal', actions: 'permission', actionId: 'p', always: 'yes' }).always, undefined);
+});
+
+test('normalize: reply(답장 입력줄)는 true 일 때만, 제안·승인 말풍선엔 안 붙음', () => {
+  assert.equal(normalizeBubble({ id: 'a', text: 't', reply: true }).reply, true);
+  assert.equal(normalizeBubble({ id: 'a', text: 't', reply: 'yes' }).reply, undefined);
+  assert.equal(normalizeBubble({ id: 'a', text: 't' }).reply, undefined);
+  assert.equal(normalizeBubble({ id: 'p', text: 't', kind: 'proposal', proposalId: 'P1', reply: true }).reply, undefined);
+  assert.equal(normalizeBubble({ id: 'm', text: 't', kind: 'proposal', proposalId: 'P1', actions: 'merge', reply: true }).reply, undefined);
+  assert.equal(normalizeBubble({ id: 'k', text: 't', kind: 'proposal', actions: 'permission', actionId: 'a1', reply: true }).reply, undefined);
+});
+
+test('chatReplyBubble: 요약 말고 답 본문(마크다운) 그대로 + 답장 입력줄, 대화방이면 그 대화 열기', () => {
+  const md = '## 제목\n- **굵게** [링크](https://x)';
+  const x = chatReplyBubble({ chatId: 'c1', text: md, threadId: 't1' });
+  assert.deepEqual(x, { id: 'chat-c1', text: md, kind: 'info', ttlMs: 20000, reply: true, open: { section: 'chat', id: 't1' } });
+  assert.equal(chatReplyBubble({ chatId: 'c2', text: '멈췄어요', stopped: true }).ttlMs, 5000);
+  assert.equal(chatReplyBubble({ chatId: 'c3', text: '못 보냈어요', error: true }).kind, 'error');
+  assert.equal(chatReplyBubble({ chatId: 'c4', text: '  ' }).text, '(빈 답)');
+});
+
+test('chatReplyBubble: 길면 detail 한도(1200자)에서 자르고 대화방이 없으면 패널 채팅으로', () => {
+  const x = chatReplyBubble({ chatId: 'c1', text: '가'.repeat(2000) });
+  assert.equal([...x.text].length, 1200);
+  assert.ok(x.text.endsWith('…'));
+  assert.equal(x.panelSection, 'chat');
+  const y = chatReplyBubble({ chatId: 'c2', text: '가'.repeat(1200) });
+  assert.equal(y.text, '가'.repeat(1200));
+  assert.equal(y.panelSection, undefined);
+  // 서로게이트(이모지)를 반쪽으로 자르지 않는다
+  const z = chatReplyBubble({ chatId: 'c3', text: '😀'.repeat(1300) });
+  assert.equal(z.text, `${'😀'.repeat(1199)}…`);
 });

@@ -165,13 +165,16 @@ html, body {
 .bubble.wide { max-width: 380px; }
 .bubble.wide .detail { display: block; -webkit-line-clamp: unset; font-size: 12.5px; line-height: 1.55; color: var(--bubble-fg); max-height: 18em; }
 .bubble.wide.overflow .detail { -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent); mask-image: linear-gradient(to bottom, #000 78%, transparent); }
+/* 채팅 답 말풍선: 본문 그대로 — 길면 안에서 굴려 읽는다 */
+.bubble.reply { max-width: 320px; }
+.bubble.reply .text { display: block; max-height: 16em; overflow-y: auto; }
 .bubble.clickable { cursor: pointer; }
 .bubble.clickable:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--bubble-border)); }
 
-/* 머지 추가질문 입력줄 */
-.bubble .merge-ask { margin-top: 7px; }
-.bubble .merge-ask[hidden] { display: none; }
-.bubble .merge-ask input {
+/* 머지 추가질문 입력줄 · 채팅 답 말풍선 아래 답장 입력줄 */
+.bubble .merge-ask, .bubble .reply-ask { margin-top: 7px; }
+.bubble .merge-ask[hidden], .bubble .reply-ask[hidden] { display: none; }
+.bubble .merge-ask input, .bubble .reply-ask input {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--bubble-border));
   border-radius: 999px;

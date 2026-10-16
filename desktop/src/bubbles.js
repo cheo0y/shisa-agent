@@ -52,6 +52,22 @@ export function normalizeBubble(raw) {
   // AI 없이 고르는 질문 칩(quick-ask.js): 아는 칩 id 만
   const quick = normQuick(raw.quick);
   if (quick) b.quick = quick;
+  // 채팅 답 말풍선 아래 한 줄 답장 입력(Enter → 캐릭터 대화로 이어서). 버튼 말풍선(제안·승인)엔 안 붙인다
+  if (raw.reply === true && kind !== 'proposal') b.reply = true;
+  return b;
+}
+
+// 채팅 답 말풍선: 요약 말고 답 본문 그대로(마크다운) — 길면 DETAIL_MAX 에서 자르고 「패널에서 보기」로 이어 읽는다
+export function chatReplyBubble(r) {
+  const body = typeof r?.text === 'string' ? r.text.trim() : '';
+  const chars = [...body]; // 서로게이트 안 깨지게
+  const truncated = chars.length > DETAIL_MAX;
+  const text = truncated ? `${chars.slice(0, DETAIL_MAX - 1).join('').trimEnd()}…` : body;
+  const b = normalizeBubble({ id: `chat-${r?.chatId}`, text: text || '(빈 답)', kind: r?.error ? 'error' : 'info', ttlMs: r?.stopped ? 5000 : 20000, reply: true });
+  if (!b) return null;
+  // 캐릭터 대화방(스레드)의 답 — "패널에서 보기"는 그 대화를 연다
+  if (typeof r.threadId === 'string' && r.threadId) b.open = { section: 'chat', id: r.threadId };
+  else if (truncated) b.panelSection = 'chat';
   return b;
 }
 
