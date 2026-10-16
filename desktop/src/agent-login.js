@@ -30,12 +30,15 @@ export function codexAuthLoggedIn(raw) {
 export function findBin(name, { home = os.homedir(), pathEnv = process.env.PATH || '', exists = fs.existsSync, readdir = fs.readdirSync, platform = process.platform, env = process.env } = {}) {
   if (platform === 'win32') return findWinBin(name, { home, pathEnv, exists, env });
   const p = path.posix;
-  const dirs = [];
+  // 공식 설치(~/.local/bin) → homebrew → PATH 순. nvm 은 맨 마지막: 옛 node 버전에 남은 npm 전역 복사본(#!/usr/bin/env node)이
+  // 앱(PATH 에 node 없음)에서는 뜨지도 않아, 먼저 고르면 멀쩡히 로그인된 claude 를 두고 「로그인 전」으로 본다
+  const dirs = [p.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', ...String(pathEnv).split(':').filter(Boolean)];
   try {
     const root = p.join(home, '.nvm', 'versions', 'node');
-    for (const n of readdir(root)) dirs.push(p.join(root, n, 'bin'));
+    const ver = (n) => String(n).replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
+    const newest = [...readdir(root)].sort((a, b) => { const [x, y] = [ver(a), ver(b)]; return (y[0] - x[0]) || (y[1] - x[1]) || (y[2] - x[2]); });
+    for (const n of newest) dirs.push(p.join(root, n, 'bin'));
   } catch { /* nvm 없음 */ }
-  dirs.push(p.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', ...String(pathEnv).split(':').filter(Boolean));
   for (const d of dirs) {
     const f = p.join(d, name);
     if (exists(f)) return f;

@@ -14,7 +14,7 @@ test('Codex 는 액세스 토큰이 있을 때만 로그인', () => {
   assert.equal(codexAuthLoggedIn('{'), false);
 });
 
-test('실행 파일은 nvm 과 PATH 에서 찾는다', () => {
+test('실행 파일은 ~/.local/bin·homebrew·PATH 를 먼저 보고, nvm 은 마지막(새 버전부터)', () => {
   const hit = findBin('claude', {
     home: '/home',
     pathEnv: '/usr/bin',
@@ -23,6 +23,24 @@ test('실행 파일은 nvm 과 PATH 에서 찾는다', () => {
     exists: (p) => p === '/home/.nvm/versions/node/v22/bin/claude',
   });
   assert.equal(hit, '/home/.nvm/versions/node/v22/bin/claude');
+  // 공식 설치(~/.local/bin)가 있으면 nvm 에 남은 옛 npm 전역 복사본보다 먼저 — 앱에서는 PATH 에 node 가 없어 npm 복사본은 뜨지도 않는다
+  const both = findBin('claude', {
+    home: '/home', pathEnv: '', platform: 'darwin', readdir: () => ['v16', 'v22'],
+    exists: (p) => p === '/home/.nvm/versions/node/v16/bin/claude' || p === '/home/.local/bin/claude',
+  });
+  assert.equal(both, '/home/.local/bin/claude');
+  // PATH 에 있는 것도 nvm 보다 먼저
+  const onPath = findBin('claude', {
+    home: '/home', pathEnv: '/opt/x/bin', platform: 'darwin', readdir: () => ['v16'],
+    exists: (p) => p === '/home/.nvm/versions/node/v16/bin/claude' || p === '/opt/x/bin/claude',
+  });
+  assert.equal(onPath, '/opt/x/bin/claude');
+  // nvm 끼리는 새 node 버전부터(readdir 은 글자순이라 v9 > v24 로 보지 않게)
+  const newest = findBin('claude', {
+    home: '/home', pathEnv: '', platform: 'darwin', readdir: () => ['v16.19.0', 'v9.0.0', 'v24.13.0'],
+    exists: (p) => p.startsWith('/home/.nvm/'),
+  });
+  assert.equal(newest, '/home/.nvm/versions/node/v24.13.0/bin/claude');
   assert.equal(findBin('codex', { home: '/home', pathEnv: '', platform: 'darwin', readdir: () => [], exists: () => false }), null);
   assert.equal(findBin('gh', { home: '/home', pathEnv: '/a:/b', platform: 'linux', readdir: () => [], exists: (p) => p === '/b/gh' }), '/b/gh');
 });
