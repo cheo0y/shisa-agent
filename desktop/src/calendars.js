@@ -104,6 +104,15 @@ export function hubDoneFor(done, urls) {
 
 export const CALENDAR_DUP = '이미 연결된 캘린더예요. 다른 주소를 붙여 주세요.';
 
+// 붙인 주소를 저장 전에 한 번 받아 본 HTTP 상태 → 막을 이유(없으면 ''). 네트워크 오류(status 없음)·5xx 는 막지 않는다(오프라인이어도 저장은 된다)
+export function calendarFetchProblem(status, url) {
+  if (![401, 403, 404, 410].includes(status)) return '';
+  if (calendarKind(url) === 'gcal' && /\/public\/basic\.ics(\?|$)/.test(String(url))) {
+    return '공개 주소(public)라서 일정을 읽지 못했어요. 캘린더 통합의 「iCal 형식의 비공개 주소」(Secret address in iCal format)를 붙여 주세요.';
+  }
+  return `이 주소에서 일정을 받지 못했어요(HTTP ${status}). 주소를 다시 복사했는지, 재설정으로 바뀌지 않았는지 확인해 주세요.`;
+}
+
 // [빼기] 확인 문구. last = 마지막 하나(빼면 캘린더 연결이 꺼진다)
 export function calendarRemoveCopy(row, last) {
   return {

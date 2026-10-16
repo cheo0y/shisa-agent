@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Store } from "./store.ts";
 import type { Config } from "./config.ts";
 import {
-  CalendarSync, alertDetail, alertKey, alertText, extractLocation, icsSource, onlineLabel, kstHHMM, parseCalendarView, planAlerts, skipReason, toIso, toMeetings,
+  CalendarSync, alertDetail, alertKey, alertText, extractLocation, icsFailHint, icsSource, onlineLabel, kstHHMM, parseCalendarView, planAlerts, skipReason, toIso, toMeetings,
   type CalEvent, type Meeting,
 } from "./calendar-sync.ts";
 
@@ -372,4 +372,13 @@ test("여러 캘린더(ICS 여러 개)에 같은 일정이 겹쳐도(같은 UID�
     await new Promise((res) => setImmediate(res));
   }
   assert.deepEqual(fired, ["주간 회의@2026-10-08T04:00:00.000Z", "데일리@2026-10-08T04:30:00.000Z"]);
+});
+
+test("구글 공개 주소가 404 면 로그에 비공개 주소로 바꾸라고 덧붙인다(주소는 넣지 않는다)", () => {
+  const pub = "https://calendar.google.com/calendar/ical/team%40group.calendar.google.com/public/basic.ics";
+  const hint = icsFailHint(pub, new Error("ICS HTTP 404"));
+  assert.match(hint, /비공개 주소/);
+  assert.ok(!hint.includes("team"));
+  assert.equal(icsFailHint(pub, new Error("ICS HTTP 500")), "");
+  assert.equal(icsFailHint("https://calendar.google.com/calendar/ical/me%40example.com/private-a/basic.ics", new Error("ICS HTTP 404")), "");
 });

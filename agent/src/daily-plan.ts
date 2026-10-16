@@ -5,6 +5,7 @@
 import type { Store, Todo, TodoPatch } from "./store.ts";
 import { isBusinessDay, localDate, localHhmm } from "./calendar.ts";
 import { phrase } from "./phrases.ts";
+import { normTitle } from "./todo-match.ts";
 
 export type PlanItem = { id: string; title: string; done: boolean; priority: number; source: string; doing?: boolean };
 export type DailyPlan = { date: string; items: PlanItem[]; asked: boolean };
@@ -164,6 +165,16 @@ export class DailyPlanService {
         }
         const t = tidy(op.title ?? "");
         if (!t) { errors.push("추가할 제목이 없어요"); continue; }
+        // id 없이 제목만 온 add: 같은 제목의 열린 할 일이 있으면 새로 만들지 않고 그걸 오늘로 고른다
+        // (브리핑이 같은 응답에서 캘린더 일정을 할 일로 넣고 plan_ops 로 제목만 다시 add 해 「직접 추가」 사본이 생기던 것)
+        const same = this.store.openTodos().find((x) => normTitle(x.title) === normTitle(t));
+        if (same) {
+          const patch: TodoPatch = { today: date };
+          if (op.priority !== undefined) patch.priority = prio(op.priority, same.priority);
+          this.ports.edit(same.id, patch);
+          applied.push(`오늘로: ${same.title.slice(0, 40)}`);
+          continue;
+        }
         this.ports.add({ title: t, priority: prio(op.priority), today: date, source: "user" });
         applied.push(`추가: ${t.slice(0, 40)}`);
         continue;

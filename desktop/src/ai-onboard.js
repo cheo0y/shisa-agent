@@ -211,6 +211,9 @@ const SLOT_RULES = {
   gcal: {
     ok: /^https:\/\/calendar\.google\.com\/calendar\/ical\/\S+\.ics(\?\S*)?$/,
     bad: '주소가 **https://calendar.google.com/calendar/ical/** 로 시작하고 **.ics** 로 끝나야 합니다. **iCal 형식의 비공개 주소**를 복사했는지 보세요.',
+    // 「iCal 형식의 공개 주소」(…/public/basic.ics)는 캘린더를 공개해 두지 않으면 404 라 일정을 못 읽는다
+    deny: /\/public\/basic\.ics(\?\S*)?$/,
+    denied: '이건 **공개 주소**(public)라서 캘린더를 공개해 두지 않으면 일정을 못 읽어요. 바로 아래 칸 **iCal 형식의 비공개 주소**(영문: **Secret address in iCal format**)를 복사해 주세요.',
   },
   outlook: {
     ok: /^https:\/\/\S+\.ics(\?\S*)?$/,
@@ -222,6 +225,7 @@ export function slotCheck(id, value) {
   const rule = SLOT_RULES[id];
   const v = String(value ?? '').trim();
   if (!rule) return { ok: true, bad: '' };
+  if (rule.deny?.test(v)) return { ok: false, bad: rule.denied };
   return { ok: rule.ok.test(v), bad: rule.bad };
 }
 
@@ -261,9 +265,10 @@ const GCAL = [
       '그 아래 **내 이름**(쓰는 캘린더)을 누릅니다.',
       '방금 누른 이름 아래 **캘린더 통합** 을 누릅니다.',
       '안 보이면 오른쪽을 **맨 아래**까지 내립니다. 제일 마지막에 있습니다.',
-      '공개 URL은 건너뛰고, **iCal 형식의 비공개 주소** 옆 **복사**를 누릅니다.',
+      '공개 URL·**iCal 형식의 공개 주소**는 건너뛰고, 맨 아래 **iCal 형식의 비공개 주소**(영문: **Secret address in iCal format**) 옆 **복사**를 누릅니다.',
     ],
     details: [
+      '영문 화면이면 **Settings for my calendars** → 캘린더 이름 → **Integrate calendar** 입니다.',
       '왼쪽 목록이 접혀 있으면 **내 캘린더의 설정** 옆 화살표를 눌러 펼칩니다.',
       '캘린더 통합이나 비공개 주소가 안 보이면 회사 관리자가 막은 것입니다. 목록으로 돌아가 이 기능은 건너뛰세요.',
       '주소가 남에게 알려졌다면 같은 칸의 **재설정** 을 눌러 새 주소를 받으세요.',

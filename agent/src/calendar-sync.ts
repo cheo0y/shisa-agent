@@ -15,6 +15,7 @@ import { CONNECTORS, isWriteName, mcpTool, type Conn } from "./connectors.ts";
 import { eventsInWindow, fetchIcsText, type FetchText } from "./ics.ts";
 import { phrase } from "./phrases.ts";
 import { calendarAlertOf } from "./calendar-alert.ts";
+import { syncCalendarTodos } from "./calendar-todos.ts";
 
 export const SYNC_EVERY_MS = 30 * 60e3;   // 30분마다 다시 가져온다
 export const DANCE_MS = 8000;
@@ -181,13 +182,20 @@ export function alertDetail(m: Meeting): string | undefined {
 export type CalendarSource = (cfg: Config, w: { from: string; to: string }) => Promise<{ ok: boolean; events: CalEvent[]; calls: number; errors: number; costUsd: number }>;
 
 // api: 비공개 ICS 주소들(여러 캘린더면 여러 개). 하나라도 실패하면 ok=false(예전 것 유지)
+// 구글 「공개 주소」(…/public/basic.ics)는 캘린더를 공개로 해 두지 않으면 404 다 — 로그에 고칠 방법을 덧붙인다(주소는 남기지 않는다)
+export function icsFailHint(url: string, e: unknown): string {
+  return /\/public\/basic\.ics(\?|$)/.test(url) && /\b404\b/.test(String((e as any)?.message ?? e))
+    ? "— 구글 공개 주소(public)라서 그래요. 캘린더 통합의 「iCal 형식의 비공개 주소」(Secret address in iCal format)로 바꿔 주세요"
+    : "";
+}
+
 export function icsSource(urls: string[], opts: { timeZone: string; email?: string }, fetchText: FetchText = fetchIcsText): CalendarSource {
   return async (_cfg, w) => {
     const events: CalEvent[] = [];
     let errors = 0;
     for (const url of urls) {
       try { events.push(...eventsInWindow(await fetchText(url), Date.parse(w.from), Date.parse(w.to), opts)); }
-      catch (e: any) { errors++; console.warn("[calendar] ICS 실패:", String(e?.message ?? e).slice(0, 80)); }
+      catch (e: any) { errors++; console.warn("[calendar] ICS 실패:", String(e?.message ?? e).slice(0, 80), icsFailHint(url, e)); }
     }
     return { ok: !errors && urls.length > 0, events, calls: urls.length, errors, costUsd: 0 };
   };
@@ -373,6 +381,9 @@ export class CalendarSync {
     const meetings = toMeetings(events);
     // 한 번이라도 받았고 오류가 없을 때만 그 창을 통째로 바꾼다(취소된 회의가 사라지게). 실패면 예전 것 유지
     if (ok) this.replace(w, meetings);
+    // 오늘 일정 → 오늘 할 일(모델 없이, calendar-todos.ts). 일부 주소가 실패해도 받은 일정만큼은 넣는다(지우지는 않아서 안전). 패널은 아래 onChange 로 다시 그린다
+    try { syncCalendarTodos(this.store, events, this.deps.now()); }
+    catch (e: any) { console.warn("[calendar] 일정 → 할 일 실패:", String(e?.message ?? e).slice(0, 80)); }
     this.lastSync = this.deps.now().getTime();
     this.onChange?.();
     this.check();

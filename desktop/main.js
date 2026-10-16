@@ -44,7 +44,7 @@ import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, daemonArgs, loginIt
 import { createDaemonHost } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } from './src/update-check.js';
 import { denied } from './src/denied.js';
-import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP } from './src/calendars.js';
+import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP, calendarFetchProblem } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
@@ -204,6 +204,17 @@ function readDaemonConfig() {
   }
 }
 const calendarList = () => calendarRows(readDaemonConfig(), calendarId);
+
+// 캘린더 주소를 저장하기 전에 한 번 받아 본다(본문은 읽지 않는다). 404 같은 확실한 실패만 막고, 네트워크가 안 되면 그냥 저장한다
+async function probeCalendar(url) {
+  let status = null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    status = res.status;
+    res.body?.cancel().catch(() => {});
+  } catch { /* 오프라인 등 — 막지 않는다 */ }
+  return calendarFetchProblem(status, url);
+}
 
 // 캘린더 하나 빼기: 그 주소만 config.json 에서 지우고, 연결을 더할 때처럼 데몬에 다시 읽게 알린다.
 // 마지막 하나면 [연결 해제](캘린더 전체)와 같다
@@ -1302,6 +1313,10 @@ function setupIPC() {
     if (!fromOurs(e) || !HUB_IDS.has(id)) return denied();
     if ((id === 'gcal' || id === 'outlook') && !(typeof url === 'string' && /^https:\/\/\S+\.ics(\?\S*)?$/.test(url) && url.length <= 2000)) return denied();
     const prev = normalizeSisa(readSisa());
+    if (id === 'gcal' || id === 'outlook') {
+      const problem = await probeCalendar(url);
+      if (problem) return { ok: false, rejected: true, error: problem, done: prev.done };
+    }
     const wrote = writeConnector(id, url);
     const done = { ...prev.done, [id]: true };
     writeSisa({ ...prev, done });

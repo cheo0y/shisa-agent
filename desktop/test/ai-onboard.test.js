@@ -293,3 +293,10 @@ test('마법사: 작업 기록 체크박스는 저장된 값(처음엔 꺼짐)�
   assert.match(panel, /onSkipSetup: async \(\) => \{\n\s+await saveSetupSettings\(\{ onboarded: true \}\)/);
   assert.match(panel, /saveSetupSettings\(\{ readSessions: !!on \}\)/);
 });
+
+test('구글 「iCal 형식의 공개 주소」(…/public/basic.ics)는 칸에서 바로 막고 비공개 주소를 안내한다', () => {
+  const r = slotCheck('gcal', 'https://calendar.google.com/calendar/ical/team%40group.calendar.google.com/public/basic.ics');
+  assert.equal(r.ok, false);
+  assert.match(r.bad, /Secret address in iCal format/);
+  assert.equal(slotCheck('gcal', 'https://calendar.google.com/calendar/ical/me%40example.com/private-abc/basic.ics').ok, true);
+});

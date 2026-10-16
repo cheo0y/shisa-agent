@@ -110,7 +110,8 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
     if (cap === "slack") return { cap, mode: "api", userToken: secret(env.CY_AGENT_SLACK_USER_TOKEN) || secret(c?.userToken) };
     return {
       cap: "calendar", mode: "api",
-      icsUrls: env.CY_AGENT_CALENDAR_ICS_URL ? strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)) : [...strs(c?.icsUrl), ...strs(c?.icsUrls)].filter((u) => secret(u)),
+      // 같은 주소가 여러 번 적혀 있어도 한 번만 받아 온다
+      icsUrls: [...new Set(env.CY_AGENT_CALENDAR_ICS_URL ? strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)) : [...strs(c?.icsUrl), ...strs(c?.icsUrls)].filter((u) => secret(u)))],
       timeZone: str(c?.timeZone) ?? "Asia/Seoul",
       ...(str(c?.email) ? { email: str(c?.email)!.toLowerCase() } : {}),
     };

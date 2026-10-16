@@ -452,3 +452,33 @@ test("새 Slack DM·멘션 → 바로 할 일: 새 것만 한 번 묻고, 말풍
   assert.equal(await s.agent.slackTodosNow(), 0); // 이미 본 것 → 다시 안 묻는다
   assert.equal(tasks.length, 1);
 });
+
+// 실제로 있었던 정기 브리핑 출력 모양: 같은 응답에서 일정을 todos(calendar key·번역한 제목)로 넣고, plan_ops 에 제목만 다시 add
+const DOUBLE_ADD = {
+  bubble: "곧 일정이에요", reply_md: "## 오늘",
+  todos: [
+    { key: "calendar:design-review-20261016", title: "Design Review", source: "calendar", priority: 1 },
+    { key: "calendar:demo-prep-20261017", title: "데모데이 슬라이드 준비", source: "calendar", priority: 1 },
+    { key: "session:panel-ux", title: "패널 UX 개선", source: "session", priority: 2 },
+  ],
+  done_todo_ids: [], proposals: [],
+  plan_ops: [{ op: "add", title: "Design Review", priority: 1 }, { op: "add", title: "데모데이 슬라이드 준비", priority: 1 }],
+};
+
+test("정기 브리핑: 일정을 todos 와 plan_ops(제목만)로 두 번 내도 할 일은 한 번만 — calendar 할 일은 동기화만, 제목만 있는 add 는 막는다", async () => {
+  const s = setup({ ok: true }, { think: async () => DOUBLE_ADD });
+  await s.agent.runBriefing();
+  await s.agent.runBriefing(); // 다시 돌려도 그대로
+  const open = s.store.openTodos();
+  assert.deepEqual(open.map((t) => t.id), ["session:panel-ux"], "모델이 낸 calendar 할 일·제목만 있는 add 사본이 없다");
+  assert.equal(open.filter((t) => t.source === "user").length, 0, "「직접 추가」로 잘못 붙은 할 일이 없다");
+});
+
+test("사용자가 시킨 요청(explicit)에선 plan_ops 의 제목만 있는 add 로 새 할 일을 그대로 만든다", async () => {
+  const s = setup({ ok: true }, {
+    think: async () => ({ bubble: "넣었어요", reply_md: "넣었어요", todos: [], done_todo_ids: [], proposals: [], todo_ops: [], memory_ops: [], rule: null,
+      plan_ops: [{ op: "add", title: "보고서 쓰기", priority: 1 }] }),
+  });
+  await s.agent.handleRequest("오늘 할 일에 보고서 쓰기 넣어줘");
+  assert.deepEqual(s.agent.dailyPlan().state().items.map((x) => x.title), ["보고서 쓰기"]);
+});

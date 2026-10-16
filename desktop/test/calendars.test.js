@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   calendarUrls, withCalendarAdded, withCalendarRemoved, calendarKind, maskCalendarUrl, calendarRows, calendarUrlById, okCalendarId,
-  hubDoneFor, calendarRemoveCopy, calendarReloadNote, CALENDAR_DUP,
+  hubDoneFor, calendarRemoveCopy, calendarReloadNote, CALENDAR_DUP, calendarFetchProblem,
 } from '../src/calendars.js';
 import { withConnectorOff } from '../src/disconnect.js';
 import { setupSettings } from '../src/settings-window.js';
@@ -242,4 +242,14 @@ test('설치 탭 「더 연결할까요?」: 연결된 캘린더 목록(가린 �
   clearSlot('gcal');
   assert.equal(readSlot('gcal'), '');
   delete globalThis.document;
+});
+
+test('calendarFetchProblem: 받아 보니 확실히 안 되는 주소만 막는다(공개 주소 404 는 비공개 주소 안내)', () => {
+  const pub = 'https://calendar.google.com/calendar/ical/team%40group.calendar.google.com/public/basic.ics';
+  const priv = 'https://calendar.google.com/calendar/ical/me%40example.com/private-abc/basic.ics';
+  assert.match(calendarFetchProblem(404, pub), /Secret address in iCal format/);
+  assert.match(calendarFetchProblem(404, priv), /HTTP 404/);
+  assert.match(calendarFetchProblem(403, 'https://outlook.office365.com/owa/calendar/x@example.com/t/calendar.ics'), /HTTP 403/);
+  for (const s of [200, 500, 503, null]) assert.equal(calendarFetchProblem(s, pub), '', String(s)); // 오프라인·서버 오류는 막지 않는다
+  assert.ok(!calendarFetchProblem(404, priv).includes('private-abc')); // 주소(비밀)는 문구에 넣지 않는다
 });

@@ -87,3 +87,10 @@ test("connectorsChanged: 같은 설정은 그대로, ICS 주소·모드가 바�
   assert.equal(connectorsChanged(a, resolveConnectors({}, { connectors: { calendar: { mode: "api", icsUrls: ["https://x.example/a.ics", "https://x.example/b.ics"] } } })), true);
   assert.equal(connectorsChanged(resolveConnectors({}, {}), resolveConnectors({}, { connectors: { issues: { mode: "mcp", server: "atlassian" } } })), true);
 });
+
+test("같은 ICS 주소가 여러 번 적혀 있으면 한 번만", () => {
+  const c = resolveConnectors({}, { connectors: { calendar: { mode: "api", icsUrl: "https://x/a.ics", icsUrls: ["https://x/a.ics", "https://x/b.ics", "https://x/b.ics"] } } });
+  assert.deepEqual((c.calendar as any).icsUrls, ["https://x/a.ics", "https://x/b.ics"]);
+  const e = resolveConnectors({ CY_AGENT_CALENDAR_ICS_URL: "https://x/1.ics https://x/1.ics" }, { connectors: { calendar: "api" } });
+  assert.deepEqual((e.calendar as any).icsUrls, ["https://x/1.ics"]);
+});

@@ -136,3 +136,15 @@ test("오늘 할 일 진행률: 패널에서 끝내면(할 일 API) 절반·다 
   assert.equal(bubbles.filter((x) => x.image === "daily_all_complete").length, 1, "다 완료도 하루 한 번");
   assert.ok(bubbles.length >= m);
 });
+
+test("plan_ops 의 제목만 있는 add 는 같은 제목의 열린 할 일(브리핑이 방금 넣은 캘린더 일정)을 오늘로 고르고 사본을 만들지 않는다", () => {
+  const store = new Store(":memory:");
+  const p = new DailyPlanService(store, { now: WED });
+  store.upsertTodo({ id: "calendar:team-sync-20261007", title: "Team Sync", source: "calendar", priority: 1 } as any);
+  const r = p.applyOps([{ op: "add", title: " team  sync " }, { op: "add", title: "새 일" }]);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(store.openTodos().map((t) => t.id).filter((id) => id.startsWith("calendar:")), ["calendar:team-sync-20261007"]);
+  assert.equal(store.openTodos().filter((t) => /team ?sync/i.test(t.title)).length, 1, "사본이 없다");
+  assert.equal(store.getTodo("calendar:team-sync-20261007")?.today, "2026-10-07");
+  assert.deepEqual(r.plan.items.map((x) => x.title).sort(), ["Team Sync", "새 일"].sort());
+});

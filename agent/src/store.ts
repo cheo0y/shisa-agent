@@ -239,11 +239,12 @@ export class Store {
   // description·sourceRef·sourceInfo(원본)는 비어 있을 때만 채운다.
   // 새 id 라도 같은 일(todo-match.ts — 참조 키·제목)이 휴지통·묘비·최근 끝낸 일에 있으면 "blocked"(안 만든다),
   // 열린 할 일에 있으면 그 할 일로 합친다("merged" — 사용자가 고친 필드는 그대로). 둘 다 일지에 하루 한 번 남긴다
-  upsertTodo(t: Omit<Todo, "status" | "created" | "userEdited" | "updated" | "origin"> & { status?: string; origin?: TodoSource }, by: TodoActor = "briefing"): UpsertResult {
+  // fuzzy=false: 제목·참조로 다른 할 일과 합치거나 막지 않는다(같은 id 만 본다 — 날마다 key 가 다른 반복 일정, calendar-todos.ts)
+  upsertTodo(t: Omit<Todo, "status" | "created" | "userEdited" | "updated" | "origin"> & { status?: string; origin?: TodoSource }, by: TodoActor = "briefing", opts: { fuzzy?: boolean } = {}): UpsertResult {
     if (this.isTombstoned(t.id) || this.trashedTodo(t.id)) return "skipped"; // 지운(휴지통 포함) id는 되살리지 않는다
     const cur = this.getTodo(t.id);
     if (!cur) {
-      const dup = this.findDuplicate(t);
+      const dup = opts.fuzzy === false ? undefined : this.findDuplicate(t);
       if (dup?.state === "open") {
         this.upsertTodo({ ...t, id: dup.id }, by);
         this.logOnce(dup.id, dup.title, "merged", by, `${t.id} (${dup.why})`);
@@ -364,10 +365,11 @@ export class Store {
 
   // 설명·원본 캐시(사용자 편집 아님 — user_edited 안 건드림)
   // 할 일 규칙이 바꾸는 우선순위·메모(사용자 편집 아님 — user_edited 안 건드림. 열린 할 일만)
-  ruleUpdateTodo(id: string, p: { priority?: number; note?: string | null }) {
+  // by: 바꾼 주체(기본 규칙, 지난 일정 할 일 내리기는 auto — calendar-todos.ts)
+  ruleUpdateTodo(id: string, p: { priority?: number; note?: string | null }, by: TodoActor = "rule") {
     const cur = this.getTodo(id);
     const what = cur?.status !== "open" ? [] : [p.priority !== undefined && p.priority !== cur.priority ? `P${cur.priority} → P${p.priority}` : "", p.note !== undefined && (p.note ?? undefined) !== cur.note ? "메모" : ""].filter(Boolean);
-    if (cur && what.length) this.log(id, cur.title, "edited", "rule", what.join(", "));
+    if (cur && what.length) this.log(id, cur.title, "edited", by, what.join(", "));
     if (p.priority !== undefined) this.db.prepare("UPDATE todos SET priority = ?, updated = ? WHERE id = ? AND status = 'open'").run(p.priority, now(), id);
     if (p.note !== undefined) this.db.prepare("UPDATE todos SET note = ?, updated = ? WHERE id = ? AND status = 'open'").run(p.note, now(), id);
   }

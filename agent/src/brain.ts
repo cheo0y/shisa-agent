@@ -67,7 +67,7 @@ export const SCHEMA = {
         additionalProperties: false,
         required: ["key", "title", "source", "priority"],
         properties: {
-          key: { type: "string", description: "중복 제거용 안정 키. 예: mail:<message id>, slack:<channel>:<ts>, jira:<KEY>, session:<id>" },
+          key: { type: "string", description: "중복 제거용 안정 키. 예: mail:<message id>, slack:<channel>:<ts>, jira:<KEY>, session:<id>. 캘린더 일정은 데몬이 자동으로 할 일로 넣으니 여기 넣지 않는다" },
           title: { type: "string" },
           source: { type: "string", enum: ["mail", "slack", "calendar", "jira", "session", "other"] },
           link: { type: "string" },
@@ -190,9 +190,10 @@ export function buildContext(store: Store, now = new Date(), opts: { selfId?: st
 function todayPlan(store: Store): string {
   try {
     const plan = new DailyPlanService(store).state();
-    const lines = ["## 오늘 할 일 (패널 '오늘 할 일' 탭 · 할 일 중 오늘로 고른 것 · 로컬)"];
+    const lines = ["## 오늘 할 일 (패널 '오늘 할 일' 탭 · 할 일 중 오늘로 고른 것 · 로컬)",
+      "(오늘 캘린더 일정은 데몬이 원래 제목 그대로 자동으로 넣는다 — 일정을 plan_ops add 로 다시 적거나 번역해 적지 않는다)"];
     if (!plan.items.length) {
-      lines.push("(비어 있음. 오늘 회의·할 일을 보고 plan_ops add 로 적거나, 있는 할 일을 add(id)로 오늘로 고를 수 있다)");
+      lines.push("(비어 있음. 있는 할 일을 plan_ops add(id)로 오늘로 고를 수 있다. 새 일은 todos 에 넣는다)");
       return lines.join("\n");
     }
     for (const r of plan.items) lines.push(`- id=${r.id} ${r.done ? "[x]" : "[ ]"} [${r.priority === 4 ? "백로그" : `P${r.priority}`}] ${r.title}`);

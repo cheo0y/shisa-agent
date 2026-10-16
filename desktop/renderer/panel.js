@@ -830,8 +830,8 @@ function renderSetupView(resetScroll) {
         const url = (setupLink === 'gcal' || setupLink === 'outlook') ? readSlot(setupLink) : '';
         let mark = null;
         try { mark = await cy.sisaMark(setupLink, url); } catch { /* 표시만 남긴다 */ }
-        if (mark?.duplicate) {
-          // 같은 주소는 한 번만: 그 칸에 머물며 알린다(칸을 고치면 사라진다)
+        if (mark?.duplicate || mark?.rejected) {
+          // 같은 주소는 한 번만, 받아 보니 안 되는 주소(공개 주소 404 등)는 저장하지 않는다: 그 칸에 머물며 알린다(칸을 고치면 사라진다)
           setupSlotError = { id: setupLink, value: url, text: mark.error || '이미 연결된 캘린더예요.' };
           redraw(false);
           return;

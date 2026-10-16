@@ -537,6 +537,8 @@ export class Agent {
     const added: Todo[] = [];
     const rules = this.rules.enabled();
     for (const td of todos) {
+      // 캘린더 일정은 동기화가 할 일로 넣는다(calendar-todos.ts) — 모델이 따로 지은 key·번역한 제목으로 또 넣지 않게
+      if (td.source === "calendar" || td.key.startsWith("calendar:")) continue;
       // 할 일 규칙(결정적): 우선순위·메모를 덮고, skip이면 새로 만들지 않는다(이미 있는 할 일은 그대로)
       const rule = evaluateRules(rules, { title: td.title, source: td.source });
       const exists = !!this.store.getTodo(td.key);
@@ -574,8 +576,11 @@ export class Agent {
       if (r.errors.length) reply += `\n\n${r.errors.map((e) => `⚠️ ${e}`).join("\n")}`;
       added.push(...r.added);
     }
-    if (t.plan_ops?.length) {
-      const r = this.plan.applyOps(t.plan_ops);
+    // 정기 브리핑은 plan_ops 로 새 할 일을 만들지 않는다 — 있는 할 일을 id 로 오늘로 고르기만. 새 일은 todos(안정 key·중복 막기)로만 들어온다.
+    // (같은 응답에서 todos 로 넣은 일을 plan_ops 에 제목만, 때로는 번역해서 다시 add 해 「직접 추가」 사본이 생기던 것)
+    const planOps = explicit ? t.plan_ops ?? [] : (t.plan_ops ?? []).filter((op) => op.op !== "add" || !!op.id);
+    if (planOps.length) {
+      const r = this.plan.applyOps(planOps);
       if (r.errors.length) reply += `\n\n${r.errors.map((e) => `⚠️ ${e}`).join("\n")}`;
     }
     if (explicit && t.memory_ops?.length) {
