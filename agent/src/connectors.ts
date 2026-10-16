@@ -3,6 +3,7 @@
 //   mode = "api"     — MCP 없이 우리 코드가 직접 읽는다(결정적, 모델 중계 없음).
 //                       slack: 내 Slack 앱의 사용자 토큰(xoxp-…, 읽기 스코프만)으로 Web API
 //                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더")
+//                       mail: Gmail API, 구글 OAuth(gmail.readonly)로 로그인한 토큰(gmail.ts). 읽기만
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
 //   mode = "off"     — 안 쓴다. 관련 기능은 조용히 빠지고 패널에 "연결 안 됨"으로 보인다.
@@ -13,17 +14,18 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { hasUserMcpServer } from "./mcp.ts";
+import { hasGmailToken } from "./gmail.ts";
 
 export const CAPABILITIES = ["slack", "calendar", "mail", "issues"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type Mode = "mcp" | "api" | "off";
 
 export const CAP_LABELS: Record<Capability, string> = { slack: "Slack", calendar: "캘린더", mail: "메일", issues: "이슈" };
-// 기능별로 고를 수 있는 모드(api 는 slack·calendar 만)
+// 기능별로 고를 수 있는 모드(api 는 slack·calendar·mail(Gmail))
 export const MODES: Record<Capability, readonly Mode[]> = {
   slack: ["api", "mcp", "off"],
   calendar: ["api", "mcp", "off"],
-  mail: ["mcp", "off"],
+  mail: ["api", "mcp", "off"],
   issues: ["mcp", "off"],
 };
 // 매핑할 수 있는 역할(우리 코드·프롬프트가 부르는 몇 안 되는 도구)
@@ -74,9 +76,11 @@ export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
 export type CalendarApiConn = { cap: "calendar"; mode: "api"; icsUrls: string[]; timeZone: string; email?: string };
-export type Conn = OffConn | McpConn | SlackApiConn | CalendarApiConn;
+// clientId·clientSecret: 사용자의 Google Cloud "데스크톱 앱" OAuth 클라이언트. 토큰은 config 가 아니라 gmail-token.json 에 둔다
+export type MailApiConn = { cap: "mail"; mode: "api"; clientId?: string; clientSecret?: string };
+export type Conn = OffConn | McpConn | SlackApiConn | CalendarApiConn | MailApiConn;
 type Common = OffConn | McpConn;
-export type Connectors = { slack: Common | SlackApiConn; calendar: Common | CalendarApiConn; mail: Common; issues: Common };
+export type Connectors = { slack: Common | SlackApiConn; calendar: Common | CalendarApiConn; mail: Common | MailApiConn; issues: Common };
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 // 예시 설정의 자리표시자(xoxp-..., …/.../basic.ics)는 값이 없는 것으로 본다
@@ -108,6 +112,10 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
     }
     // api
     if (cap === "slack") return { cap, mode: "api", userToken: secret(env.CY_AGENT_SLACK_USER_TOKEN) || secret(c?.userToken) };
+    if (cap === "mail") {
+      const clientId = secret(env.CY_AGENT_GOOGLE_CLIENT_ID) || secret(c?.clientId), clientSecret = secret(env.CY_AGENT_GOOGLE_CLIENT_SECRET) || secret(c?.clientSecret);
+      return { cap, mode: "api", ...(clientId ? { clientId } : {}), ...(clientSecret ? { clientSecret } : {}) };
+    }
     return {
       cap: "calendar", mode: "api",
       icsUrls: env.CY_AGENT_CALENDAR_ICS_URL ? strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)) : [...strs(c?.icsUrl), ...strs(c?.icsUrls)].filter((u) => secret(u)),
@@ -163,7 +171,7 @@ export function slackIngestMode(c: Connectors = CONNECTORS): "api" | null {
 // server: mcp 모드일 때 Claude Code 에 등록한 서버 이름([연결 해제] 뒤 `claude mcp remove <이름>` 안내에 쓴다)
 export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string };
 
-export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string) => boolean = hasUserMcpServer): ConnectorStatus[] {
+export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string) => boolean = hasUserMcpServer, gmailToken: () => boolean = hasGmailToken): ConnectorStatus[] {
   return CAPABILITIES.map((cap) => {
     const x = c[cap] as Conn;
     const base = { cap, label: CAP_LABELS[cap], mode: x.mode, doc: `docs/connect/${cap === "issues" ? "issues" : cap}.md` };
@@ -172,6 +180,7 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
       case "mcp": return has(x.server) ? { ...base, server: x.server, ready: true, detail: `MCP ${x.server}${x.preset ? ` (${x.preset})` : ""}` } : { ...base, server: x.server, ready: false, detail: `MCP 서버 "${x.server}"가 Claude Code에 등록돼 있지 않아요` };
       case "api":
         if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: "Slack Web API (사용자 토큰)" } : { ...base, ready: false, detail: "userToken(xoxp-…)이 없어요" };
+        if (x.cap === "mail") return !x.clientId ? { ...base, ready: false, detail: "Google OAuth 클라이언트(clientId)가 없어요" } : gmailToken() ? { ...base, ready: true, detail: "Gmail API (읽기 전용)" } : { ...base, ready: false, detail: "Gmail 로그인이 필요해요" };
         return x.icsUrls.length ? { ...base, ready: true, detail: `ICS ${x.icsUrls.length}개` } : { ...base, ready: false, detail: "icsUrl이 없어요" };
     }
   });

@@ -38,6 +38,7 @@ import { worktreeRecords } from "./agent-worktrees.ts";
 import { Settings } from "./settings.ts";
 import { CharacterStore } from "./character-store.ts";
 import { disconnectConnector } from "./disconnect.ts";
+import { gmailConnector, removeGmailToken } from "./gmail.ts";
 import { CHECK_IDS, Connections, lastRunOf, type CheckId } from "./connections.ts";
 import { statusOf } from "./status.ts";
 import { featureBrain, NEEDS_CLAUDE_MCP, NEEDS_CODER, withMcpBrain } from "./feature-brain.ts";
@@ -277,12 +278,26 @@ await bus.listen(cfg.port, {
     return status();
   },
   connectorsReload: () => reloadConnectors(),
+  // [Gmail로 연결]: 로그인이 끝나면 config.json·메모리 둘 다 mail api 로(채팅 cy 도구 mail_search·mail_get 이 바로 보인다)
+  gmailConnect: gmailConnector({
+    path: join(HOME_DIR, "config.json"),
+    current: () => cfg.connectors.mail,
+    connected: (creds) => {
+      cfg.connectors.mail = { cap: "mail", mode: "api", ...creds };
+      console.log("[connectors] 메일: Gmail 연결(읽기 전용)");
+      reloadConnectors();
+      pushStatus();
+      bus.dashboardChanged();
+    },
+    log: (m) => console.warn(m),
+  }),
   // [연결 해제]: 그 기능만 off(토큰·ICS 주소도 지움) → 다시 읽기 → 메모리도 바로 off
   connectorDisconnect: (cap) => disconnectConnector(cap, {
     path: join(HOME_DIR, "config.json"), cfg, reload: reloadConnectors,
     changed: () => {
       console.log(`[connectors] ${String(cap)} 연결 해제`);
       if (cap === "calendar") calendar.disable(); // 동기화·회의 알림을 바로 멈춘다
+      if (cap === "mail") removeGmailToken(); // Gmail 토큰도 지운다(구글 쪽 권한은 내 계정 → 보안에서 뺄 수 있다)
       if (cap === "slack") try { slackIngester.transport = null; } catch { /* 아직 안 만들어졌으면 만들 때 off 를 읽는다 */ } // 다음 수집부터 안 한다
       pushStatus();
       bus.dashboardChanged();
