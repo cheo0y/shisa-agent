@@ -1428,12 +1428,13 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 .setup-mail-more li + li { margin-top: 4px; }
 .setup-mail-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; word-break: keep-all; }
 .setup-mail-status { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
-.setup-mail .setup-gate { margin-top: 8px; }
+.setup-mail .setup-gate { margin-top: 8px; overflow-wrap: anywhere; word-break: keep-all; } /* 긴 실패 이유·주소·링크가 카드 밖으로 나가지 않게 */
 .setup-mail .setup-fold { margin-top: 8px; }
 .setup-mail .setup-fold summary { padding: 6px 0; color: var(--muted); font-size: 12.5px; }
 /* 메일 계정 여러 개: 줄마다 서비스 · 주소 · 가져온 수(못 가져오면 주황) · [빼기] */
 .setup-mail-accounts { margin: 6px 0 8px; }
-.setup-mail-accounts li { flex-wrap: wrap; }
+.setup-mail-accounts li { flex-wrap: wrap; min-width: 0; }
+.setup-mail-accounts code { min-width: 0; max-width: 100%; }
 .setup-mail-acct { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .setup-mail-acct.fail { color: var(--warn-fg, #b45309); }
 .setup-mail-add-title { display: block; margin-top: 10px; font-size: 13px; }

@@ -152,3 +152,16 @@ test('화면 연결: 패널·프리로드·main 이 계정 빼기를 데몬(DELE
   assert.match(main, /okMailId\(id\)/);
   assert.match(main, /request\('DELETE', `\/connectors\/mail\/\$\{id\}`\)/);
 });
+
+test('화면 안정성: 연결 확인 중 연타는 무시 · 확인 중에 계정을 빼거나 끊어도 「확인하는 중」은 그대로 · 긴 실패 이유·주소는 줄바꿈', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const panel = read('../renderer/panel.js');
+  assert.match(panel, /if \(setupMail\.busy\) return;/);
+  const remove = panel.slice(panel.indexOf('onRemove: async (id)'), panel.indexOf('onDisconnect: async'));
+  assert.doesNotMatch(remove, /busy: false/);
+  const disc = panel.slice(panel.indexOf('onDisconnect: async'), panel.indexOf('calendars: setupCalendars'));
+  assert.doesNotMatch(disc, /busy: false/);
+  const css = read('../renderer/panel.css');
+  assert.match(css, /\.setup-mail \.setup-gate \{[^}]*overflow-wrap: anywhere/);
+  assert.match(css, /\.setup-mail-acct \{[^}]*overflow-wrap: anywhere/);
+});

@@ -705,6 +705,7 @@ function renderSetupView(resetScroll) {
       noAi: (sisa.provider || NO_AI) === NO_AI,
       onOpen: (url) => { try { cy.openLink(url); } catch { /* 무시 */ } },
       onConnect: async (body, why) => {
+        if (setupMail.busy) return; // 확인하는 중에 또 누르면(연타) 두 번 로그인하지 않게
         if (!body) { setupMail = { busy: false, result: { ok: false, text: why } }; redraw(false); return; }
         setupMail = { busy: true, result: null };
         redraw(false);
@@ -722,11 +723,12 @@ function renderSetupView(resetScroll) {
       onRemove: async (id) => {
         let r;
         try { r = await cy.mailRemove(id); } catch { r = { ok: false, error: '빼지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
+        // 다른 계정을 연결하는 중(busy)이면 그 표시는 그대로 둔다(연결 버튼이 다시 살아나 두 번 누르지 않게)
         if (r?.ok) {
-          setupMail = { busy: false, result: { ok: true, text: `**${r.account} 계정을 뺐어요.**` } };
+          setupMail = { busy: setupMail.busy, result: setupMail.busy ? null : { ok: true, text: `**${r.account} 계정을 뺐어요.**` } };
           vm = { ...vm, connectors: withoutMailAccount(vm.connectors, id) };
           loadSoon();
-        } else setupMail = { busy: false, result: { ok: false, text: r?.error || '빼지 못했어요.' } };
+        } else setupMail = { busy: setupMail.busy, result: setupMail.busy ? null : { ok: false, text: r?.error || '빼지 못했어요.' } };
         redraw(false);
         return r;
       },
@@ -734,7 +736,7 @@ function renderSetupView(resetScroll) {
         let r;
         try { r = await cy.connectorDisconnect('mail'); } catch { r = { ok: false }; }
         if (r?.ok) {
-          setupMail = { busy: false, result: null };
+          setupMail = { busy: setupMail.busy, result: null };
           loadSoon();
           setTimeout(() => redraw(false), 1500);
         }
