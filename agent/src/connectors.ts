@@ -10,6 +10,7 @@
 // connectors 를 안 쓰면 전부 off. 비밀값(토큰·ICS 주소)은 환경변수로도 줄 수 있다: CY_AGENT_SLACK_USER_TOKEN, CY_AGENT_CALENDAR_ICS_URL.
 // 쓰기 도구는 어느 모드에서도 막힌다(guard.ts). 매핑에 쓰기 도구 이름을 적어도 허용 목록에 들어가지 않는다.
 import { readFileSync } from "node:fs";
+import { stripBom } from "./fs-atomic.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { hasUserMcpServer } from "./mcp.ts";
@@ -86,7 +87,7 @@ const strs = (v: unknown) => (Array.isArray(v) ? v : [v]).map(str).filter((x): x
 type FileConfig = { connectors?: Record<string, any> };
 
 function readFile(): FileConfig {
-  try { return JSON.parse(readFileSync(join(process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent"), "config.json"), "utf8")); } catch { return {}; }
+  try { return JSON.parse(stripBom(readFileSync(join(process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent"), "config.json"), "utf8"))); } catch { return {}; } // BOM: 메모장(윈도우)
 }
 
 export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: FileConfig = readFile()): Connectors {

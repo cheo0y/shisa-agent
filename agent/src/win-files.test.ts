@@ -140,3 +140,15 @@ test("사용자 캐릭터 지우기: 폴더째 못 지워도(잠긴 파일) char
   new CharacterStore(root).load();
   assert.ok(!existsSync(join(root, id)));
 });
+
+test("BOM: 연결(connectors) 읽기도 메모장 BOM 을 뗀다 — 전에는 연결이 다 꺼진 것으로 읽혀 데몬이 다시 켜지곤 했다", async () => {
+  const dir = tmp();
+  writeFileSync(join(dir, "config.json"), `${BOM}{"connectors":{"calendar":{"mode":"api","icsUrl":"https://example.com/a.ics"}}}`);
+  const prev = process.env.CY_AGENT_HOME;
+  process.env.CY_AGENT_HOME = dir;
+  try {
+    const { resolveConnectors } = await import("./connectors.ts");
+    const c = resolveConnectors({});
+    assert.equal(c.calendar.mode, "api");
+  } finally { if (prev === undefined) delete process.env.CY_AGENT_HOME; else process.env.CY_AGENT_HOME = prev; }
+});
