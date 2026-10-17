@@ -5,7 +5,8 @@
 //  - 퇴근(leaveAlert, 기본 켬): 퇴근 10분 전부터 퇴근 시각 전까지 한 번 일정 알림(plan) 영상 + 퇴근 인사(local.leave, {mins} = 남은 분)
 // 자정을 넘기는 근무는 다루지 않는다(출근 < 퇴근, 퇴근 10분 전이 0시보다 앞이면 0시부터).
 // 하루 한 번은 파일(~/.cy-agent/lunch.json { last: 점심 날짜, start, leave })에 남겨 같은 날 다시 켜도 또 뜨지 않는다.
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
 
 export type WorkHours = {
@@ -77,7 +78,7 @@ export class WorkAlerts {
     this.now = opts.now ?? (() => new Date());
   }
   private read(): Record<string, unknown> {
-    try { const v = JSON.parse(readFileSync(this.path, "utf8")); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch { return {}; }
+    try { const v = JSON.parse(stripBom(readFileSync(this.path, "utf8"))); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch { return {}; }
   }
   // 오늘 그 알림을 띄웠나
   done(kind: WorkAlert): boolean { return this.read()[KEY[kind]] === localDay(this.now()); }
@@ -88,9 +89,7 @@ export class WorkAlerts {
     if (cur[KEY[kind]] === day) return null;
     try {
       mkdirSync(dirname(this.path), { recursive: true });
-      const tmp = `${this.path}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify({ ...cur, [KEY[kind]]: day }), { mode: 0o600 });
-      renameSync(tmp, this.path);
+      writeFileAtomic(this.path, JSON.stringify({ ...cur, [KEY[kind]]: day }), { mode: 0o600 });
     } catch { return null; }
     return day;
   }

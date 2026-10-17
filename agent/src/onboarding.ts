@@ -3,7 +3,8 @@
 //   "readSessions": 이 맥의 Claude Code·Codex 작업 기록(~/.claude/projects·~/.codex/sessions)을 읽을지. 새 설치는 끔, 예전 설정은 켬
 //   repoRoots: 새 설치는 비어 있음(사용자가 고른 폴더만), 예전 설정은 ~/code
 // 새 설치인지는 데몬이 처음 켤 때 한 번 정해 config.json 에 "onboarded": false 로 남긴다(재시작해도 그대로)
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
 
 type Raw = Record<string, unknown>;
@@ -35,16 +36,14 @@ export function readSessionsOf(file: Raw): boolean {
 export function markFreshInstall(path: string, env: NodeJS.ProcessEnv = process.env, dbExists = false): boolean {
   let cur: Raw = {};
   if (existsSync(path)) {
-    const raw = readFileSync(path, "utf8");
+    const raw = stripBom(readFileSync(path, "utf8"));
     if (raw.trim()) {
       try { const v = obj(JSON.parse(raw)); if (!v) return false; cur = v; } catch { return false; }
     }
   }
   if (typeof cur.onboarded === "boolean" || looksExisting(cur, env, dbExists)) return false;
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ ...cur, onboarded: false }, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, `${JSON.stringify({ ...cur, onboarded: false }, null, 2)}\n`, { mode: 0o600 });
   return true;
 }
 

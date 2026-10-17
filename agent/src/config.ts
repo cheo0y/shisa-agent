@@ -12,6 +12,7 @@ import { todayReminderOf, type TodayReminder } from "./daily-plan.ts";
 import { isNewStyle, onboardedOf, readSessionsOf } from "./onboarding.ts";
 import { calendarAlertOf, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { workHoursOf } from "./work-hours.ts";
+import { stripBom } from "./fs-atomic.ts";
 
 export const HOME_DIR = process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent");
 
@@ -196,7 +197,8 @@ export function configErrorText(e: unknown): string {
 }
 
 // 글 → 설정 객체. 비었으면 {}(새 설치), 문법 오류·객체가 아니면 CONFIG_ERROR 표시만 단 {}
-export function parseConfigText(raw: string): FileConfig {
+export function parseConfigText(text: string): FileConfig {
+  const raw = stripBom(text); // 메모장 등이 붙인 BOM(윈도우)
   if (!raw.trim()) return {};
   let v: unknown;
   try { v = JSON.parse(raw); } catch (e) { return { [CONFIG_ERROR]: configErrorText(e) }; }
@@ -287,7 +289,7 @@ export function loadConfig(env = process.env, file: FileConfig = readFileConfig(
     port: portOf(env.CY_AGENT_PORT ?? f.port, 47823, notes),
     dbPath: env.CY_AGENT_DB ?? (f.dbPath as string) ?? join(HOME_DIR, "cy.db"),
     claudeProjectsDir: (f.claudeProjectsDir as string) ?? join(homedir(), ".claude", "projects"),
-    codexSessionsDir: (f.codexSessionsDir as string) ?? join(homedir(), ".codex", "sessions"),
+    codexSessionsDir: (f.codexSessionsDir as string) ?? join(env.CODEX_HOME?.trim() || join(homedir(), ".codex"), "sessions"), // Codex 와 같이 CODEX_HOME 우선
     slackBotToken: env.SLACK_BOT_TOKEN ?? (f.slackBotToken as string),
     slackAppToken: env.SLACK_APP_TOKEN ?? (f.slackAppToken as string),
     slackUserId: env.SLACK_USER_ID ?? (f.slackUserId as string),

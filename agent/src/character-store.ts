@@ -9,7 +9,8 @@
 // 자리표시({title} 등)는 그 칸에 원래 있던 것만 쓸 수 있다(모르는 건 저장 거절 — phrases.ts unknownVars 와 같은 검사).
 // 바뀌면 installCharacters 로 데몬 목록(characters.ts)을 바로 바꾸고 onChange 로 알린다(main 이 SSE characters 를 보낸다).
 // HTTP: GET/POST /characters · PUT/DELETE /characters/:id · DELETE /characters/:id/lines · PUT/DELETE /characters/:id/media/:slot (docs/contract.md)
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, lstatSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, lstatSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
@@ -246,12 +247,12 @@ const filesOf = (c: Pick<UserCharacter, "media" | "clips">): string[] => [...Obj
 type Result = { status: number; body: unknown };
 const fail = (status: number, error: string): Result => ({ status, body: { error } });
 
+// rmSync 재시도: Windows 에서 다른 프로그램(백신·화면의 영상)이 잠깐 잡고 있는 파일(EBUSY·EPERM)
+const RM_RETRY = { maxRetries: 5, retryDelay: 100 } as const;
 function writeJson(path: string, v: unknown) {
-  const tmp = `${path}.${process.pid}.${randomBytes(3).toString("hex")}.tmp`;
-  writeFileSync(tmp, JSON.stringify(v, null, 2), { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, JSON.stringify(v, null, 2), { mode: 0o600, tmp: `${path}.${process.pid}.${randomBytes(3).toString("hex")}.tmp` });
 }
-const readJson = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+const readJson = (path: string): unknown => { try { return JSON.parse(stripBom(readFileSync(path, "utf8"))); } catch { return undefined; } };
 
 // 칸마다 지금 테두리(그림이 있는 칸만, 여러 개 넣는 칸은 첫 파일): 사용자가 고른 값 > 파일 종류 기본값
 export function framesOf(c: Pick<UserCharacter, "media" | "frames"> & { clips?: UserCharacter["clips"] }): Partial<Record<MediaSlot, boolean>> {
@@ -322,9 +323,31 @@ export class CharacterStore {
     if (existsSync(this.dir)) for (const name of readdirSync(this.dir).sort()) {
       if (!isUserId(name)) continue;
       const c = this.readUser(name);
-      if (c) this.users.set(name, c);
+      if (c) { this.users.set(name, c); this.sweep(name, c); }
+      else this.sweepGone(name);
     }
     this.install();
+  }
+
+  // 지우다 남은 것 치우기(Windows 에서 열려 있어 못 지운 파일): character.json 어디에도 이름이 없는 저장 이름 파일과 임시 파일만. 못 지우면 다음에
+  private sweep(id: string, c: UserCharacter) {
+    let raw = "";
+    try { raw = readFileSync(join(this.dir, id, "character.json"), "utf8"); } catch { return; }
+    const keep = new Set(filesOf(c));
+    let names: string[] = [];
+    try { names = readdirSync(join(this.dir, id)); } catch { return; }
+    for (const n of names) {
+      const stale = (STORED_FILE.test(n) && !keep.has(n) && !raw.includes(`"${n}"`)) || n.endsWith(".tmp");
+      if (stale) try { rmSync(join(this.dir, id, n), { force: true }); } catch { /* 다음에 */ }
+    }
+  }
+  // character.json 이 없는 사용자 캐릭터 폴더(지우다 남은 것): 진짜 폴더면 통째로. 링크는 링크만
+  private sweepGone(id: string) {
+    const dir = join(this.dir, id);
+    try {
+      if (existsSync(join(dir, "character.json"))) return; // 깨진 파일은 지우지 않는다(사람이 고칠 수 있게)
+      if (lstatSync(dir).isSymbolicLink()) rmSync(dir, { force: true }); else rmSync(dir, { recursive: true, force: true });
+    } catch { /* 다음에 */ }
   }
 
   private readUser(id: string): UserCharacter | undefined {
@@ -524,8 +547,12 @@ export class CharacterStore {
     if (isBuiltinId(id)) return fail(400, "기본 캐릭터는 지울 수 없어요");
     if (!this.users.has(id) || !isUserId(id)) return fail(404, "no such character");
     const dir = join(this.dir, id);
-    try { if (existsSync(dir) && !lstatSync(dir).isSymbolicLink()) rmSync(dir, { recursive: true, force: true }); else rmSync(dir, { force: true }); }
-    catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    try { if (existsSync(dir) && !lstatSync(dir).isSymbolicLink()) rmSync(dir, { recursive: true, force: true, ...RM_RETRY }); else rmSync(dir, { force: true }); }
+    catch (e: any) {
+      // Windows: 화면이 그 캐릭터 영상을 아직 열고 있으면 폴더째 못 지운다(EBUSY·EPERM). character.json 만 지워 목록에서 빼고
+      // 남은 파일은 다음에 켤 때 치운다(load 의 sweep). character.json 도 못 지우면 그대로 실패
+      try { rmSync(join(dir, "character.json"), { force: true, ...RM_RETRY }); } catch { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    }
     this.users.delete(id);
     const removedCurrent = this.install();
     this.onChange?.({ removedCurrent });
@@ -548,13 +575,11 @@ export class CharacterStore {
     const next: UserCharacter = { ...c, frames: { ...c.frames }, clips, media: multi ? { ...c.media } : { ...c.media, [slot]: file }, updated: this.now().toISOString() };
     try {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const tmp = join(dir, `.${file}.tmp`);
-      writeFileSync(tmp, bytes, { mode: 0o600 });
-      renameSync(tmp, join(dir, file));
+      writeFileAtomic(join(dir, file), bytes, { mode: 0o600, tmp: join(dir, `.${file}.tmp`) });
       this.saveUser(next);
     } catch (e: any) { return fail(500, `저장하지 못했어요(${e?.code ?? "오류"})`); }
     const old = multi ? undefined : c.media[slot];
-    if (old && old !== file) try { rmSync(join(dir, old), { force: true }); } catch { /* 남아도 쓰지 않는다 */ }
+    if (old && old !== file) try { rmSync(join(dir, old), { force: true, ...RM_RETRY }); } catch { /* 남아도 쓰지 않는다(다음에 켤 때 치운다) */ }
     this.users.set(id, next);
     this.changed();
     return { status: 200, body: { character: this.view().characters.find((x) => x.id === id), file, type: MEDIA_TYPES[k.ext] } };
@@ -578,7 +603,9 @@ export class CharacterStore {
       if (left.length) clips[slot] = left; else { delete clips[slot]; delete frames[slot]; }
     } else { delete media[slot]; delete frames[slot]; }
     const next = { ...c, media, clips, frames, updated: this.now().toISOString() };
-    try { this.saveUser(next); for (const f of gone) rmSync(join(this.dir, id, f), { force: true }); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    try { this.saveUser(next); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    // 목록에서는 이미 뺐다. 파일은 지워 보고, 못 지우면(Windows 에서 재생 중이라 잠김) 남겨 둔다 — 목록에 없는 파일은 쓰지도 내주지도 않는다
+    for (const f of gone) try { rmSync(join(this.dir, id, f), { force: true, ...RM_RETRY }); } catch { /* 다음에 켤 때 치운다 */ }
     this.users.set(id, next);
     this.changed();
     return { status: 200, body: { character: this.view().characters.find((x) => x.id === id) } };

@@ -5,7 +5,8 @@
 import { todayReminderOf, validateTodayReminder, type TodayReminder } from "./daily-plan.ts";
 import { calendarAlertOf, validateCalendarAlert, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { cleanDays, isHhmm, minutesOf, workHoursOf } from "./work-hours.ts";
-import { readFileSync, renameSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname, join } from "node:path";
 import { isAbsolute } from "node:path";
 import { BRAIN_PROVIDERS, DEFAULT_GENERAL_MODEL, HOME_DIR, configErrorText, type BrainProvider, type Config } from "./config.ts";
@@ -267,7 +268,7 @@ function mergePhrases(cur: Record<string, unknown>, patch: Record<string, string
 export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   let cur: Record<string, unknown> = {};
   if (existsSync(path)) {
-    const raw = readFileSync(path, "utf8");
+    const raw = stripBom(readFileSync(path, "utf8"));
     if (raw.trim()) {
       let v: unknown;
       try { v = JSON.parse(raw); } catch (e) { throw new ConfigFileError(`${configErrorText(e).replace(/ 안전 모드로 켰어요\./, " 설정을 저장하지 못했어요(파일은 덮어쓰지 않았어요).")}`); }
@@ -337,9 +338,7 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   for (const k of ["workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert"] as const) if (patch[k] !== undefined) next[k] = patch[k];
   if (patch.character) next.character = patch.character;
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
 }
 
 // 브리핑 과제 글: 뺀 출처는 확인하지도, 말하지도 않게 그 번호 줄을 빼고(번호는 다시 매김) 한 줄로 못 박는다. 뺀 게 없으면 원래 글 그대로.
@@ -512,7 +511,7 @@ export class Settings {
   // 예전부터 쓰던 사람이 마법사를 다시 마쳐도 그대로 돌게, 지금 쓰는 값을 같이 적는다(정한 값은 그대로)
   private withCurrentDefaults(patch: SettingsPatch): SettingsPatch {
     let file: Record<string, unknown> = {};
-    try { file = JSON.parse(readFileSync(this.path, "utf8")) ?? {}; } catch { file = {}; }
+    try { file = JSON.parse(stripBom(readFileSync(this.path, "utf8"))) ?? {}; } catch { file = {}; }
     const out: SettingsPatch = { ...patch };
     if (out.readSessions === undefined && typeof file.readSessions !== "boolean") out.readSessions = this.cfg.readSessions !== false;
     if (out.repoRoots === undefined && !Array.isArray(file.repoRoots)) out.repoRoots = [...(this.cfg.repoRoots ?? [])];

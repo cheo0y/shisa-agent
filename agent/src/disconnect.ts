@@ -2,7 +2,8 @@
 // config.json 의 connectors[cap] 을 { mode: "off" } 로 바꾼다(토큰·ICS 주소·서버 이름까지 그 칸을 통째로 지운다). 다른 칸은 그대로.
 // 그다음 메모리 cfg 도 바로 off 로 바꿔서 상태·대시보드·대화가 다음부터 그 연결을 안 쓴다(launchd 아래면 연결 다시 읽기로 데몬도 다시 켠다).
 // Claude Code 에 등록한 MCP 서버(`claude mcp add`)는 지우지 않는다. 화면이 `claude mcp remove <이름>` 을 안내하도록 이름만 돌려준다.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
 import { CAPABILITIES, type Capability, type Connectors } from "./connectors.ts";
 
@@ -21,7 +22,7 @@ export function withConnectorOff(cfg: Record<string, unknown>, cap: Capability):
 export function disconnectConnectorFile(path: string, cap: Capability): { changed: boolean } {
   let cur: Record<string, unknown> = {};
   if (existsSync(path)) {
-    const raw = readFileSync(path, "utf8");
+    const raw = stripBom(readFileSync(path, "utf8"));
     if (raw.trim()) {
       let v: unknown;
       try { v = JSON.parse(raw); } catch { throw new Error("config.json 을 읽을 수 없어요(JSON 오류). 덮어쓰지 않았어요"); }
@@ -32,9 +33,7 @@ export function disconnectConnectorFile(path: string, cap: Capability): { change
   const next = withConnectorOff(cur, cap);
   if (JSON.stringify(next) === JSON.stringify(cur)) return { changed: false };
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return { changed: true };
 }
 
