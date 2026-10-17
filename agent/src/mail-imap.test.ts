@@ -62,7 +62,7 @@ test("읽기 전용: 서버가 EXAMINE 을 READ-WRITE 로 열면 아무것도 �
 
 test("코드에 쓰기 호출이 없다: 플래그 바꾸기·지우기·옮기기·복사·보내기", () => {
   const src = readFileSync(new URL("./mail-imap.ts", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(src, /messageFlags(Add|Remove|Set)|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|nodemailer|smtp/i);
+  assert.doesNotMatch(src, /messageFlags(Add|Remove|Set)|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|nodemailer|smtp[A-Za-z]*\(|createTransport/i);
   assert.match(src, /mailboxOpen\("INBOX", \{ readOnly: true \}\)/);
 });
 
@@ -159,4 +159,12 @@ test("TLS(993 처럼): 자체 서명 인증서 서버에 붙어 읽는다(시험
     const ok = await fetchRecentMail(c, { now: NOW, tls: { ca: cert } });
     assert.ok(ok.ok, JSON.stringify(ok));
   });
+});
+
+test("네이버 「check IMAP/SMTP settings in the webmail」: IMAP 사용함·저장부터 짚는다", () => {
+  const e = { authenticationFailed: true, responseText: '"me@naver.com": Authentication failed. (Please check IMAP/SMTP settings in the webmail)' };
+  const r = mailFailure(e, { preset: "naver", host: "imap.naver.com", password: "pw" });
+  assert.equal(r.code, "auth");
+  assert.match(r.reason, /IMAP\/SMTP 설정」 탭/);
+  assert.match(r.reason, /애플리케이션 비밀번호/);
 });

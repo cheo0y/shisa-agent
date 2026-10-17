@@ -63,6 +63,10 @@ export function mailFailure(err: any, c: Pick<MailTarget, "preset" | "host" | "p
   if (/administrator|your (domain|organization)|admin(istrator)? (has )?(disabled|blocked)|관리자/i.test(text)) {
     return out("admin", "회사·학교 계정 관리자가 IMAP 이나 앱 비밀번호를 막아 두었어요. 관리자에게 물어보거나 개인 계정을 써 주세요.");
   }
+  // 네이버: IMAP 이 꺼져 있어도 비밀번호가 틀려도 같은 답 — 둘 다 짚는다
+  if (c.preset === "naver" && /check IMAP\/SMTP settings in the webmail/i.test(text)) {
+    return out("auth", "네이버가 로그인을 받지 않았어요. 먼저 네이버 메일 환경설정 → POP3/IMAP 설정 → 「IMAP/SMTP 설정」 탭에서 IMAP/SMTP 사용을 「사용함」으로 바꾸고 저장했는지 봐 주세요. 켜져 있는데도 안 되면 애플리케이션 비밀번호를 새로 만들어 넣어 주세요.");
+  }
   if (err?.authenticationFailed || /AUTHENTICATIONFAILED|AUTHENTICATE failed|Invalid credentials|LOGIN failed|authentication failed|incorrect (username|password)|bad credentials|NO \[AUTH/i.test(text)) {
     const hint = c.preset === "custom" ? "메일 주소와 비밀번호를 다시 확인해 주세요." : MAIL_PRESETS[c.preset].authHint;
     return out("auth", `메일 주소나 비밀번호가 맞지 않아요. ${hint}`);
