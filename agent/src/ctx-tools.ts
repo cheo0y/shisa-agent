@@ -20,6 +20,7 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
+import { mailContext } from "./mail-sync.ts";
 
 export { CTX_SERVER, CTX_TOOL_NAMES };
 export type ContextMode = "tools" | "inline";
@@ -49,7 +50,7 @@ export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작
 
 // 매 턴 붙는 작은 머리말: 지금 시각(KST), 사용자, 이 대화(스레드·할 일). 집어 든 할 일의 자세한 블록은 chat.ts focusBlock
 // guidelines: 사용자가 정한 행동 지침 블록(guidelines.ts guidelinesBlock) — 상한(HEADER_MAX)과 따로, 늘 끝에 붙는다
-export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string } = {}): string {
+export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string; mail?: string } = {}): string {
   const now = opts.now ?? new Date();
   const who = [cfg.gitAuthor?.name ? `GitHub ${cfg.gitAuthor.name}` : "", cfg.slackUserId ? `Slack ${cfg.slackUserId}` : ""].filter(Boolean).join(", ");
   const lines = [
@@ -60,6 +61,7 @@ export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & P
   ];
   if (opts.thread) lines.push(`- 이 대화: ${KIND_KO[opts.thread.kind] ?? opts.thread.kind} "${clip(opts.thread.title, 60)}"`);
   if (opts.focus) lines.push(`- 대상 할 일: id=${opts.focus.id} [P${opts.focus.priority}] ${clip(opts.focus.title, 80)}`);
+  if (opts.mail) lines.push(clip(opts.mail, 160)); // 메일(IMAP)을 연결했으면 몇 통 왔는지 한 줄(mail-sync.ts mailSummaryLine)
   lines.push(CTX_POINTER);
   const out = lines.join("\n");
   const head = out.length > HEADER_MAX ? out.slice(0, HEADER_MAX - 1) + "…" : out;
@@ -72,6 +74,7 @@ export const CTX_GUIDE = `- 업무 맥락은 프롬프트에 넣지 않았다. �
   - 할 일(뭐 해야 돼·열린 일·백로그·끝낸 일·todo_ops 에 쓸 id·할 일 규칙) → todos_list(status)
   - 어제·최근에 한 작업 → sessions_recent(project?, hours?) — 한 세션의 마지막 요청·응답 전문은 session_get(id)
   - 답 안 한 Slack DM·멘션 → slack_unanswered · 다가오는 회의(respond_event 의 event_id) → meetings_upcoming
+  - 최근 받은 메일(메일 앱 비밀번호 연결 — 보낸 사람·제목·본문 앞부분) → mail_recent
   - 프로젝트 현황(내가 만든 프로젝트·할 일 수 포함)·오늘 커밋·진행 중인 제안 → dashboard_summary · 최근 7일 프로젝트(레포 경로) → projects_recent
   - 사용자 취향·습관·자주 일하는 사람 → profile_get
 - 인사·잡담·짧은 대꾸, 또는 이 대화에 이미 나온 정보로 답할 수 있으면 cy 도구를 부르지 않는다. 필요할 때도 꼭 필요한 것만(보통 1–3번).
@@ -233,6 +236,10 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
       return out("최근 7일 프로젝트 (레포 경로 — 코드 작업 proposals 의 repo 는 여기 경로)", [...ps.map((p) =>
         `- ${p.name} (${p.path}) — 마지막 활동 ${fmtTime(p.lastActive)}, 24h 세션 ${p.sessions24h}, 오늘 커밋 ${p.commitsToday}${p.branch ? `, ${p.branch}` : ""}${p.lastTitle ? ` · 최근: ${clip(p.lastTitle, 60)}` : ""}`), ...mine].join("\n"));
     }),
+    mail_recent: () => guard("최근 받은 메일", () => {
+      const s = mailContext(store);
+      return out("최근 받은 메일 (받은편지함 읽기 전용)", s ? s.split("\n").slice(1).join("\n") : "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+    }),
     meetings_upcoming: () => guard("다가오는 회의", () => {
       const s = meetingsContext(store, now());
       return out("다가오는 회의 (회의 응답 도구의 일정 id 는 eventId)", s.split("\n").slice(1).join("\n")); // 비어 있으면 캘린더 상태 한 줄(calendar-state.ts)
@@ -256,6 +263,7 @@ export function ctxMcpServer(cfg: Config, store: Store, deps: CtxDeps = {}) {
     tool("slack_unanswered", "아직 답 안 한 Slack DM·멘션(로컬 수집 확정 목록)", { hours: z.number().int().min(1).max(168).optional().describe("기본 24") }, h.slack_unanswered, RO),
     tool("dashboard_summary", "내가 만든 프로젝트(id·기한·남은 할 일)·오늘 커밋 수·진행 중인 제안·마지막 브리핑", {}, h.dashboard_summary, RO),
     tool("projects_recent", "최근 7일 프로젝트(레포 경로·마지막 활동·세션·커밋·브랜치)", {}, h.projects_recent, RO),
+    tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분)", {}, h.mail_recent, RO),
     tool("meetings_upcoming", "다가오는 회의(eventId·시간·내 응답) — 회의 수락·거절할 때", {}, h.meetings_upcoming, RO),
   ];
   return createSdkMcpServer({

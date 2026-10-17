@@ -15,6 +15,7 @@ import { classify, connectorServerUrls } from "./mcp-health.ts";
 import { argv as ghArgv, runGh } from "./gh.ts";
 import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./connectors.ts";
 import type { CalendarState } from "./calendar-state.ts";
+import type { MailState } from "./mail-sync.ts";
 import { hasUserMcpServer } from "./mcp.ts";
 import { authFailText, brainAuthFailed, brainCreditNeeded, brainKeyReady, creditFailText, type KeyProvider } from "./providers.ts";
 import { NEEDS_CLAUDE_MCP } from "./feature-brain.ts";
@@ -83,6 +84,7 @@ export type ConnectionsDeps = {
   lastRun?: (kind: RunKind) => Run | undefined;
   kg?: () => { phase: string; reason?: string; step?: string } | undefined;
   calendar?: () => CalendarState; // 캘린더 동기화 상태(calendar-sync.ts): 연결됨 줄·캘린더 동기화 줄이 실제 결과를 따른다
+  mail?: () => MailState;         // 메일(IMAP) 동기화 상태(mail-sync.ts): 메일 줄이 가져온 메일 수·실패 이유를 따른다
 };
 
 const worst = (xs: ConnState[]): ConnState => (["error", "warn", "unknown", "ok", "off"] as ConnState[]).find((s) => xs.includes(s)) ?? "unknown";
@@ -101,7 +103,7 @@ export function sdkLoggedIn(s: Pick<SdkProbe, "account" | "error">): boolean {
 
 export class Connections {
   private cfg: Config;
-  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar">;
+  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail">;
   http: Record<string, HttpProbe> = {};
   sdk?: SdkProbe;
   ghr?: GhProbe;
@@ -120,6 +122,7 @@ export class Connections {
       env: deps.env ?? process.env,
       lastRun: deps.lastRun,
       calendar: deps.calendar,
+      mail: deps.mail,
       kg: deps.kg,
     };
   }
@@ -216,7 +219,7 @@ export class Connections {
       const row: ConnRow = {
         id: `connector:${cap}`, label: st.label, group: "service", check: "local", checkedAt: at, doc: st.doc,
         used: st.mode !== "off", state: st.mode === "off" ? "off" : st.ready ? "ok" : "error", detail: st.detail,
-        summary: st.mode === "off" ? "연결 안 함" : st.mode === "api" ? "직접 연결(API)" : `MCP (${x.mode === "mcp" ? x.server : ""})`,
+        summary: st.mode === "off" ? "연결 안 함" : st.mode === "api" ? "직접 연결(API)" : st.mode === "imap" ? "직접 연결(IMAP, 읽기만)" : `MCP (${x.mode === "mcp" ? x.server : ""})`,
         briefing: brief([cap as Capability]),
         ...(x.mode === "mcp" ? { server: x.server } : {}),
       };
@@ -246,6 +249,15 @@ export class Connections {
       if (cs?.phase === "pending") row.detail = `${row.detail} · 일정 가져오는 중`;
       else if (cs?.phase === "ok") row.detail = `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
       else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
+      // 메일(IMAP): 설정만 보고 「연결됨」이라 하지 않는다. 가져온 메일 수·못 가져온 이유를 같은 줄에. AI 가 없으면 할 일로는 못 뽑는다
+      const ms = cap === "mail" && x.mode === "imap" && st.ready ? this.d.mail?.() : undefined;
+      if (ms?.phase === "pending") row.detail = `${row.detail} · 메일 가져오는 중`;
+      else if (ms?.phase === "ok") {
+        const stale = ms.at ? now.getTime() - Date.parse(ms.at) > 60 * 60e3 : false;
+        row.detail = `${row.detail} · 최근 ${ms.sinceHours ?? 24}시간 메일 ${ms.count ?? 0}통 가져옴 (${ago(ms.at, now)})`;
+        if (stale) { row.state = "warn"; row.detail = `${row.detail} · 오래됐어요`; }
+      } else if (ms?.phase === "failed") { row.state = "error"; row.detail = `${row.detail} · 메일을 가져오지 못했어요 (${ago(ms.at, now)})`; row.error = ms.reason; }
+      if (x.mode === "imap" && provider === "local") row.detail = `${row.detail} · AI를 연결하면 메일에서 할 일을 뽑아요`;
       // MCP 연결은 Claude Code 뇌로만 읽는다 — 다른 뇌면 등록돼 있어도 브리핑에 안 들어간다
       if (x.mode === "mcp" && provider !== "claude-code") {
         row.state = row.state === "error" ? "error" : "warn";

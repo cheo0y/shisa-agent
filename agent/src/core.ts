@@ -62,6 +62,8 @@ export interface SlackPort {
 }
 
 export type Deps = {
+  // 브리핑 직전에 한 번(메일 IMAP 을 새로 가져온다 — main.ts). 실패해도 브리핑은 그대로
+  beforeBriefing?: () => Promise<unknown>;
   think: typeof realThink;
   runFix: (cfg: Config, p: Proposal, onStep: (s: string) => void) => Promise<FixResult>;
   mergePr: (url: string, headOid?: string) => string | Promise<string>; // headOid: 승인한 커밋(그 사이 새 커밋이 오면 gh 가 거절)
@@ -506,6 +508,7 @@ export class Agent {
     this.bus.setMood("thinking");
     try {
       this.ingest();
+      if (this.deps.beforeBriefing) await this.deps.beforeBriefing().catch(() => {});
       // 실제로 쓸 수 있는 커넥터 기능(mcp 면 서버가 등록돼 있나). 연결 안 된 출처는 지시에서 뺀다
       const conns = this.cfg.connectors ?? CONNECTORS;
       let ready: ReadonlySet<SourceId> | null = null;

@@ -39,7 +39,7 @@ export function readySources(c: Connectors = CONNECTORS, has: (server: string) =
   const out = new Set<SourceId>();
   for (const cap of CAPABILITIES) {
     const x = c[cap];
-    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.icsUrls.length > 0 : false) : false) out.add(cap);
+    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.icsUrls.length > 0 : false) : x.mode === "imap" ? !!x.password : false) out.add(cap);
   }
   return out;
 }
@@ -94,6 +94,7 @@ export function briefingTask(c: Connectors | null = CONNECTORS, ready: ReadonlyS
     else steps.push(`${STEP_HEAD.calendar} 위 "오늘·내일 일정"(로컬 캐시)에서 준비가 필요한 회의`);
   }
   if (usable("mail") && mail.mode === "mcp") steps.push(`${STEP_HEAD.mail} 최근 24시간 받은 메일 중 답장/조치가 필요한 것(${tool(mail, "search", "read")})`);
+  else if (usable("mail") && mail.mode === "imap") steps.push(`${STEP_HEAD.mail} 위 "최근 받은 메일"(데몬이 받은편지함에서 읽기 전용으로 가져온 것 — 메일 도구는 없다)에서 답장이나 조치가 필요한 것만 할 일로. 광고·뉴스레터·자동 알림(「광고·뉴스레터·자동 발송으로 보임」·noreply 보낸 사람·단순 공지)은 뺀다. source 는 "mail", source_ref 는 그 줄의 ref, link 는 그 줄의 링크(있으면)`);
   if (usable("slack")) {
     if (slack.mode === "api") steps.push(`${STEP_HEAD.slack} 위 "아직 답 안 한 Slack DM·멘션" 확정 목록(로컬 수집)만 기준으로 한다 — 실시간 Slack 도구는 없다`);
     else if (slack.mode === "mcp") steps.push(`${STEP_HEAD.slack} 위 "아직 답 안 한 Slack DM·멘션" 확정 목록이 있으면 그걸 기준으로 하고, 없을 때만 최근 24시간 나를 멘션한 메시지·DM 중 답 안 한 것(${tool(slack, "search", "history", "replies")})`);

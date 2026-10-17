@@ -16,11 +16,19 @@ const RULES: [RegExp, string][] = [
   [/\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi, `Bearer ${REDACT}`],
   [/Authorization:\s*\S+/gi, `Authorization: ${REDACT}`],
   [/(?:webcal|https?):\/\/\S+?\.ics(?:\?\S*)?/gi, "[달력주소 숨김]"],
+  [/("?(?:password|pass|mailPassword)"?\s*[:=]\s*)("[^"]*"|[^\s,}]+)/gi, `$1${REDACT}`], // 메일 비밀번호(config 조각이 섞여도)
   [/\b[A-Za-z0-9_-]{72,}\b/g, REDACT],
 ];
 
+// 값으로 가리기: 설정에서 읽은 비밀(메일 비밀번호 등)은 모양을 몰라도 그 글자 그대로 가린다(mail-sync.ts 가 넣는다)
+const SECRET_VALUES = new Set<string>();
+export function addLogSecret(v: string | undefined): void {
+  if (v && v.length >= 4) SECRET_VALUES.add(v);
+}
+
 export function redactLog(text: string): string {
   let s = String(text ?? "");
+  for (const v of SECRET_VALUES) if (s.includes(v)) s = s.split(v).join(REDACT);
   for (const [re, rep] of RULES) {
     re.lastIndex = 0;
     s = s.replace(re, rep);

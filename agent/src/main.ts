@@ -29,6 +29,8 @@ import { execFile } from "node:child_process";
 import { openSpec } from "./plat.ts";
 import { CalendarSync, alertDetail, alertVars } from "./calendar-sync.ts";
 import { withCalendarSync } from "./calendar-state.ts";
+import { MailSync, withMailSync } from "./mail-sync.ts";
+import { connectMail } from "./mail-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { withRun, asRoutine } from "./runs.ts";
 import { KgBackfill } from "./kg/backfill.ts";
@@ -99,6 +101,9 @@ focus.startTimer();
 // 일정 알림(설정 calendarAlert, 기본 10분 전): 오늘·내일 일정(커넥터 calendar: ICS·MCP, 읽기 전용). 30분마다·깨어날 때 다시 가져온다
 const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind: "calendar", title: "캘린더 동기화", model: cfg.models.light }, fn) });
 calendar.onChange = () => bus.dashboardChanged();
+// 메일(앱 비밀번호 IMAP, 읽기 전용): 15분마다·브리핑 직전에 받은편지함을 가져와 브리핑·채팅 맥락에 넣는다(mail-sync.ts)
+const mailSync = new MailSync(store, cfg.connectors.mail);
+mailSync.onChange = () => bus.dashboardChanged();
 // 터미널 Claude Code 에서 이어 간 대화 불러오기(세션 창 ↻·"Claude Code에서 열기" 뒤 지켜보기). 시작할 땐 아무것도 안 한다
 const cliSync = new CliSync({ runs, db: store.db, store, onThread: (id) => bus.threads({ thread: store.thread(id) }), log: (m) => console.log(m) });
 // 대화 속 서브에이전트·작업 세션 카드: 바뀌면 ≈1초 모아 SSE agents {threadId} → 패널이 다시 가져온다
@@ -108,7 +113,7 @@ let slack = createSlack(cfg, () => agent);
 // 채팅 슬래시 명령 목록: 처음 물을 때 SDK 에서(모델 턴 없이), 10분마다 새로
 const commands = new SlashCommands(() => loadCommands());
 agent = new Agent(cfg, store, bus, slack?.port, { retitle: suggestTitle, commands, mergePr, greetOk: (part) => (part === "morning" ? !!workAlerts.claim("start") : Date.now() - startGreetAt > GREET_QUIET_MS),
-  autoMergeOp: (op, slug) => settings.autoMergeOp(op, slug) }); // 새 대화 제목: 가벼운 모델(답 뒤에 따로) · 자동 머지 레포는 설정 창과 같은 config.json 에
+  autoMergeOp: (op, slug) => settings.autoMergeOp(op, slug), beforeBriefing: () => (mailSync.enabled ? mailSync.sync() : Promise.resolve()) }); // 새 대화 제목: 가벼운 모델(답 뒤에 따로) · 자동 머지 레포는 설정 창과 같은 config.json 에
 // 캐릭터 반응(그림 말풍선·진행 보고·머지 승인). 하루 한 번 규칙은 reactions.json 에 남는다
 const reactions = new Reactions(bus, { logPath: join(HOME_DIR, "reactions.json"), lotsThreshold: Number(process.env.CY_LOTS_THRESHOLD) || 8 });
 agent.setReactions(reactions, realMergeAsk(cfg));
@@ -181,6 +186,14 @@ function reloadConnectors(): { changed: boolean; restarting: boolean; applied?: 
     pushStatus();
     bus.dashboardChanged();
   }
+  // 메일도 다시 켜지 않고 바로 반영한다(연결 확인·연결 해제 뒤)
+  if (connectorsChanged({ ...cfg.connectors, mail: next.mail }, cfg.connectors)) {
+    cfg.connectors.mail = next.mail;
+    mailSync.setConnector(next.mail);
+    applied = true;
+    console.log(`[connectors] 메일 연결이 바뀜(${next.mail.mode})`);
+    bus.dashboardChanged();
+  }
   const changed = connectorsChanged(cfg.connectors, next);
   const restarting = changed && process.env.CY_AGENT_SUPERVISED === "1";
   if (changed) console.log(`[connectors] config.json 의 연결이 바뀜, ${restarting ? "다시 시작해요" : "데몬을 다시 켜야 다 반영돼요"}`);
@@ -207,7 +220,7 @@ const settings = new Settings(cfg, { onChange: (keys) => {
   if (keys.includes("character")) bus.characterChanged(); // 앱 그림·영상을 바로 바꾼다
 } });
 let kgStatus: (() => { phase: string; reason?: string; step?: string }) | undefined;
-const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state() });
+const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state(), mail: () => mailSync.state() });
 // GET /status: 뇌가 claude-code 인데 로그인 확인 전이면 한 번 확인을 걸고(비동기) 끝나면 SSE status 로 알린다
 const status = () => statusOf(cfg, { claude: () => connections.claudeLoggedIn() });
 let claudeProbe: Promise<void> | undefined;
@@ -227,7 +240,7 @@ await bus.listen(cfg.port, {
   dashboard: async () => ({
     ...(await agent.dashboard()),
     meetings: calendar.enabled ? calendar.upcoming().map(({ webLink: _w, ...m }) => m) : [],
-    connectors: withCalendarSync(withMcpBrain(cfg, connectorStatus(conns)), calendar.state()), // MCP 연결은 Claude Code 뇌일 때만 읽는다. 캘린더는 실제로 가져왔는지도
+    connectors: withMailSync(withCalendarSync(withMcpBrain(cfg, connectorStatus(conns)), calendar.state()), mailSync.state()), // MCP 연결은 Claude Code 뇌일 때만 읽는다. 캘린더는 실제로 가져왔는지도
   }),
   todoDone: (id) => agent.todoDone(id),
   todoAdd: (t) => agent.addTodo(t),
@@ -330,12 +343,24 @@ await bus.listen(cfg.port, {
     return status();
   },
   connectorsReload: () => reloadConnectors(),
+  // 메일(앱 비밀번호): 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 동기화 결과로)
+  mailConnect: (body) => connectMail(body, {
+    path: join(HOME_DIR, "config.json"), current: () => cfg.connectors.mail,
+    apply: (conn, r) => {
+      cfg.connectors.mail = conn;
+      mailSync.accept(conn, r);
+      console.log(`[connectors] 메일 연결함(${conn.preset}, ${r.items.length}통)`); // 주소·비밀번호는 남기지 않는다
+      pushStatus();
+      bus.dashboardChanged();
+    },
+  }),
   // [연결 해제]: 그 기능만 off(토큰·ICS 주소도 지움) → 다시 읽기 → 메모리도 바로 off
   connectorDisconnect: (cap) => disconnectConnector(cap, {
     path: join(HOME_DIR, "config.json"), cfg, reload: reloadConnectors,
     changed: () => {
       console.log(`[connectors] ${String(cap)} 연결 해제`);
       if (cap === "calendar") calendar.disable(); // 동기화·회의 알림을 바로 멈춘다
+      if (cap === "mail") mailSync.disable(); // 가져온 메일도 지운다
       if (cap === "slack") try { slackIngester.transport = null; } catch { /* 아직 안 만들어졌으면 만들 때 off 를 읽는다 */ } // 다음 수집부터 안 한다
       pushStatus();
       bus.dashboardChanged();
@@ -345,6 +370,7 @@ await bus.listen(cfg.port, {
 console.log(`[cy-agent] 버스 http://127.0.0.1:${cfg.port}`);
 // 캘린더는 버스가 뜨자마자 가져온다(작업 기록 읽기 등 긴 시작 일이 끝날 때까지 「연결됨」인데 일정이 빈 채로 두지 않는다)
 // 일정 N분 전(설정 calendarAlert): 춤 + 말풍선(회의실·온라인 여부, 링크 버튼은 회의 링크, 없으면 캘린더 일정). 일정·분마다 한 번(DB에 남김)
+const stopMail = mailSync.schedule(); // 연결돼 있으면 바로 한 번, 그다음 15분마다
 const stopCalendar = asRoutine(calendar.schedule.bind(calendar))((m, text, mins) => {
   // 영상 번호는 데몬이 고른다. 그 영상에 전용 한마디가 있으면 일정 말풍선 글 대신(같은 자리표시 {mins}·{title}·{time}·{where})
   const d = bus.activity.play(8000, "plan");
@@ -540,6 +566,7 @@ async function shutdown() {
   shuttingDown = true;
   bus.stopping = true; // GET /status stopping: true — 새로 뜬 앱이 이 데몬이 곧 사라질 걸 안다
   stopCalendar();
+  stopMail();
   try { focus.checkpoint(); } catch { /* 꺼지는 중 */ }
   await canvas.flush().catch(() => {});
   bus.close();

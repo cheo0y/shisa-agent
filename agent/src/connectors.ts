@@ -5,26 +5,29 @@
 //                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더")
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
+//   mode = "imap"    — 메일만. 메일 주소 + 앱 비밀번호로 받은편지함을 읽기 전용으로 연다(mail-imap.ts: EXAMINE·BODY.PEEK, 쓰기 명령 없음).
+//                       preset = gmail · naver · daum(서버 주소를 채운다), 그 밖의 IMAP 은 host·port 를 직접. 데몬이 직접 가져와 모델에 넘긴다(어느 뇌든 된다)
 //   mode = "off"     — 안 쓴다. 관련 기능은 조용히 빠지고 패널에 "연결 안 됨"으로 보인다.
 //
-// connectors 를 안 쓰면 전부 off. 비밀값(토큰·ICS 주소)은 환경변수로도 줄 수 있다: CY_AGENT_SLACK_USER_TOKEN, CY_AGENT_CALENDAR_ICS_URL.
+// connectors 를 안 쓰면 전부 off. 비밀값(토큰·ICS 주소·메일 비밀번호)은 환경변수로도 줄 수 있다: CY_AGENT_SLACK_USER_TOKEN, CY_AGENT_CALENDAR_ICS_URL, CY_AGENT_MAIL_PASSWORD.
 // 쓰기 도구는 어느 모드에서도 막힌다(guard.ts). 매핑에 쓰기 도구 이름을 적어도 허용 목록에 들어가지 않는다.
 import { readFileSync } from "node:fs";
 import { stripBom } from "./fs-atomic.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { hasUserMcpServer } from "./mcp.ts";
+import { MAIL_PRESETS, isMailPreset, mailHostOk, type MailPresetId } from "./mail-presets.ts";
 
 export const CAPABILITIES = ["slack", "calendar", "mail", "issues"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
-export type Mode = "mcp" | "api" | "off";
+export type Mode = "mcp" | "api" | "imap" | "off";
 
 export const CAP_LABELS: Record<Capability, string> = { slack: "Slack", calendar: "캘린더", mail: "메일", issues: "이슈" };
-// 기능별로 고를 수 있는 모드(api 는 slack·calendar 만)
+// 기능별로 고를 수 있는 모드(api 는 slack·calendar 만, imap 은 메일만)
 export const MODES: Record<Capability, readonly Mode[]> = {
   slack: ["api", "mcp", "off"],
   calendar: ["api", "mcp", "off"],
-  mail: ["mcp", "off"],
+  mail: ["imap", "mcp", "off"],
   issues: ["mcp", "off"],
 };
 // 매핑할 수 있는 역할(우리 코드·프롬프트가 부르는 몇 안 되는 도구)
@@ -75,9 +78,15 @@ export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
 export type CalendarApiConn = { cap: "calendar"; mode: "api"; icsUrls: string[]; timeZone: string; email?: string };
-export type Conn = OffConn | McpConn | SlackApiConn | CalendarApiConn;
+// 메일 IMAP: password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다). sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24)
+// skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬). 다른 서비스는 모델이 광고성을 거른다
+export type MailImapConn = {
+  cap: "mail"; mode: "imap"; preset: MailPresetId | "custom"; host: string; port: number; secure: boolean;
+  user: string; password?: string; sinceHours: number; skipPromotions: boolean;
+};
+export type Conn = OffConn | McpConn | SlackApiConn | CalendarApiConn | MailImapConn;
 type Common = OffConn | McpConn;
-export type Connectors = { slack: Common | SlackApiConn; calendar: Common | CalendarApiConn; mail: Common; issues: Common };
+export type Connectors = { slack: Common | SlackApiConn; calendar: Common | CalendarApiConn; mail: Common | MailImapConn; issues: Common };
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 // 예시 설정의 자리표시자(xoxp-..., …/.../basic.ics)는 값이 없는 것으로 본다
@@ -107,6 +116,7 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
       if (!server) return { cap, mode: "off", reason: `${cap}: mcp 모드엔 server(등록한 MCP 서버 이름)가 필요해요` };
       return { cap, mode, server, ...(presetName ? { preset: presetName } : {}), tools };
     }
+    if (mode === "imap") return mailImapConn(c, env);
     // api
     if (cap === "slack") return { cap, mode: "api", userToken: secret(env.CY_AGENT_SLACK_USER_TOKEN) || secret(c?.userToken) };
     return {
@@ -119,6 +129,32 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
   return {
     slack: one("slack") as Connectors["slack"], calendar: one("calendar") as Connectors["calendar"],
     mail: one("mail") as Connectors["mail"], issues: one("issues") as Connectors["issues"],
+  };
+}
+
+// connectors.mail(mode imap) → 연결. 프리셋이 서버 주소를 채우고, 그 밖은 host·port 를 직접(암호화 없는 연결은 이 컴퓨터 안 주소만)
+export function mailImapConn(c: Record<string, any>, env: NodeJS.ProcessEnv = process.env): MailImapConn | OffConn {
+  const presetName = str(c?.preset) ?? (str(c?.host) ? "custom" : "gmail");
+  if (presetName !== "custom" && !isMailPreset(presetName)) return { cap: "mail", mode: "off", reason: `mail: 모르는 메일 서비스 "${presetName}"` };
+  const p = presetName === "custom" ? undefined : MAIL_PRESETS[presetName];
+  const host = (p ? p.host : str(c?.host))?.toLowerCase();
+  if (!host || !mailHostOk(host)) return { cap: "mail", mode: "off", reason: "mail: imap 모드엔 메일 서버 주소(host)가 필요해요" };
+  const portRaw = Number(c?.port);
+  const port = p ? p.port : Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : 993;
+  const loopback = /^(127\.0\.0\.1|localhost|::1)$/.test(host);
+  const secure = p ? true : c?.secure === false && loopback ? false : true;
+  const user = str(c?.user) ?? "";
+  if (!user) return { cap: "mail", mode: "off", reason: "mail: imap 모드엔 메일 주소(user)가 필요해요" };
+  const pw = (v: unknown) => (typeof v === "string" && v.trim() && !/\.\.\.|…|YOUR_/.test(v) ? v : undefined);
+  // Gmail 앱 비밀번호는 4글자씩 띄어 보여 준다 — 띄어쓰기를 빼고 쓴다. 다른 서비스 비밀번호는 앞뒤 공백만
+  const clean = (v: string | undefined) => (v === undefined ? undefined : presetName === "gmail" ? v.replace(/\s+/g, "") : v.trim());
+  const password = clean(pw(env.CY_AGENT_MAIL_PASSWORD) ?? pw(c?.password));
+  const h = Number(c?.sinceHours);
+  return {
+    cap: "mail", mode: "imap", preset: presetName as MailImapConn["preset"], host, port, secure, user,
+    ...(password ? { password } : {}),
+    sinceHours: Number.isFinite(h) && h > 0 ? h : 24,
+    skipPromotions: c?.skipPromotions !== false,
   };
 }
 
@@ -162,7 +198,8 @@ export function slackIngestMode(c: Connectors = CONNECTORS): "api" | null {
 // ── 상태(패널 "연결" 카드) ───────────────────────────────────
 
 // server: mcp 모드일 때 Claude Code 에 등록한 서버 이름([연결 해제] 뒤 `claude mcp remove <이름>` 안내에 쓴다)
-export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string };
+// account·preset: imap 메일이면 연결한 주소와 서비스(gmail·naver·daum·custom). 비밀번호는 넣지 않는다
+export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string; account?: string; preset?: string };
 
 export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string) => boolean = hasUserMcpServer): ConnectorStatus[] {
   return CAPABILITIES.map((cap) => {
@@ -171,6 +208,11 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
     switch (x.mode) {
       case "off": return { ...base, ready: false, detail: x.reason ?? "연결 안 됨" };
       case "mcp": return has(x.server) ? { ...base, server: x.server, ready: true, detail: `MCP ${x.server}${x.preset ? ` (${x.preset})` : ""}` } : { ...base, server: x.server, ready: false, detail: `MCP 서버 "${x.server}"가 Claude Code에 등록돼 있지 않아요` };
+      case "imap": {
+        const name = x.preset === "custom" ? x.host : MAIL_PRESETS[x.preset].label;
+        const who = { account: x.user, preset: x.preset };
+        return x.password ? { ...base, ...who, ready: true, detail: `${name} IMAP (${x.user}, 읽기만)` } : { ...base, ...who, ready: false, detail: "메일 비밀번호(앱 비밀번호)가 없어요" };
+      }
       case "api":
         if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: "Slack Web API (사용자 토큰)" } : { ...base, ready: false, detail: "userToken(xoxp-…)이 없어요" };
         return x.icsUrls.length ? { ...base, ready: true, detail: `ICS ${x.icsUrls.length}개` } : { ...base, ready: false, detail: "icsUrl이 없어요" };
