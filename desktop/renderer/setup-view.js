@@ -6,7 +6,7 @@ import { sayFor, providerById, connectSteps, slotCheck, BRAIN_CHOICES, EXTRAS, S
 import { setupSummary, okFolder } from '../src/setup-plan.js';
 import { HUB_CAP, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { calendarRemoveCopy } from '../src/calendars.js';
-import { MAIL_SERVICES, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, mailService, guessService, mailFormCheck, mailConnectBody, mailStatusText } from '../src/mail-connect.js';
+import { MAIL_SERVICES, MAIL_CHECK, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, mailService, guessService, mailFormCheck, mailConnectBody, mailStatusText } from '../src/mail-connect.js';
 
 const slotValues = new Map();
 let redraw = null;
@@ -454,6 +454,9 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onOpen }
   }
   kids.push(h('ol.setup-mail-steps', null, svc.steps.map((t) => h('li', null, ...richNodes(t)))));
   if (svc.links.length && onOpen) kids.push(h('div.setup-fields.row', null, svc.links.map((l) => h('button.ghost', { type: 'button', text: l.label, title: l.url, onclick: () => onOpen(l.url) }))));
+  // 자세한 방법(서비스별)·연결한 뒤 확인하기: 접어 두고 눌러서 펼친다
+  if (svc.guide?.length) kids.push(h('details.setup-mail-more', null, h('summary', { text: `${svc.title} 자세한 방법 보기` }), h('ol', null, svc.guide.map((t) => h('li', null, ...richNodes(t))))));
+  kids.push(h('details.setup-mail-more', null, h('summary', { text: '연결한 뒤 확인하기' }), h('ol', null, MAIL_CHECK.map((t) => h('li', null, ...richNodes(t))))));
   kids.push(h('div.setup-fields', null, ...fields));
   kids.push(h('small.setup-mail-note', { text: ['읽기만 해요. 보내기·지우기·읽음 표시 바꾸기는 하지 않아요.', svc.note, '비밀번호는 이 맥의 시사 설정 파일에만 저장해요.'].filter(Boolean).join(' ') }));
   if (result && !result.ok) kids.push(h('p.setup-gate', null, ...richNodes(result.text)));
