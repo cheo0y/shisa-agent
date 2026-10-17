@@ -124,10 +124,10 @@ test("가져오기: 계정마다 따로 · 하나가 실패해도 나머지는 �
   assert.deepEqual(seen.sort(), ["me@gmail.com", "me@naver.com"]);
   assert.equal(s.phase, "ok");
   assert.equal(s.count, 2);
-  assert.equal(s.reason, "me@naver.com: 메일 주소나 비밀번호가 맞지 않아요.");
+  assert.equal(s.reason, "me@naver.com: 메일 주소나 비밀번호가 맞지 않아요. 더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요).");
   const [g, n] = s.accounts!;
   assert.deepEqual({ phase: g.phase, count: g.count, lastOkAt: g.lastOkAt }, { phase: "ok", count: 2, lastOkAt: NOW.toISOString() });
-  assert.deepEqual({ phase: n.phase, reason: n.reason, code: n.code }, { phase: "failed", reason: "메일 주소나 비밀번호가 맞지 않아요.", code: "auth" });
+  assert.deepEqual({ phase: n.phase, reason: n.reason, code: n.code }, { phase: "failed", reason: "메일 주소나 비밀번호가 맞지 않아요. 더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요).", code: "auth" });
   assert.ok(readMailItems(store).every((m) => m.account === "me@gmail.com"));
   // 다음엔 gmail 이 실패하고 naver 가 성공: gmail 예전 메일은 남고, naver 메일이 붙는다
   const sync2 = new MailSync(store, two(), { fetch: async (t) => (t.user === "me@gmail.com" ? { ok: false, code: "network", reason: "연결하지 못했어요." } : { ok: true, items: [item({ uid: 7, subject: "네이버 메일", messageId: "n7@x" })], filtered: false }), now: () => NOW });
@@ -171,12 +171,12 @@ test("연결 상태 줄: 「메일 2개 계정 · 최근 메일 N통」 · 일�
   const row = new Connections(cfg, { hasServer: () => false, env: {}, now: () => NOW, mail: () => sync.state() }).rows().find((r) => r.id === "connector:mail")!;
   assert.equal(row.state, "warn");
   assert.equal(row.detail, "메일 2개 계정 · 최근 메일 2통 (5분 전, 읽기만)");
-  assert.equal(row.error, "me@naver.com: 메일 주소나 비밀번호가 맞지 않아요.");
+  assert.equal(row.error, "me@naver.com: 메일 주소나 비밀번호가 맞지 않아요. 더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요).");
   const allBad = new MailSync(tmpStore(), cfg.connectors.mail, { fetch: async () => ({ ok: false, code: "auth", reason: "틀려요." }), now: () => NOW });
   await allBad.sync();
   const red = new Connections(cfg, { hasServer: () => false, env: {}, now: () => NOW, mail: () => allBad.state() }).rows().find((r) => r.id === "connector:mail")!;
   assert.equal(red.state, "error");
-  assert.match(red.error ?? "", /me@gmail\.com: 틀려요\. \/ me@naver\.com: 틀려요\./);
+  assert.match(red.error ?? "", /me@gmail\.com: 틀려요\. 더 연결하기에서 다시 연결해 주세요.* \/ me@naver\.com: 틀려요\. 더 연결하기/);
   // 패널 카드: 계정마다 주소·가져온 수·실패 이유
   const st = connectorStatus(cfg.connectors, () => false);
   const mail = withMailSync(st, sync.state()).find((c) => c.cap === "mail")!;
@@ -187,7 +187,7 @@ test("연결 상태 줄: 「메일 2개 계정 · 최근 메일 N통」 · 일�
   ]);
   assert.deepEqual(mail.sync?.accounts?.map((a) => [a.user, a.phase, a.count ?? null, a.reason ?? null]), [
     ["me@gmail.com", "ok", 2, null],
-    ["me@naver.com", "failed", null, "메일 주소나 비밀번호가 맞지 않아요."],
+    ["me@naver.com", "failed", null, "메일 주소나 비밀번호가 맞지 않아요. 더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요)."],
   ]);
 });
 
@@ -221,9 +221,9 @@ test("브리핑·채팅 재료: 메일마다 받은 계정(받는 주소) · 계
   const ctx = buildContext(store, NOW);
   assert.match(ctx, /## 최근 받은 메일 \(받은편지함을 읽기 전용으로 가져온 것, 최근 24시간, 계정 2개/);
   assert.match(ctx, /- 계정 me@gmail\.com: .*2통/);
-  assert.match(ctx, /- 계정 me@naver\.com: 마지막 가져오기는 실패했다: 메일 주소나 비밀번호가 맞지 않아요\. 이 계정 메일은 없다/);
+  assert.match(ctx, /- 계정 me@naver\.com: 마지막 가져오기는 실패했다: 메일 주소나 비밀번호가 맞지 않아요\. 더 연결하기에서 다시 연결해 주세요.*\. 이 계정 메일은 없다/);
   assert.match(ctx, /\(받은 계정 me@gmail\.com\) 김팀장 <boss@example\.com> — 「견적서 회신」/);
-  assert.equal(mailSummaryLine(store), "- 메일(계정 2개): 최근 24시간 2통(안 읽음 2) · 못 가져온 계정 있음(me@naver.com: 메일 주소나 비밀번호가 맞지 않아요.) — 보낸 사람·제목·본문 앞부분은 mail_recent, 한 통의 전체 본문은 mail_read(ref)");
+  assert.equal(mailSummaryLine(store), "- 메일(계정 2개): 최근 24시간 2통(안 읽음 2) · 못 가져온 계정 있음(me@naver.com: 메일 주소나 비밀번호가 맞지 않아요. 더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요).) — 보낸 사람·제목·본문 앞부분은 mail_recent, 한 통의 전체 본문은 mail_read(ref)");
   // 한 계정이어도 줄마다 받은 계정을 적는다
   const one = tmpStore();
   await new MailSync(one, mailImapConn({ preset: "gmail", user: "solo@gmail.com", password: "aaaabbbbccccdddd" }, {}), { fetch: async () => ({ ok: true, items: [item()], filtered: true }), now: () => NOW }).sync();

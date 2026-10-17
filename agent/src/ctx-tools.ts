@@ -20,8 +20,8 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
-import { mailContext, readMailItems } from "./mail-sync.ts";
-import { findMail, mailBodyBlock } from "./mail-pick.ts";
+import { mailContextParts, readMailItems } from "./mail-sync.ts";
+import { findMail, mailBodyBlock, MAIL_TOOL_CHARS, refFrom } from "./mail-pick.ts";
 
 export { CTX_SERVER, CTX_TOOL_NAMES };
 export type ContextMode = "tools" | "inline";
@@ -239,16 +239,27 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
       return out("최근 7일 프로젝트 (레포 경로 — 코드 작업 proposals 의 repo 는 여기 경로)", [...ps.map((p) =>
         `- ${p.name} (${p.path}) — 마지막 활동 ${fmtTime(p.lastActive)}, 24h 세션 ${p.sessions24h}, 오늘 커밋 ${p.commitsToday}${p.branch ? `, ${p.branch}` : ""}${p.lastTitle ? ` · 최근: ${clip(p.lastTitle, 60)}` : ""}`), ...mine].join("\n"));
     }),
-    mail_recent: () => guard("최근 받은 메일", () => {
-      const s = mailContext(store);
-      return outAll("최근 받은 메일 (받은편지함 읽기 전용)", s ? s.split("\n").slice(1).join("\n") : "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+    // 길면 나눠서: 한 번에 MAIL_TOOL_CHARS 안팎, 남으면 「from=N 으로 다시」
+    mail_recent: (a: { from?: number } = {}) => guard("최근 받은 메일", () => {
+      const p = mailContextParts(store);
+      if (!p) return outAll("최근 받은 메일 (받은편지함 읽기 전용)", "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+      const start = Math.min(Math.max(0, Math.floor(Number(a.from) || 0)), p.lines.length);
+      const take: string[] = [];
+      let used = 0, i = start;
+      for (; i < p.lines.length; i++) {
+        if (take.length && used + p.lines[i].length > MAIL_TOOL_CHARS) break;
+        take.push(p.lines[i]); used += p.lines[i].length + 1;
+      }
+      const more = i < p.lines.length ? [`(한 번에 다 담지 못해 ${start + 1}~${i}번째 메일까지 보냈다. 모두 ${p.lines.length}통 — 나머지는 mail_recent 를 from=${i} 로 다시 부른다)`] : [];
+      return outAll("최근 받은 메일 (받은편지함 읽기 전용)", [...p.head.slice(1), ...(start ? [`(${start + 1}번째 메일부터)`] : []), ...take, ...more].join("\n"));
     }),
     mail_read: (a: { id?: string; ids?: string[] } = {}) => guard("메일 전체 본문", () => {
-      const ids = [...(Array.isArray(a.ids) ? a.ids : []), ...(a.id ? [a.id] : [])];
+      const ids = [...(a.id ? [a.id] : []), ...(Array.isArray(a.ids) ? a.ids : [])].map((x) => String(x));
       const items = readMailItems(store);
-      const found = ids.map((id) => findMail(items, id)).filter((m): m is NonNullable<typeof m> => !!m);
+      // 「ref#from=N」: 긴 메일을 N번째 글자부터 이어 읽기. 한 번에 다 못 담으면 나눠서(남은 ids 를 알려 준다)
+      const found = ids.map((id) => ({ m: findMail(items, id), from: refFrom(id) })).filter((x): x is { m: NonNullable<typeof x.m>; from: number } => !!x.m);
       const miss = ids.filter((id) => !findMail(items, id));
-      const body = found.length ? mailBodyBlock(found).split("\n").slice(1).join("\n") : "";
+      const body = found.length ? mailBodyBlock(found, { budget: MAIL_TOOL_CHARS, next: "tool", all: items }).split("\n").slice(1).join("\n") : "";
       return outAll("메일 전체 본문 (받은편지함 읽기 전용)", [body, ...(miss.length ? [`(없는 메일: ${miss.join(", ")} — mail_recent 의 ref 를 쓴다)`] : []), ...(!ids.length ? ["(id 를 주세요 — mail_recent 의 ref=…)"] : [])].filter(Boolean).join("\n"));
     }),
     meetings_upcoming: () => guard("다가오는 회의", () => {
@@ -274,7 +285,7 @@ export function ctxMcpServer(cfg: Config, store: Store, deps: CtxDeps = {}) {
     tool("slack_unanswered", "아직 답 안 한 Slack DM·멘션(로컬 수집 확정 목록)", { hours: z.number().int().min(1).max(168).optional().describe("기본 24") }, h.slack_unanswered, RO),
     tool("dashboard_summary", "내가 만든 프로젝트(id·기한·남은 할 일)·오늘 커밋 수·진행 중인 제안·마지막 브리핑", {}, h.dashboard_summary, RO),
     tool("projects_recent", "최근 7일 프로젝트(레포 경로·마지막 활동·세션·커밋·브랜치)", {}, h.projects_recent, RO),
-    tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분)", {}, h.mail_recent, RO),
+    tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분). 많으면 나눠 오니 끝 줄의 from 으로 이어 부른다", { from: z.number().int().min(0).optional().describe("몇 번째 메일부터(이어 읽기)") }, h.mail_recent, RO),
     tool("mail_read", "메일 한 통(또는 여러 통)의 전체 본문 — id 는 mail_recent 줄의 ref(mail:…)", { id: z.string().max(1000).optional().describe("ref, 예: mail:abc@example.com"), ids: z.array(z.string().max(1000)).optional().describe("여러 통이면") }, h.mail_read, RO),
     tool("meetings_upcoming", "다가오는 회의(eventId·시간·내 응답) — 회의 수락·거절할 때", {}, h.meetings_upcoming, RO),
   ];

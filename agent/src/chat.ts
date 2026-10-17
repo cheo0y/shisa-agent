@@ -16,7 +16,11 @@ import { MEMORY_OPS_SCHEMA, applyMemoryOps, extractRememberedFact, rememberFact,
 import { RULE_SCHEMA, RULE_GUIDE } from "./todo-rules.ts";
 import { codeBlock, relatedRepo, type RelatedRepo } from "./code-read.ts";
 import { meetingsContext, type ActionVia, type PendingAction } from "./actions.ts";
-import { mailFocusContext, mailSummaryLine } from "./mail-sync.ts";
+import { mailContext, mailFocusContext, mailSummaryLine } from "./mail-sync.ts";
+import { MAIL_PROMPT_CHARS } from "./mail-pick.ts";
+
+// 가리킨 메일 본문 묶음 크기: 메일 목록(맥락에 이미 들어간다)이 길면 그만큼 줄인다(목록 + 본문이 함께 MAIL_PROMPT_CHARS + 3만 자 안팎). 최소 2만 자
+const mailPromptBudget = (store: Store) => Math.max(20_000, MAIL_PROMPT_CHARS + 30_000 - mailContext(store).length);
 import { inRunContext, type RunOrigin } from "./runs.ts";
 import { fixBranch } from "./fixer.ts";
 import { worktreeSummary } from "./agent-worktrees.ts";
@@ -307,7 +311,7 @@ export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text:
   const guidelines = guidelinesFor(store, "chat"); // 사용자가 정한 행동 지침(guidelines.ts) — 맥락 넣는 법과 상관없이 늘
   // 사용자가 가리킨 메일(보낸 사람·제목·「전체 본문」·바로 앞 답에 나온 메일)은 전체 본문을 넣는다(도구 없는 뇌도 읽게, mail-pick.ts)
   const prevAnswer = [...history].reverse().find((t) => t.role === "assistant")?.text ?? "";
-  const mailBodies = inlineContext(cfg) ? mailFocusContext(store, text, prevAnswer) : "";
+  const mailBodies = inlineContext(cfg) ? mailFocusContext(store, text, prevAnswer, thread?.id ?? "", mailPromptBudget(store)) : "";
   const head = inlineContext(cfg)
     ? [buildContext(store, new Date(), { selfId: cfg.slackUserId, query: focus ? `${focus.title} ${text}` : text, sessions: sessionsAllowed(cfg) }), ...(mailBodies ? ["", mailBodies] : []), workHoursLine(workHoursOf(cfg as unknown as Record<string, unknown>), new Date()), "", ...(guidelines ? [guidelines, ""] : []), summary ?? "", "", ...(meeting(store) ? [meeting(store), ""] : [])]
     : [contextHeader(cfg, { ...(thread ? { thread } : {}), ...(focus ? { focus } : {}), ...(guidelines ? { guidelines } : {}), mail: mailSummaryLine(store) }), ""];

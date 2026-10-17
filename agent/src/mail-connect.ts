@@ -9,6 +9,7 @@ import { dirname } from "node:path";
 import { mailAccountId, mailImapConn, rawMailAccounts, type Conn, type MailImapConn, type MailTarget } from "./connectors.ts";
 import { fetchRecentMail, type MailFetchOpts, type MailFetchResult } from "./mail-imap.ts";
 import { guessMailPreset, isMailPreset } from "./mail-presets.ts";
+import { addLogSecret } from "./log.ts";
 
 export type MailConnectBody = { preset?: string; user?: string; password?: string; host?: string; port?: number; secure?: boolean; sinceHours?: number };
 // updated: 이미 있던 주소라 그 계정을 바꿨다(새로 붙이지 않음). accounts: 저장한 뒤 계정 수
@@ -100,6 +101,7 @@ export async function connectMail(body: unknown, deps: {
   const plan = mailConnectPlan(body, deps.current(), env);
   if ("error" in plan) return { ok: false, status: 400, error: plan.error };
   const fetchMail = deps.fetch ?? fetchRecentMail;
+  addLogSecret(plan.target.password); // 시험 로그인에 쓰는 비밀번호(틀린 것이어도)가 데몬 로그·화면에 그대로 나오지 않게
   let r = await fetchMail(plan.target);
   // 네이버·다음 IMAP 은 로그인 이름으로 아이디만 받기도 한다: 주소로 안 되면 @ 앞 아이디로 한 번 더
   const local = plan.target.user.split("@")[0];
@@ -108,7 +110,10 @@ export async function connectMail(body: unknown, deps: {
     if (r2.ok) { r = r2; plan.account.login = local; plan.target.login = local; }
   }
   if (!r.ok) {
-    console.log(`[mail] 연결 실패(${plan.target.preset}, ${r.code})${r.detail ? `: ${r.detail}` : ""}`); // detail 은 비밀번호를 가린 서버 답
+    // detail 은 비밀번호를 가린 서버 답. 주소·아이디도 로그(도움 보내기)에 남기지 않는다
+    const who = [plan.target.user, plan.target.login].filter((x): x is string => !!x && x.length >= 3).sort((a, b) => b.length - a.length);
+    const detail = r.detail ? who.reduce((s, w) => s.split(w).join("<주소>"), r.detail) : "";
+    console.log(`[mail] 연결 실패(${plan.target.preset}, ${r.code})${detail ? `: ${detail}` : ""}`);
     return { ok: false, status: 400, error: r.reason, code: r.code };
   }
   let conn: MailImapConn;

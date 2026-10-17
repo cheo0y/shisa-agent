@@ -57,7 +57,8 @@ export function installFileLog(dir = join(process.env.CY_AGENT_HOME ?? join(home
   const wrap = (level: "log" | "warn" | "error") => {
     orig[level] = console[level].bind(console);
     console[level] = (...args: unknown[]) => {
-      orig[level]!(...args);
+      // 화면(stdout·stderr)도 가린다: 앱이 띄운 데몬은 이걸 logs/ 의 다른 파일에 그대로 받고, 도움 보내기가 그 폴더를 모은다
+      orig[level]!(...args.map((a) => { const s = argToString(a); const r = redactLog(s); return r === s ? a : r; }));
       try {
         rotate(file);
         const line = redactLog(`${new Date().toISOString()} [${level}] ${args.map(argToString).join(" ")}\n`);

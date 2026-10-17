@@ -50,10 +50,16 @@ test("고르기: 제목 낱말은 2개 이상 겹치거나, 본문을 달라는 
   assert.deepEqual(pick("release notes 메일"), [3]);
 });
 
-test("고르기: 「그거 전체 본문」은 바로 앞 답에 나온 메일 · 앞 답에도 없으면 전부 · 그런 말도 겹침도 없으면 없음", () => {
+test("고르기: 「그거 전체 본문」은 바로 앞 답에 나온 메일 · 가리킨 게 없으면 본문 없음(목록만) · 「전부 자세히」면 전부", () => {
   const prev = "최근 메일은 「3분기 견적서 송부」(정동기)와 「Review request: release notes」가 있어요.";
   assert.deepEqual(pick("그거 전체 본문으로 보여줘", prev), [1, 3]);
-  assert.deepEqual(pick("자세히 알려줘"), [1, 2, 3, 4], "가리킨 게 없으면 다 넣는다(상한 없음)");
+  assert.deepEqual(pick("그거 보여줘", prev), [1, 3], "「그거」는 앞 답의 메일");
+  assert.deepEqual(pick("자세히 알려줘"), [], "가리킨 게 없으면 본문을 넣지 않는다(목록 맥락만)");
+  assert.deepEqual(pick("메일 보여줘"), [], "「메일 보여줘」는 목록만");
+  assert.deepEqual(pick("메일 보여줘", prev), [], "「보여줘」만으론 앞 답 메일 본문도 넣지 않는다");
+  assert.deepEqual(pick("메일 전부 자세히"), [1, 2, 3, 4], "다 달라고 하면 전부(상한 없음)");
+  assert.deepEqual(pick("모든 메일 본문 보여줘"), [1, 2, 3, 4]);
+  assert.deepEqual(pick("다 읽어 줘"), [1, 2, 3, 4]);
   assert.deepEqual(pick("오늘 날씨 어때"), []);
   assert.deepEqual(pick(""), []);
 });
