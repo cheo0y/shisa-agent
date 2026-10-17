@@ -203,7 +203,7 @@ export const MAIL_ADD_MORE = '＋ 다른 메일 계정 추가';
 // 계정 [빼기] 묻는 글
 export function mailRemoveCopy(a, last) {
   return {
-    ask: `${a?.user ?? '이 계정'}을 뺄까요?`,
+    ask: `${a?.user ?? '이'} 계정을 뺄까요?`,
     note: last ? '마지막 계정이라서 빼면 메일 연결이 꺼져요. 메일함의 메일은 그대로예요.' : '이 계정의 비밀번호와 가져온 메일만 지워요. 다른 계정은 그대로예요.',
     done: '계정을 뺐어요.',
     label: '빼기',

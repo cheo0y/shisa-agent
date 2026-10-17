@@ -135,7 +135,7 @@ test('화면: 계정 목록(서비스 · 주소 · 가져온 수 / 못 가져온
   // [빼기]: 묻고 → 그 계정 id 로
   const row = card().byClass('setup-mail-accounts')[0].children[1];
   row.byClass('dc-open')[0].fire('click');
-  assert.match(row.text, /me@naver\.com을 뺄까요\?/);
+  assert.match(row.text, /me@naver\.com 계정을 뺄까요\?/);
   assert.match(row.text, /다른 계정은 그대로예요/);
   row.byClass('dc-yes')[0].fire('click');
   await tick();
