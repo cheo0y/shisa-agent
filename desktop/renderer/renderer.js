@@ -814,10 +814,16 @@ function showReply(r) {
   queue.add(b);
   schedule(b);
   render();
-  if (r.show) cy.openPanel(r.show);
+  if (r.show && !r.others) cy.openPanel(r.show); // 패널에서 보낸 말의 답은 패널이 이미 보여준다 — 섹션을 옮기지 않는다
 }
 
 cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」(기본 켜짐) · 지금 패널이 보이는지(메인이 알려 줌)
+let overlay = { panelOverlay: false, panelOpen: false };
+cy.onOverlayPrefs?.((p) => {
+  overlay = { panelOverlay: p?.panelOverlay === true, panelOpen: p?.panelOpen === true };
+  dispatchChat({ type: 'all', on: overlay.panelOverlay }); // 켜면 패널에서 한 대화의 답도 머리 위 말풍선으로
+});
 cy.onAgents?.((p) => { agentsRunning = Math.max(0, Number(p?.running) || 0); syncChat(); });
 
 // ids: 먼저 올려 둔 첨부 id(있으면 글 없이도)
@@ -837,6 +843,7 @@ async function sendChat(text, ids = []) {
 const ask = document.getElementById('ask');
 const askInput = document.getElementById('ask-input');
 const LEAVE_HIDE = 1800;
+const HOVER_ASK_MS = 700; // 패널이 열려 있을 때 캐릭터에 이만큼 머물면 입력창
 let hoverTimer = null;
 let leaveTimer = null;
 let askOpen = false;
@@ -936,7 +943,13 @@ function updateHover(el) {
   const onChar = !!el?.closest('#char-wrap');
   const onAsk = !!el?.closest('#ask, #char-wrap, #stack .item'); // 말풍선(＋ 로 띄운 칩·그 답) 위에 있는 동안도 입력창을 닫지 않는다
   if (el && !onChar) hoverArmed = true;
-  // 입력창은 클릭으로만 연다(호버로는 안 뜸)
+  // 입력창은 더블클릭으로 연다. 다만 설정이 켜져 있고 패널이 열려 있으면 캐릭터에 잠깐 머물러도 뜬다(패널을 안 건드리고 말 걸기)
+  if (onChar && hoverArmed && !askOpen && !hoverTimer && overlay.panelOverlay && overlay.panelOpen && !down && brain.ready !== false) {
+    hoverTimer = setTimeout(() => {
+      hoverTimer = null;
+      if (overlay.panelOverlay && overlay.panelOpen && hoverArmed && !down && !askOpen) talk();
+    }, HOVER_ASK_MS);
+  }
   if (!onChar && hoverTimer) {
     clearTimeout(hoverTimer);
     hoverTimer = null;

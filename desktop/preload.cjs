@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('cy', {
   onConnection: on('connection'),
   onVisibility: on('visibility'),
   onChat: on('chat'),
+  // { panelOverlay, panelOpen } — 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」 · 지금 패널이 보이는지
+  onOverlayPrefs: on('overlay-prefs'),
   onAgents: on('agents'), // { running } — 돌고 있는 서브에이전트 수(캡션 "에이전트 N개 실행 중")
   setInteractive: (v) => ipcRenderer.send('set-interactive', !!v),
   dragStart: () => ipcRenderer.send('drag-start'),
