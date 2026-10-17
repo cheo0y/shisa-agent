@@ -508,6 +508,7 @@ function createWindow() {
     winLoaded = true;
     send('connection', { connected });
     send('visibility', { hidden: state.bubblesHidden });
+    sendOverlayPrefs();
     // 화면이 뜨기 전에 온 말풍선(SSE 가 먼저 붙으면 데몬이 다시 보내는 승인·머지 말풍선)을 이제 보낸다 — 버리지 않게
     for (const [c, p] of early.splice(0)) send(c, p);
   });
@@ -522,6 +523,11 @@ function send(channel, payload) {
   if (!win || win.isDestroyed()) return;
   if (!winLoaded && (channel === 'bubble' || channel === 'state' || channel === 'clear' || channel === 'focus')) { early.push([channel, payload]); if (early.length > 50) early.shift(); return; }
   win.webContents.send(channel, payload);
+}
+
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」(기본 켜짐)과 지금 패널이 보이는지 — 캐릭터 창이 답·호버 입력창을 정한다
+function sendOverlayPrefs() {
+  send('overlay-prefs', { panelOverlay: state.panelOverlay !== false, panelOpen: !!(panel && !panel.isDestroyed() && panel.isVisible()) });
 }
 
 function sendPanel(channel, payload) {
@@ -598,7 +604,9 @@ function createPanel() {
     e.preventDefault();
     panel.hide();
   });
-  panel.on('closed', () => { panel = null; panelReady = false; });
+  panel.on('show', sendOverlayPrefs);
+  panel.on('hide', sendOverlayPrefs);
+  panel.on('closed', () => { panel = null; panelReady = false; sendOverlayPrefs(); });
 }
 
 // id(선택): 그 섹션에서 펼칠 항목(오버레이 새 할 일 말풍선 → 그 할 일)
@@ -1964,7 +1972,7 @@ const appPrefs = {
     if (p.manage) {
       try { on = app.getLoginItemSettings(loginTarget()).openAtLogin === true; } catch { on = state.openAtLogin === true; }
     }
-    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false };
+    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, panelOverlay: state.panelOverlay !== false };
   },
   set(patch) {
     if ('openAtLogin' in patch) {
@@ -1979,6 +1987,11 @@ const appPrefs = {
       if (patch.updateCheck) state.updateCheckedAt = 0; // 다시 켜면 바로 한 번
       saveState();
       if (patch.updateCheck) checkForUpdate();
+    }
+    if ('panelOverlay' in patch) {
+      state.panelOverlay = patch.panelOverlay;
+      saveState();
+      sendOverlayPrefs();
     }
     return appPrefs.get();
   },

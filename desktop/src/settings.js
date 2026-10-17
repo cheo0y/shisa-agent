@@ -306,11 +306,12 @@ export function metaText(row, now = new Date()) {
   return [latencyText(row?.latencyMs), row?.checkedAt ? `${agoText(row.checkedAt, now)} 확인` : ''].filter(Boolean).join(' · ');
 }
 
-// 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean } — 그 밖의 키·모양이면 null
+// 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean, panelOverlay?: boolean } — 그 밖의 키·모양이면 null
+// panelOverlay: 패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창(기본 켜짐)
 export function sanitizeAppPrefs(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const keys = Object.keys(p);
-  if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck')) return null;
+  if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck' || k === 'panelOverlay')) return null;
   const out = {};
   for (const k of keys) {
     if (typeof p[k] !== 'boolean') return null;

@@ -13,7 +13,7 @@ export const SETTINGS_SIZE = { width: 720, height: 760 };
 // deps: { BrowserWindow, ipcMain, shell, request(method, path, body?, timeoutMs?), preload, html, fromOurs(e), debug?, openPanel?(section), caps?(),
 //         sisa?() 앱의 AI 저장(publicView), disconnectBrain?(id), disconnectConnector?(cap), copyText?(text),
 //         calendars?() 연결된 캘린더(가린 이름), removeCalendar?(id) 하나 빼기,
-//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck }, set(patch) } 「이 앱」 칸,
+//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck, panelOverlay }, set(patch) } 「이 앱」 칸,
 //         upload?(method, path, name, mime, bytes) 파일 바이트 그대로 올리기(캐릭터 그림) }
 export function setupSettings(deps) {
   let win = null;
