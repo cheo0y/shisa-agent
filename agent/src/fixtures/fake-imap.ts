@@ -1,6 +1,7 @@
 // 시험용 가짜 IMAP 서버(평문 또는 TLS). 진짜 imapflow 가 붙어 LOGIN → EXAMINE → UID SEARCH → UID FETCH → LOGOUT 을 해 볼 수 있을 만큼만.
 // 받은 명령을 commands 에 남기고, PEEK 없이 본문을 읽거나(BODY[]) STORE 하면 \Seen 이 붙는다(진짜 서버처럼) — 읽기 전용을 시험한다.
-// 따로 띄우기(앱 확인용): node src/fixtures/fake-imap.ts <port> [user] [pass]  — 메일 몇 통을 넣고 평문으로 127.0.0.1 에서 듣는다
+// 따로 띄우기(앱 확인용): node src/fixtures/fake-imap.ts <port> [user] [pass]  — 메일 몇 통을 넣고 127.0.0.1 에서 듣는다.
+// FAKE_IMAP_KEY·FAKE_IMAP_CERT(PEM 파일 경로)를 주면 TLS 로(데몬은 NODE_EXTRA_CA_CERTS 로 그 인증서를 믿게 해서 띄운다)
 import { createServer as netServer, type Server, type Socket } from "node:net";
 import { createServer as tlsServer } from "node:tls";
 
@@ -203,7 +204,9 @@ export function sampleMessages(now = new Date()): FakeMsg[] {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.argv[2] ?? 1143);
-  const s = await startFakeImap({ user: process.argv[3] ?? "tester@gmail.com", pass: process.argv[4] ?? "abcdabcdabcdabcd", messages: sampleMessages(), gmail: true }, port);
+  const { readFileSync } = await import("node:fs");
+  const tls = process.env.FAKE_IMAP_KEY && process.env.FAKE_IMAP_CERT ? { key: readFileSync(process.env.FAKE_IMAP_KEY, "utf8"), cert: readFileSync(process.env.FAKE_IMAP_CERT, "utf8") } : undefined;
+  const s = await startFakeImap({ user: process.argv[3] ?? "tester@gmail.com", pass: process.argv[4] ?? "abcdabcdabcdabcd", messages: sampleMessages(), gmail: true, ...(tls ? { tls } : {}) }, port);
   console.log(`fake imap 127.0.0.1:${s.port}`);
   process.on("SIGTERM", () => { console.log(JSON.stringify(s.commands)); void s.close().then(() => process.exit(0)); });
   setInterval(() => console.log(`[cmds] ${s.commands.slice(-12).join(" | ")}`), 30_000).unref();

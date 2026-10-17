@@ -1,0 +1,140 @@
+// 「더 연결하기」 메일(앱 비밀번호) 카드: 서비스 고르기(Gmail·네이버·다음·그 밖의 IMAP) · 주소로 서비스 짐작 · 서비스별 안내·링크 · 보낼 본문.
+// 화면(setup-view.js)과 메인(main.js 'mail-connect')이 같이 쓴다. Electron 없음. 비밀번호는 여기서 저장하지 않는다(데몬이 확인하고 config.json 에).
+
+export const MAIL_SERVICES = [
+  {
+    id: 'gmail',
+    title: 'Gmail',
+    domains: ['gmail.com', 'googlemail.com'],
+    password: '앱 비밀번호',
+    placeholder: 'abcd efgh ijkl mnop',
+    steps: [
+      'Google 계정에 **2단계 인증**이 켜져 있어야 해요.',
+      '아래 **앱 비밀번호 만들기**에서 이름(예: 시사)을 적고 만들어요.',
+      '나온 **16자리**를 여기에 붙여요. Google 계정 비밀번호가 아니에요.',
+    ],
+    links: [
+      { label: '앱 비밀번호 만들기', url: 'https://myaccount.google.com/apppasswords' },
+      { label: '2단계 인증 켜기', url: 'https://myaccount.google.com/signinoptions/twosv' },
+    ],
+    note: '프로모션·소셜 탭 메일은 빼고 읽어요.',
+  },
+  {
+    id: 'naver',
+    title: '네이버 메일',
+    domains: ['naver.com'],
+    password: '비밀번호',
+    placeholder: '네이버 비밀번호 또는 애플리케이션 비밀번호',
+    steps: [
+      '네이버 메일 **환경설정 → POP3/IMAP 설정**에서 **IMAP/SMTP 사용**을 **사용함**으로 켜요.',
+      '2단계 인증을 쓰면 **내정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호 관리**에서 만든 비밀번호를 넣어요.',
+      '2단계 인증을 안 쓰면 네이버 비밀번호를 넣어요.',
+    ],
+    links: [
+      { label: '네이버 메일 열기', url: 'https://mail.naver.com/' },
+      { label: '네이버 내정보', url: 'https://nid.naver.com/' },
+    ],
+    note: '광고·뉴스레터는 할 일로 만들지 않게 걸러요.',
+  },
+  {
+    id: 'daum',
+    title: '다음 메일',
+    domains: ['daum.net', 'hanmail.net'],
+    password: '비밀번호',
+    placeholder: '카카오계정 앱 비밀번호 또는 비밀번호',
+    steps: [
+      '다음 메일 **환경설정 → IMAP/POP3**에서 **IMAP 사용**을 켜요.',
+      '2단계 인증을 쓰면 카카오계정 보안 설정에서 만든 **앱 비밀번호**를 넣어요.',
+    ],
+    links: [{ label: '다음 메일 열기', url: 'https://mail.daum.net/' }],
+    note: '광고·뉴스레터는 할 일로 만들지 않게 걸러요.',
+  },
+  {
+    id: 'custom',
+    title: '다른 메일(IMAP)',
+    domains: [],
+    password: '비밀번호',
+    placeholder: '메일 비밀번호(앱 비밀번호)',
+    steps: [
+      '메일 서비스의 **IMAP 서버 주소**와 포트(보통 993)를 적어요.',
+      '메일 설정에서 IMAP 을 켜고, 앱 비밀번호가 있으면 그걸 넣어요.',
+    ],
+    links: [],
+    note: '',
+  },
+];
+
+export const MAIL_TITLE = '메일(앱 비밀번호)';
+export const MAIL_BLURB = '받은 메일 중 답장이나 할 일이 필요한 걸 시사가 골라 줘요. 메일은 읽기만 하고, 읽음 표시도 바꾸지 않아요.';
+export const MAIL_ADVANCED = '고급: Claude Code에 메일 MCP 서버를 등록해서 읽을 수도 있어요. 방법은 docs/connect/mail.md 의 「MCP로 연결하기」를 봐 주세요.';
+export const MAIL_NO_AI = 'AI를 연결하면 메일에서 할 일을 뽑아요. 지금은 메일만 가져와 둬요.';
+
+export function mailService(id) {
+  return MAIL_SERVICES.find((s) => s.id === id) ?? MAIL_SERVICES[0];
+}
+
+// 주소 → 서비스 id(모르면 null). @kakao.com 은 서버 주소를 확인하지 못해 짐작하지 않는다
+export function guessService(email) {
+  const d = String(email ?? '').trim().toLowerCase().split('@')[1];
+  if (!d) return null;
+  return MAIL_SERVICES.find((s) => s.domains.includes(d))?.id ?? null;
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// 칸이 다 찼나 → { ok, why }
+export function mailFormCheck(f = {}) {
+  const user = String(f.user ?? '').trim();
+  if (!EMAIL.test(user)) return { ok: false, why: '메일 주소를 적어 주세요.' };
+  const svc = mailService(f.service);
+  if (!String(f.password ?? '').trim()) return { ok: false, why: `${svc.password}를 넣어 주세요.` };
+  if (svc.id === 'gmail' && String(f.password).replace(/\s+/g, '').length !== 16) return { ok: false, why: '앱 비밀번호는 16자리예요. Google 계정 비밀번호가 아니에요.' };
+  if (svc.id === 'custom' && !/^[a-z0-9.-]+$/i.test(String(f.host ?? '').trim())) return { ok: false, why: 'IMAP 서버 주소를 적어 주세요(예: imap.example.com).' };
+  return { ok: true, why: '' };
+}
+
+// 데몬(POST /connectors/mail)으로 보낼 본문. 모르는 칸은 넣지 않는다
+export function mailConnectBody(f = {}) {
+  const svc = mailService(f.service);
+  const body = { preset: svc.id, user: String(f.user ?? '').trim(), password: String(f.password ?? '') };
+  if (svc.id === 'custom') {
+    body.host = String(f.host ?? '').trim();
+    const port = Number(f.port);
+    if (Number.isInteger(port) && port > 0 && port < 65536) body.port = port;
+  }
+  return body;
+}
+
+// 메인이 렌더러에서 받은 값을 그대로 넘기지 않게: 모양만 맞는 것만 남긴다(null = 거절)
+export function cleanMailBody(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+  const ids = MAIL_SERVICES.map((s) => s.id);
+  if (!ids.includes(x.preset)) return null;
+  if (typeof x.user !== 'string' || x.user.length > 320 || typeof x.password !== 'string' || x.password.length > 512) return null;
+  const out = { preset: x.preset, user: x.user, password: x.password };
+  if (x.preset === 'custom') {
+    if (typeof x.host !== 'string' || x.host.length > 253) return null;
+    out.host = x.host;
+    if (x.port !== undefined) { if (!Number.isInteger(x.port)) return null; out.port = x.port; }
+  }
+  return out;
+}
+
+// 패널 연결 카드 목록(GET /dashboard connectors) → 메일(IMAP) 연결 상태 | null
+export function mailConnected(connectors) {
+  const c = (Array.isArray(connectors) ? connectors : []).find((x) => x && x.cap === 'mail');
+  if (!c || c.mode !== 'imap') return null;
+  return { account: c.account || '', preset: c.preset || 'custom', ready: c.ready === true, detail: c.detail || '', sync: c.sync || null };
+}
+
+// 연결된 메일 줄 글: 주소 · 가져온 메일 수 / 가져오는 중 / 못 가져온 이유
+export function mailStatusText(m) {
+  if (!m) return '';
+  const name = mailService(m.preset).title;
+  const head = `${name} · ${m.account}`;
+  if (!m.ready) return `${head} · 비밀번호가 없어요`;
+  const s = m.sync;
+  if (!s || s.phase === 'pending') return `${head} · 메일 가져오는 중`;
+  if (s.phase === 'failed') return `${head} · 못 가져왔어요: ${s.reason || '이유를 몰라요'}`;
+  return `${head} · 최근 메일 ${s.count ?? 0}통 읽음`;
+}

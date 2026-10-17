@@ -5,7 +5,8 @@ import { createMarkdown } from '../src/markdown.js';
 import { shapeDashboard, overlayHidden, priorityLabel, SECTIONS, SECTION_LABELS, normalizeSection, relativeTime, clockTime, visibleSections, connectorChipView } from '../src/dashboard.js';
 import { needsSetup, stepForCap } from '../src/setup.js';
 import { isFeature, isAgent, buildWalk, agentSteps } from '../src/setup-flow.js';
-import { renderSetup, clearApiDraft, readSlot, clearSlot } from './setup-view.js';
+import { renderSetup, clearApiDraft, readSlot, clearSlot, clearMailDraft } from './setup-view.js';
+import { mailConnected } from '../src/mail-connect.js';
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
 import { createProjectsView } from './projects-view.js';
@@ -141,6 +142,7 @@ let gskFound = false; // gsk login 한 Genspark 키가 이 맥에 있나
 let afterConnect = ''; // 'claudecode'·'codexcli': 그 도구 연결을 마치면 시사의 AI로 쓴다
 let setupCalendars = []; // 연결된 캘린더(main calendar-list: 가린 이름만, 주소 없음)
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
+let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
 let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {}, codeModel: 'default' };
 // 예전 화면 위치(ai-offer·agent·pick·walk)는 불러오지 않는다
@@ -565,7 +567,7 @@ function renderSetupView(resetScroll) {
     return;
   }
   clampSetupCursor();
-  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}`;
+  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}|${JSON.stringify(mailConnected(vm.connectors))}|${JSON.stringify(setupMail)}`;
   if (!resetScroll && key === setupKey && $('sec-setup').childElementCount) {
     watchAgentLogin();
     return;
@@ -695,6 +697,38 @@ function renderSetupView(resetScroll) {
     // 더 연결하기의 [연결 해제]: 그 커넥터를 끄고(구글·Outlook 은 캘린더 하나) 「연결됨」 표시도 뗀다
     servers: Object.fromEntries((vm.connectors || []).filter((c) => c.server).map((c) => [c.cap, c.server])),
     onCopyText: (text) => cy.copyText(text),
+    // 메일(앱 비밀번호): 데몬이 로그인해 보고 되면 저장한다. 결과·실패 이유는 카드 아래에
+    mail: {
+      mail: mailConnected(vm.connectors),
+      busy: setupMail.busy,
+      result: setupMail.result,
+      noAi: (sisa.provider || NO_AI) === NO_AI,
+      onOpen: (url) => { try { cy.openLink(url); } catch { /* 무시 */ } },
+      onConnect: async (body, why) => {
+        if (!body) { setupMail = { busy: false, result: { ok: false, text: why } }; redraw(false); return; }
+        setupMail = { busy: true, result: null };
+        redraw(false);
+        let r;
+        try { r = await cy.mailConnect(body); } catch { r = { ok: false, error: '연결하지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
+        if (r?.ok) {
+          clearMailDraft();
+          setupMail = { busy: false, result: { ok: true, text: `**연결했어요.** 최근 메일 ${r.count ?? 0}통을 읽었어요. 읽기만 해요.` } };
+          vm = { ...vm, connectors: (vm.connectors || []).filter((c) => c.cap !== 'mail').concat([{ cap: 'mail', label: '메일', mode: 'imap', modeLabel: '앱 비밀번호', ready: true, detail: '', account: r.account, preset: r.preset, sync: { phase: 'ok', count: r.count ?? 0 } }]) };
+          loadSoon();
+        } else setupMail = { busy: false, result: { ok: false, text: r?.error || '연결하지 못했어요.' } };
+        redraw(false);
+      },
+      onDisconnect: async () => {
+        let r;
+        try { r = await cy.connectorDisconnect('mail'); } catch { r = { ok: false }; }
+        if (r?.ok) {
+          setupMail = { busy: false, result: null };
+          loadSoon();
+          setTimeout(() => redraw(false), 1500);
+        }
+        return r;
+      },
+    },
     // 연결된 캘린더: 하나 더 추가(같은 안내를 다시) · 하나 빼기(그 주소만, 마지막이면 캘린더 연결 해제)
     calendars: setupCalendars,
     slotError: setupSlotError,

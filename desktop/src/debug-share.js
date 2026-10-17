@@ -10,7 +10,7 @@ export const LOG_FILE_TAIL = 80 * 1024;
 export const SPEECH = '로그 모아 봤어요. 복사해서 보내 주세요 (스이시~사)';
 
 const CONNECTOR_CAPS = ['slack', 'calendar', 'mail', 'issues'];
-const CONNECTOR_MODES = ['api', 'mcp', 'off'];
+const CONNECTOR_MODES = ['api', 'mcp', 'imap', 'off'];
 const DAEMON_LOG_NAMES = new Set(['com.cy-agent.daemon.log', 'daemon.log']);
 
 export function utf8Bytes(s) {
@@ -56,7 +56,8 @@ const RULES = [
   [/Authorization:\s*\S+/gi, `Authorization: ${REDACT}`],
   [/(?:Set-Cookie|Cookie):\s*[^\n]+/gi, (m) => `${String(m).split(':')[0]}: ${REDACT}`],
   [/\buserToken\s*[:=]\s*[^\s"',}]+/gi, `userToken=${REDACT}`],
-  [/"((?:apiKey|api_key|icsUrl|icsUrls|slackBotToken|slackAppToken|userToken|access_token|refresh_token|cookie|cookies))"\s*:\s*(?:"[^"]*"|[^\s,}\]]+)/gi, `"$1":${REDACT}`],
+  [/"((?:apiKey|api_key|icsUrl|icsUrls|slackBotToken|slackAppToken|userToken|access_token|refresh_token|cookie|cookies|password|pass|mailPassword))"\s*:\s*(?:"[^"]*"|[^\s,}\]]+)/gi, `"$1":${REDACT}`],
+  [/\b(password|pass)\s*=\s*[^\s"',}]+/gi, `$1=${REDACT}`],
   [/"keys"\s*:\s*\{[^}]*\}/gi, `"keys":${REDACT}`],
   [/(?:webcal|https?):\/\/\S+?\.ics(?:\?\S*)?/gi, '[달력주소 숨김]'],
   [/(?:webcal|https?):\/\/\S*?\/calendar\/ical\/\S+/gi, '[달력주소 숨김]'],

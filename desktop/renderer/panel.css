@@ -1407,3 +1407,23 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 /* 연결된 캘린더: 줄마다 종류 · 가린 이름 · [빼기](묻는 칸은 줄 아래로) */
 .setup-cals .setup-repos li { flex-wrap: wrap; }
 .setup-cals .cal-kind { flex: none; color: var(--muted); font-size: 12px; }
+
+/* 더 연결하기: 메일(앱 비밀번호) 카드 */
+.setup-mail select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.setup-mail .setup-fields { margin-top: 10px; }
+.setup-mail-steps { margin: 6px 0 8px; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.55; word-break: keep-all; }
+.setup-mail-steps li + li { margin-top: 2px; }
+.setup-mail-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; word-break: keep-all; }
+.setup-mail-status { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.setup-mail .setup-gate { margin-top: 8px; }
+.setup-mail .setup-fold { margin-top: 8px; }
+.setup-mail .setup-fold summary { padding: 6px 0; color: var(--muted); font-size: 12.5px; }

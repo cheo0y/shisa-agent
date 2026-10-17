@@ -48,6 +48,7 @@ import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } fro
 import { denied } from './src/denied.js';
 import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
+import { cleanMailBody } from './src/mail-connect.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
 const SQUIRREL = squirrelPlan({ platform: process.platform, argv: process.argv, execPath: process.execPath });
@@ -1340,6 +1341,19 @@ function setupIPC() {
   // [연결 해제] AI(provider = sisa id) · 커넥터(cap)
   ipcMain.handle('sisa-disconnect', (e, provider) => (fromOurs(e) && okBrainId(provider) ? disconnectBrain(provider) : denied()));
   ipcMain.handle('connector-disconnect', (e, cap) => (fromOurs(e) && okCap(cap) ? disconnectConnector(cap) : denied()));
+  // 메일(앱 비밀번호): 데몬이 IMAP 로그인 → 받은편지함을 읽기 전용으로 열어 보고, 되면 config.json 에 저장한다. 비밀번호는 여기서 기록하지 않는다
+  ipcMain.handle('mail-connect', async (e, raw) => {
+    const body = fromOurs(e) ? cleanMailBody(raw) : null;
+    if (!body) return denied();
+    if (!connected) return { ok: false, error: `${who()}가 꺼져 있어서 확인할 수 없어요. ${who()}를 켜고 다시 해 주세요.` };
+    const r = await post('/connectors/mail', body, 60_000);
+    if (r.ok && r.data?.ok) {
+      sendPanel('dashboard', {}); // 연결 카드를 바로
+      return { ok: true, account: r.data.account, preset: r.data.preset, count: r.data.count, filtered: !!r.data.filtered };
+    }
+    if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), ...(r.data.code ? { code: String(r.data.code) } : {}) };
+    return { ok: false, error: r.status ? `연결하지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
+  });
   // 연결된 캘린더 목록(가린 이름만) · 하나 빼기(id)
   ipcMain.handle('calendar-list', (e) => (fromOurs(e) ? { ok: true, items: calendarList() } : denied()));
   ipcMain.handle('calendar-remove', (e, id) => (fromOurs(e) && okCalendarId(id) ? removeCalendar(id) : denied()));

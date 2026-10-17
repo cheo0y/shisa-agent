@@ -6,6 +6,7 @@ import { sayFor, providerById, connectSteps, slotCheck, BRAIN_CHOICES, EXTRAS, S
 import { setupSummary, okFolder } from '../src/setup-plan.js';
 import { HUB_CAP, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { calendarRemoveCopy } from '../src/calendars.js';
+import { MAIL_SERVICES, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, mailService, guessService, mailFormCheck, mailConnectBody, mailStatusText } from '../src/mail-connect.js';
 
 const slotValues = new Map();
 let redraw = null;
@@ -396,7 +397,85 @@ function calendarsBlock(calendars, onAdd, onRemove) {
       h('button.ghost', { type: 'button', text: 'Outlook 캘린더 하나 더 추가', onclick: () => onAdd('outlook') })) : null);
 }
 
-function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], onOpen, onDisconnect, onCopy, onAddCalendar, onRemoveCalendar, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
+// 메일(앱 비밀번호): 서비스 고르기 · 주소(서비스 짐작) · 비밀번호(가림) · 서비스별 안내·링크 · [연결](데몬이 로그인해 보고 저장) · 연결되면 [연결 해제]
+// 비밀번호는 이 화면 메모리에만 있다가 [연결] 때 데몬으로 간다. 연결되면 바로 지운다
+const mailDraft = { service: 'gmail', user: '', password: '', host: '', port: '', picked: false };
+let mailConfirming = false;
+export function clearMailDraft() { mailDraft.password = ''; }
+function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onOpen }) {
+  const box = h('div.setup-folder.setup-mail', { dataset: { id: 'mail' } });
+  const title = h('span.setup-pick-title', { text: mail ? `${MAIL_TITLE} · 연결됨` : MAIL_TITLE });
+  const kids = [title, h('p.setup-blurb', { text: MAIL_BLURB })];
+  if (mail) {
+    kids.push(h('p.setup-mail-status', { text: mailStatusText(mail) }));
+    if (noAi) kids.push(h('p.setup-blurb', { text: MAIL_NO_AI }));
+    if (onDisconnect) kids.push(disconnectControl(document, {
+      ...connectorDisconnectCopy('mail'),
+      open: mailConfirming,
+      onOpen: () => { mailConfirming = true; },
+      onClose: () => { mailConfirming = false; },
+      onConfirm: () => onDisconnect(),
+    }));
+    if (result) kids.push(h(`p.setup-gate${result.ok ? '.ok' : ''}`, null, ...richNodes(result.text)));
+    box.append(...kids);
+    return box;
+  }
+  const svc = mailService(mailDraft.service);
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', '메일 서비스');
+  for (const s of MAIL_SERVICES) {
+    const o = document.createElement('option');
+    o.value = s.id;
+    o.textContent = s.title;
+    select.append(o);
+  }
+  select.value = svc.id;
+  select.addEventListener('change', () => { mailDraft.service = select.value; mailDraft.picked = true; redraw?.(); });
+  const user = h('input', { type: 'text', inputmode: 'email', autocomplete: 'off', spellcheck: 'false', placeholder: svc.id === 'naver' ? '아이디@naver.com' : svc.id === 'daum' ? '아이디@daum.net' : svc.id === 'gmail' ? '아이디@gmail.com' : 'me@example.com', 'aria-label': '메일 주소', value: mailDraft.user, dataset: { slot: 'mail-user' } });
+  user.addEventListener('input', () => {
+    mailDraft.user = user.value;
+    const g = guessService(user.value);
+    // 주소로 서비스를 짐작한다(사람이 직접 고른 뒤엔 바꾸지 않는다)
+    if (g && !mailDraft.picked && g !== mailDraft.service) { mailDraft.service = g; select.value = g; redrawKeep(user); }
+  });
+  const pass = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: svc.placeholder, 'aria-label': svc.password, value: mailDraft.password });
+  pass.addEventListener('input', () => { mailDraft.password = pass.value; });
+  const fields = [
+    h('label', null, h('span', { text: '메일 서비스' }), select),
+    h('label', null, h('span', { text: '메일 주소' }), user),
+    h('label', null, h('span', { text: svc.password }), pass),
+  ];
+  if (svc.id === 'custom') {
+    const host = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'imap.example.com', 'aria-label': 'IMAP 서버', value: mailDraft.host });
+    host.addEventListener('input', () => { mailDraft.host = host.value; });
+    const port = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', placeholder: '993', 'aria-label': '포트', value: mailDraft.port });
+    port.addEventListener('input', () => { mailDraft.port = port.value; });
+    fields.push(h('label', null, h('span', { text: 'IMAP 서버' }), host), h('label', null, h('span', { text: '포트(비우면 993)' }), port));
+  }
+  kids.push(h('ol.setup-mail-steps', null, svc.steps.map((t) => h('li', null, ...richNodes(t)))));
+  if (svc.links.length && onOpen) kids.push(h('div.setup-fields.row', null, svc.links.map((l) => h('button.ghost', { type: 'button', text: l.label, title: l.url, onclick: () => onOpen(l.url) }))));
+  kids.push(h('div.setup-fields', null, ...fields));
+  kids.push(h('small.setup-mail-note', { text: ['읽기만 해요. 보내기·지우기·읽음 표시 바꾸기는 하지 않아요.', svc.note, '비밀번호는 이 맥의 시사 설정 파일에만 저장해요.'].filter(Boolean).join(' ') }));
+  if (result && !result.ok) kids.push(h('p.setup-gate', null, ...richNodes(result.text)));
+  const connect = h('button.primary', { type: 'button', text: busy ? '확인하는 중…' : '연결', disabled: !!busy });
+  connect.addEventListener('click', () => {
+    const chk = mailFormCheck(mailDraft);
+    if (!chk.ok) { onConnect?.(null, chk.why); return; }
+    onConnect?.(mailConnectBody(mailDraft));
+  });
+  kids.push(h('div.setup-fields.row', null, h('span.spacer'), connect));
+  kids.push(h('details.setup-fold', null, h('summary', { text: '고급' }), h('p.setup-blurb', { text: MAIL_ADVANCED })));
+  box.append(...kids);
+  return box;
+}
+// 주소 칸에 쓰는 중에 다시 그려도 커서가 그 자리에 남게
+function redrawKeep(input) {
+  focusSlot = input.dataset.slot || null;
+  caret = input.selectionStart;
+  redraw?.();
+}
+
+function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, onOpen, onDisconnect, onCopy, onAddCalendar, onRemoveCalendar, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
   const items = EXTRAS.filter((id) => id !== 'repos').map(hubItem).filter(Boolean);
   const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '/Users/나/code', 'aria-label': '레포 폴더', value: repoDraft });
   input.addEventListener('input', () => { repoDraft = input.value; });
@@ -410,6 +489,7 @@ function extrasView({ done = {}, repos = [], coder = true, readSessions = false,
     extra: h('div', null,
       h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers))),
       calendarsBlock(calendars, onAddCalendar, onRemoveCalendar),
+      mail ? mailBlock(mail) : null,
       h('div.setup-folder', null,
         h('span.setup-pick-title', { text: repos.length ? `${repo.title} · ${repos.length}개` : repo.title }),
         h('p.setup-blurb', { text: coder ? repo.blurb : `${repo.blurb} (지금은 Claude Code 가 없어서 커밋만 보여 줘요)` }),
@@ -529,7 +609,13 @@ export function renderSetup(root, state) {
     return;
   }
   if (phase === 'extras') {
-    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, onAddCalendar: state.onAddCalendar, onRemoveCalendar: state.onRemoveCalendar, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
+    const keep = focusSlot;
+    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, onAddCalendar: state.onAddCalendar, onRemoveCalendar: state.onRemoveCalendar, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
+    if (keep) {
+      const el = root.querySelector(`[data-slot="${keep}"]`);
+      if (el) { el.focus(); const at = caret ?? el.value.length; el.setSelectionRange(at, at); }
+      focusSlot = null;
+    }
     return;
   }
   if (phase === 'done') {

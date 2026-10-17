@@ -135,7 +135,7 @@ function shapeProject(p, now) {
 // GET /dashboard 의 connectors: 기능마다 어디서 읽는지(api·mcp·off)와 준비 상태
 export const CONNECTOR_CAPS = ['slack', 'calendar', 'mail', 'issues'];
 const CONNECTOR_DEFAULT_LABELS = { slack: 'Slack', calendar: '캘린더', mail: '메일', issues: '이슈' };
-export const CONNECTOR_MODE_LABELS = { api: 'API', mcp: 'MCP', off: '꺼짐' };
+export const CONNECTOR_MODE_LABELS = { api: 'API', mcp: 'MCP', imap: '앱 비밀번호', off: '꺼짐' };
 
 // 모르는 기능·모드나 모양이 이상한 항목은 건너뛴다. 같은 기능이 두 번 오면 앞의 것
 export function shapeConnectors(list) {
@@ -155,6 +155,9 @@ export function shapeConnectors(list) {
       detail: str(c.detail).trim(),
       doc: str(c.doc).trim(), // 안내용 글자(예: docs/connect/slack.md). 링크로 열지 않는다
       ...(c.mode === 'mcp' && /^[\w.@-]{1,64}$/.test(str(c.server)) ? { server: c.server } : {}), // [연결 해제] 뒤 claude mcp remove 안내
+      // 메일(앱 비밀번호): 연결한 주소·서비스(비밀번호는 데몬이 보내지 않는다)
+      ...(c.mode === 'imap' && /^[^\s@]{1,200}@[^\s@]{1,200}$/.test(str(c.account)) ? { account: c.account } : {}),
+      ...(c.mode === 'imap' && /^(gmail|naver|daum|custom)$/.test(str(c.preset)) ? { preset: c.preset } : {}),
       ...(ready && shapeSync(c.sync) ? { sync: shapeSync(c.sync) } : {}),
     });
   }
@@ -167,6 +170,7 @@ function shapeSync(s) {
   return {
     phase: s.phase,
     ...(Number.isInteger(s.meetings) && s.meetings >= 0 ? { meetings: s.meetings } : {}),
+    ...(Number.isInteger(s.count) && s.count >= 0 ? { count: s.count } : {}), // 메일: 가져온 메일 수
     ...(s.phase === 'failed' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 300) } : {}),
   };
 }
@@ -177,6 +181,12 @@ export function connectorChipView(c) {
   if (!c || c.mode === 'off') return { tone: '', text: '연결 안 됨' };
   if (!c.ready) return { tone: 'warn', text: `준비 안 됨 · ${c.modeLabel}` };
   const s = c.sync;
+  if (c.cap === 'mail' && c.mode === 'imap') {
+    if (s?.phase === 'pending') return { tone: 'ok', text: '연결됨 · 메일 가져오는 중', hint: '받은편지함을 읽고 있어요. 잠시만 기다려 주세요.' };
+    if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 메일을 못 가져옴', hint: s.reason || '메일을 가져오지 못했어요.' };
+    if (s?.phase === 'ok' && Number.isInteger(s.count)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `최근 메일 ${s.count}통을 읽었어요. 읽기만 해요.` };
+    return { tone: 'ok', text: `연결됨 · ${c.modeLabel}` };
+  }
   if (s?.phase === 'pending') return { tone: 'ok', text: `연결됨 · 일정 가져오는 중`, hint: '일정을 가져오고 있어요. 잠시만 기다려 주세요.' };
   if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 일정을 못 가져옴', hint: s.reason || '일정을 가져오지 못했어요.' };
   if (s?.phase === 'ok' && Number.isInteger(s.meetings)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `오늘·내일 일정 ${s.meetings}개를 가져왔어요.` };
