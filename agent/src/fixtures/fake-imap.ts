@@ -13,8 +13,12 @@ export type FakeImapOpts = {
   readWriteExamine?: boolean;      // EXAMINE 에 READ-WRITE 로 답한다(잘못된 서버 흉내)
   tls?: { key: string; cert: string };
   silent?: boolean;                // 인사도 안 한다(시간 초과 시험)
+  stallOn?: RegExp;                // 이 명령(예: /^UID FETCH/)부터는 받기만 하고 답하지 않는다(서버가 멈춤)
+  dropOn?: RegExp;                 // 이 명령을 받으면 연결을 끊는다(중간에 끊김)
+  noBodyStructure?: boolean;       // BODYSTRUCTURE 를 NIL 로 답한다(구조를 못 주는 서버)
 };
-export type FakeImap = { port: number; commands: string[]; messages: (FakeMsg & { flags: string[] })[]; close: () => Promise<void> };
+// sentBytes: FETCH 로 보낸 본문 바이트(첨부까지 받았나 본다) · logins: LOGIN 받은 수(실패 반복 시험)
+export type FakeImap = { port: number; commands: string[]; messages: (FakeMsg & { flags: string[] })[]; sentBytes: () => number; logins: () => number; close: () => Promise<void> };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const imapDate = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}-${MONTHS[d.getUTCMonth()]}-${d.getUTCFullYear()} ${d.toISOString().slice(11, 19)} +0000`;
@@ -53,11 +57,66 @@ function tokens(line: string, literals: string[]): string[] {
   return out;
 }
 
+// 원문 → MIME 나무(BODYSTRUCTURE · BODY[n] 답하기용). 원문은 latin1 문자열(바이트 1:1)로 다룬다
+type MimeNode = { type: string; sub: string; params: [string, string][]; enc: string; disp?: string; dispParams: [string, string][]; head: string; body: string; children: MimeNode[] };
+function headerMap(head: string): Map<string, string> {
+  const h = new Map<string, string>();
+  for (const line of head.replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/)) {
+    const i = line.indexOf(":");
+    if (i > 0 && !h.has(line.slice(0, i).trim().toLowerCase())) h.set(line.slice(0, i).trim().toLowerCase(), line.slice(i + 1).trim());
+  }
+  return h;
+}
+function paramList(v: string): { value: string; params: [string, string][] } {
+  const parts = v.split(";");
+  const params: [string, string][] = [];
+  for (const p of parts.slice(1)) { const i = p.indexOf("="); if (i > 0) params.push([p.slice(0, i).trim().toUpperCase(), p.slice(i + 1).trim().replace(/^"(.*)"$/, "$1")]); }
+  return { value: (parts[0] ?? "").trim().toLowerCase(), params };
+}
+function mimeTree(raw: string): MimeNode {
+  const m = /\r?\n\r?\n/.exec(raw);
+  const head = m ? raw.slice(0, m.index) : raw, body = m ? raw.slice(m.index + m[0].length) : "";
+  const h = headerMap(head);
+  const ct = paramList(h.get("content-type") ?? "text/plain");
+  const [type, sub] = ct.value.split("/");
+  const disp = h.get("content-disposition") ? paramList(h.get("content-disposition")!) : undefined;
+  const node: MimeNode = { type: (type || "text").toUpperCase(), sub: (sub || "plain").toUpperCase(), params: ct.params, enc: (h.get("content-transfer-encoding") ?? "7BIT").toUpperCase(), ...(disp ? { disp: disp.value.toUpperCase() } : {}), dispParams: disp?.params ?? [], head, body, children: [] };
+  const b = ct.params.find(([k]) => k === "BOUNDARY")?.[1];
+  if (node.type === "MULTIPART" && b) {
+    const pieces = body.split(`--${b}`);
+    for (const p of pieces.slice(1)) {
+      if (p.startsWith("--")) break;
+      node.children.push(mimeTree(p.replace(/^[ \t]*\r?\n/, "").replace(/\r?\n$/, "")));
+    }
+  }
+  return node;
+}
+const iq = (s: string) => `"${s.replace(/[\\"]/g, "\\$&")}"`;
+const plist = (ps: [string, string][]) => (ps.length ? `(${ps.map(([k, v]) => `${iq(k)} ${iq(v)}`).join(" ")})` : "NIL");
+function bodyStructure(n: MimeNode): string {
+  if (n.type === "MULTIPART" && n.children.length) return `(${n.children.map(bodyStructure).join("")} ${iq(n.sub)} ${plist(n.params)} NIL NIL)`;
+  const lines = n.type === "TEXT" ? ` ${n.body.split("\n").length}` : "";
+  const disp = n.disp ? `(${iq(n.disp)} ${plist(n.dispParams)})` : "NIL";
+  return `(${iq(n.type)} ${iq(n.sub)} ${plist(n.params)} NIL NIL ${iq(n.enc)} ${n.body.length}${lines} NIL ${disp} NIL)`;
+}
+// BODY[section] 내용(latin1). HEADER · TEXT · 1 · 1.2 …
+function section(top: MimeNode, sec: string): string | undefined {
+  if (sec === "HEADER") return `${top.head}\r\n\r\n`;
+  if (sec === "TEXT") return top.body;
+  let n = top;
+  for (const k of sec.split(".").map(Number)) {
+    if (n.type === "MULTIPART" && n.children.length) { n = n.children[k - 1]; if (!n) return undefined; }
+    else if (k !== 1) return undefined;
+  }
+  return n.body;
+}
+
 export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
   const commands: string[] = [];
   const msgs = o.messages.map((m) => ({ ...m, flags: [...(m.flags ?? [])] }));
   const caps = `IMAP4rev1 LITERAL+ UIDPLUS${o.gmail ? " X-GM-EXT-1" : ""}`;
   const sockets = new Set<Socket>();
+  let sent = 0, logins = 0;
   const handle = (sock: Socket) => {
     sockets.add(sock);
     sock.on("close", () => sockets.delete(sock));
@@ -70,7 +129,9 @@ export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
     const literals: string[] = [];
     let need = -1;                 // 받아야 할 literal 바이트
     let authed = false, selected: "ro" | "rw" | null = null;
+    let stalled = false;
     const run = (line: string) => {
+      if (stalled) return;
       const sp = line.indexOf(" ");
       const tag = line.slice(0, sp), rest = line.slice(sp + 1);
       const t = tokens(rest, literals);
@@ -79,11 +140,14 @@ export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
       let uidMode = false;
       if (cmd === "UID") { uidMode = true; cmd = `UID ${(args[0] ?? "").toUpperCase()}`; args = args.slice(1); }
       commands.push(cmd === "LOGIN" ? "LOGIN" : `${cmd} ${args.join(" ")}`.trim());
+      if (o.dropOn?.test(cmd)) { sock.destroy(); return; }
+      if (o.stallOn?.test(cmd)) { stalled = true; return; }
       const ok = (text = "done") => send(`${tag} OK ${text}\r\n`);
       if (cmd === "CAPABILITY") { send(`* CAPABILITY ${caps}\r\n`); return ok(); }
       if (cmd === "NOOP") return ok();
       if (cmd === "LOGOUT") { send("* BYE bye\r\n"); ok(); sock.end(); return; }
       if (cmd === "LOGIN") {
+        logins++;
         if (o.loginNo) return send(`${tag} NO ${o.loginNo}\r\n`);
         if (args[0] !== o.user || args[1] !== o.pass) return send(`${tag} NO [AUTHENTICATIONFAILED] Invalid credentials (Failure)\r\n`);
         authed = true;
@@ -116,20 +180,31 @@ export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
         for (const n of parseSet(args[0] ?? "", all)) {
           const m = uidMode ? msgs.find((x) => x.uid === n)! : msgs[n - 1];
           const seq = msgs.indexOf(m) + 1;
-          const peek = /BODY\.PEEK\[/.test(items);
-          const body = /BODY(\.PEEK)?\[\]/.test(items) || /BINARY(\.PEEK)?\[\]/.test(items);
-          if (body && !peek && selected === "rw" && !m.flags.includes("\\Seen")) m.flags.push("\\Seen");
-          const parts = [`UID ${m.uid}`];
-          if (/FLAGS/.test(items)) parts.push(`FLAGS (${m.flags.join(" ")})`);
-          if (/INTERNALDATE/.test(items)) parts.push(`INTERNALDATE "${imapDate(m.internalDate)}"`);
-          if (body) {
-            const pm = /\[\]<(\d+)\.(\d+)>/.exec(items);
-            const src = Buffer.from(m.raw, "utf8");
-            const slice = pm ? src.subarray(Number(pm[1]), Number(pm[1]) + Number(pm[2])) : src;
-            send(`* ${seq} FETCH (${parts.join(" ")} BODY[]${pm ? `<${pm[1]}>` : ""} {${slice.length}}\r\n`);
-            send(slice);
-            send(")\r\n");
-          } else send(`* ${seq} FETCH (${parts.join(" ")})\r\n`);
+          const src = Buffer.from(m.raw, "utf8");
+          const tree = mimeTree(src.toString("latin1"));
+          // 본문을 PEEK 없이 읽으면(BODY[…]) 진짜 서버처럼 읽음 표시가 붙는다
+          if (/(^|[ (])(BODY|BINARY)\[/.test(items) && selected === "rw" && !m.flags.includes("\\Seen")) m.flags.push("\\Seen");
+          const head: string[] = [`UID ${m.uid}`];
+          if (/FLAGS/.test(items)) head.push(`FLAGS (${m.flags.join(" ")})`);
+          if (/INTERNALDATE/.test(items)) head.push(`INTERNALDATE "${imapDate(m.internalDate)}"`);
+          if (/BODYSTRUCTURE/.test(items)) head.push(`BODYSTRUCTURE ${o.noBodyStructure ? "NIL" : bodyStructure(tree)}`);
+          const lits: [string, Buffer][] = [];
+          for (const sm of items.matchAll(/(?:BODY|BINARY)(?:\.PEEK)?\[([^\]]*)\](?:<(\d+)\.(\d+)>)?/g)) {
+            const sec = sm[1];
+            let data = sec === "" ? src : (() => { const x = section(tree, sec); return x === undefined ? undefined : Buffer.from(x, "latin1"); })();
+            if (!data) continue;
+            if (sm[2] !== undefined) data = data.subarray(Number(sm[2]), Number(sm[2]) + Number(sm[3]));
+            lits.push([`BODY[${sec}]${sm[2] !== undefined ? `<${sm[2]}>` : ""}`, data]);
+          }
+          if (!lits.length) { send(`* ${seq} FETCH (${head.join(" ")})\r\n`); continue; }
+          let pre = `* ${seq} FETCH (${head.join(" ")}`;
+          for (const [name, data] of lits) {
+            send(`${pre} ${name} {${data.length}}\r\n`);
+            send(data);
+            sent += data.length;
+            pre = "";
+          }
+          send(")\r\n");
         }
         return ok();
       }
@@ -175,7 +250,7 @@ export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
       const addr = server.address();
       resolve({
         port: typeof addr === "object" && addr ? addr.port : port,
-        commands, messages: msgs,
+        commands, messages: msgs, sentBytes: () => sent, logins: () => logins,
         close: () => new Promise<void>((r) => { for (const s of sockets) s.destroy(); server.close(() => r()); }),
       });
     });

@@ -131,7 +131,7 @@ test("연결 해제: 저장한 전체 본문도 지운다", async () => {
   assert.equal(mailFocusContext(store, "정동기 메일 전체 본문"), "");
 });
 
-test("가져오기: 본문을 자르지 않고 받는다(BODY.PEEK[] 전체, 범위 없음) · 읽음 표시 그대로", async () => {
+test("가져오기: 본문을 자르지 않고 받는다(글 부분 BODY.PEEK[1] 전체, 범위 없음) · 읽음 표시 그대로", async () => {
   const now = new Date();
   const big = "가".repeat(200_000);
   const raw = ["From: 정동기 <dg@corp.example>", "Subject: 큰 메일", "Message-ID: <big@corp>", "Content-Type: text/plain; charset=utf-8", "", big, ""].join("\r\n");
@@ -144,7 +144,8 @@ test("가져오기: 본문을 자르지 않고 받는다(BODY.PEEK[] 전체, 범
     assert.equal(r.items[0].body?.length, big.length, "본문 전체");
     assert.ok(r.items[0].snippet.length <= 600);
     const f = s.commands.filter((c) => /FETCH/.test(c));
-    assert.ok(f.every((c) => /BODY\.PEEK\[\]/.test(c) && !/BODY\.PEEK\[\]<\d+/.test(c)), f.join("\n"));
+    assert.ok(f.some((c) => /BODY\.PEEK\[1\]/.test(c)), f.join("\n"));
+    assert.ok(f.every((c) => !/BODY\[|BODY\.PEEK\[[^\]]*\]<\d+/.test(c)), f.join("\n"));
     assert.deepEqual(s.messages[0].flags, []);
   } finally {
     await s.close();

@@ -1,16 +1,18 @@
 // 메일 IMAP 읽기(읽기 전용): 메일 주소 + 앱 비밀번호로 받은편지함을 열어 최근 받은 메일의 보낸 사람·제목·날짜·본문 앞부분을 가져온다.
 //
-// 읽기 전용을 지키는 법(여기서 부르는 IMAP 명령은 LOGIN · EXAMINE · UID SEARCH · UID FETCH(BODY.PEEK) · LOGOUT 뿐):
+// 읽기 전용을 지키는 법(여기서 부르는 IMAP 명령은 LOGIN · EXAMINE · UID SEARCH · UID FETCH(BODYSTRUCTURE · BODY.PEEK) · LOGOUT 뿐):
 //   1) 받은편지함은 EXAMINE 으로 연다(mailboxOpen readOnly). 서버가 READ-ONLY 로 열지 않았다고 답하면 아무것도 읽지 않고 끝낸다
-//   2) 본문은 BODY.PEEK[] 로만 받는다(imapflow fetch 의 source) — 읽음 표시(\Seen)가 바뀌지 않는다
+//   2) 머리말·본문은 BODY.PEEK[HEADER] · BODY.PEEK[n](글 부분만) 로만 받는다 — 읽음 표시(\Seen)가 바뀌지 않는다.
+//      BODYSTRUCTURE 로 구조를 먼저 보고 text/plain·text/html 부분만 받는다. 첨부(수십 MB 일 수 있다)는 내용을 받지 않고 이름·크기만.
+//      구조를 못 주는 서버의 메일만 원문 전체(BODY.PEEK[])로 받는다
 //   3) 플래그 바꾸기·지우기·옮기기·복사·보내기(SMTP) 코드는 없다(mail-imap.test.ts 가 이 파일에 그런 호출이 없는지 본다)
-// 개수 상한은 없다: 기간(sinceHours, 기본 24시간) 안에 받은 메일은 전부. 본문도 자르지 않고 메일 전체(BODY.PEEK[])를 받아 글자 본문을 남긴다
+// 개수 상한은 없다: 기간(sinceHours, 기본 24시간) 안에 받은 메일은 전부. 글 본문도 자르지 않고 그 부분 전체를 받는다
 // (목록 맥락엔 앞부분 snippet 만, 사용자가 가리킨 메일은 body 전체를 넣는다 — mail-sync.ts).
 import { ImapFlow } from "imapflow";
 import type { ConnectionOptions } from "node:tls";
 import type { MailTarget } from "./connectors.ts";
 import { MAIL_PRESETS } from "./mail-presets.ts";
-import { parseMail } from "./mail-mime.ts";
+import { attachmentsOf, bodyFromParts, parseMail, textParts, type MailAttachment, type MimeNode } from "./mail-mime.ts";
 
 export const SNIPPET_CHARS = 600;    // 목록 맥락에 넣는 본문 앞부분 글자 수(전체 본문은 body)
 export const TIMEOUT_MS = 20_000;
@@ -23,6 +25,7 @@ export type MailItem = {
   date: string;          // 받은 때(서버 INTERNALDATE, 없으면 Date 머리말) ISO
   snippet: string;
   body?: string;         // 글자 본문 전체(HTML 메일은 글자만, 첨부는 뺌). 자르지 않는다
+  attachments?: MailAttachment[]; // 첨부는 이름·종류·크기만(내용은 받지 않는다)
   unread: boolean;       // 아직 안 읽음(\Seen 없음) — 읽기만 하니 그대로 남는다
   bulk: boolean;         // 광고·뉴스레터·자동 발송으로 보인다
   messageId?: string;
@@ -119,27 +122,67 @@ export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): 
     // SINCE 는 날짜 단위라 하루 앞부터 찾고 받은 시각으로 다시 거른다
     const query: Record<string, unknown> = { since: new Date(since.getTime() - 24 * 3600e3) };
     if (filtered) query.gmraw = "-category:promotions -category:social";
-    const uids = ((await client.search(query, { uid: true })) || []) as number[];
+    // imapflow 는 검색이 실패하면(끊김 등) 던지지 않고 false 를 준다 — 「메일 0통」으로 덮어쓰지 않게 실패로 본다
+    const found = await client.search(query, { uid: true });
+    if (!Array.isArray(found)) { const e: any = new Error(client.usable ? "SEARCH failed" : "Connection closed during SEARCH"); e.code = client.usable ? "" : "NoConnection"; throw e; }
+    const uids = found as number[];
     const items: MailItem[] = [];
     if (uids.length) {
-      const got: { uid: number; flags?: Set<string>; internalDate?: Date | string; source?: Buffer; emailId?: string }[] = [];
-      for await (const m of client.fetch(uids, { uid: true, flags: true, internalDate: true, source: true }, { uid: true })) {
-        got.push({ uid: m.uid, flags: m.flags, internalDate: m.internalDate, source: m.source });
+      // 1) 머리말·구조·플래그·받은 때만(BODY.PEEK[HEADER] · BODYSTRUCTURE). 첨부 내용은 받지 않는다
+      type Got = { uid: number; flags?: Set<string>; internalDate?: Date | string; headers?: Buffer; structure?: MimeNode };
+      const got: Got[] = [];
+      for await (const m of client.fetch(uids, { uid: true, flags: true, internalDate: true, headers: true, bodyStructure: true }, { uid: true })) {
+        got.push({ uid: m.uid, flags: m.flags, internalDate: m.internalDate, headers: m.headers, structure: m.bodyStructure as MimeNode | undefined });
       }
-      for (const m of got) {
-        const p = parseMail(m.source ?? Buffer.alloc(0));
-        const at = toIso(m.internalDate) ?? p.date;
-        if (!at || Date.parse(at) < since.getTime()) continue;
-        const body = p.text.trim();
-        const snippet = body.replace(/\s+/g, " ").trim();
-        items.push({
-          uid: m.uid, from: p.from || p.fromAddr || "(보낸 사람 없음)", fromAddr: p.fromAddr, subject: p.subject || "(제목 없음)", date: at,
-          snippet: snippet.length > SNIPPET_CHARS ? `${snippet.slice(0, SNIPPET_CHARS - 1)}…` : snippet,
-          body,
-          unread: !(m.flags?.has("\\Seen") ?? false), bulk: p.bulk,
-          ...(p.messageId ? { messageId: p.messageId } : {}),
-          ...(gm && p.messageId ? { link: `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`rfc822msgid:${p.messageId}`)}` } : {}),
-        });
+      // 받은 시각으로 먼저 거른다(SINCE 는 하루 앞부터라 더 온다)
+      const recent = got.filter((m) => { const at = toIso(m.internalDate); return !at || Date.parse(at) >= since.getTime(); });
+      // 2) 글 본문 부분만(BODY.PEEK[n]). 같은 부분 번호끼리 묶어 한 번에. 구조를 못 받은 메일만 원문 전체(BODY.PEEK[])
+      const parts = new Map<number, { data: Map<string, Buffer>; binary?: Set<string> }>();
+      const groups = new Map<string, number[]>();
+      // 1) 에서 안 돌아온 메일(서버·파서가 그 구조를 못 다룸)과 구조 없는 메일은 원문 전체로 — 빠뜨리지 않는다
+      const back = new Set(got.map((m) => m.uid));
+      const whole: number[] = uids.filter((u) => !back.has(u));
+      for (const m of recent) {
+        if (!m.structure) { whole.push(m.uid); continue; }
+        const keys = textParts(m.structure);
+        if (!keys.length) continue;
+        const k = keys.join(" ");
+        groups.set(k, [...(groups.get(k) ?? []), m.uid]);
+      }
+      for (const [k, list] of groups) {
+        for await (const m of client.fetch(list, { uid: true, bodyParts: k.split(" ") }, { uid: true })) {
+          if (m.bodyParts) parts.set(m.uid, { data: m.bodyParts, ...((m as any).binaryParts ? { binary: (m as any).binaryParts } : {}) });
+        }
+      }
+      const sources = new Map<number, Buffer>();
+      if (whole.length) {
+        for await (const m of client.fetch(whole, { uid: true, flags: true, internalDate: true, source: true }, { uid: true })) {
+          if (!m.source) continue;
+          sources.set(m.uid, m.source);
+          if (!back.has(m.uid)) recent.push({ uid: m.uid, flags: m.flags, internalDate: m.internalDate });
+        }
+      }
+      for (const m of recent) {
+        // 메일 하나를 못 읽어도 그 메일만 건너뛴다(이상한 인코딩·깨진 구조로 계정 전체가 실패하지 않게)
+        try {
+          const src = sources.get(m.uid);
+          const p = parseMail(src ?? m.headers ?? Buffer.alloc(0));
+          const at = toIso(m.internalDate) ?? p.date;
+          if (!at || Date.parse(at) < since.getTime()) continue;
+          const pp = parts.get(m.uid);
+          const body = (src ? p.text : m.structure && pp ? bodyFromParts(m.structure, pp.data, pp.binary) : "").trim();
+          const attachments = m.structure ? attachmentsOf(m.structure) : [];
+          const snippet = body.replace(/\s+/g, " ").trim();
+          items.push({
+            uid: m.uid, from: p.from || p.fromAddr || "(보낸 사람 없음)", fromAddr: p.fromAddr, subject: p.subject || "(제목 없음)", date: at,
+            snippet: snippet.length > SNIPPET_CHARS ? `${snippet.slice(0, SNIPPET_CHARS - 1)}…` : snippet,
+            body,
+            ...(attachments.length ? { attachments } : {}),
+            unread: !(m.flags?.has("\\Seen") ?? false), bulk: p.bulk,
+            ...(p.messageId ? { messageId: p.messageId } : {}),
+            ...(gm && p.messageId ? { link: `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`rfc822msgid:${p.messageId}`)}` } : {}),
+          });
+        } catch { /* 이 메일만 건너뛴다 */ }
       }
     }
     items.sort((a, b) => b.date.localeCompare(a.date));
@@ -147,7 +190,14 @@ export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): 
   } catch (e: any) {
     return { ok: false, ...mailFailure(e, c) };
   } finally {
-    try { if (opened || client.usable) await client.logout(); } catch { /* 이미 끊김 */ }
+    // LOGOUT 에 답이 없는 서버라도 오래 붙잡지 않는다(읽은 결과는 이미 손에 있다)
+    try {
+      if (opened || client.usable) {
+        let t: NodeJS.Timeout | undefined;
+        await Promise.race([client.logout().catch(() => {}), new Promise<void>((r) => { t = setTimeout(r, Math.min(timeout, 5000)); t.unref?.(); })]);
+        clearTimeout(t);
+      }
+    } catch { /* 이미 끊김 */ }
     try { client.close(); } catch { /* 무시 */ }
   }
 }

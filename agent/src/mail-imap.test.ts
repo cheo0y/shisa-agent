@@ -45,7 +45,9 @@ test("읽기 전용: EXAMINE 으로만 열고 BODY.PEEK 로 읽는다 — 읽음
     assert.ok(s.commands.some((c) => c.startsWith("EXAMINE INBOX")));
     assert.ok(!s.commands.some((c) => /^SELECT\b/.test(c)), "SELECT(읽기·쓰기 열기) 금지");
     const fetches = s.commands.filter((c) => /FETCH/.test(c));
-    assert.ok(fetches.length > 0 && fetches.every((c) => /BODY\.PEEK\[\]/.test(c) && !/BODY\[\]/.test(c)), fetches.join("\n"));
+    assert.ok(fetches.length > 0 && fetches.every((c) => !/(^|[ (])BODY\[|BINARY\[/.test(c)), fetches.join("\n"));
+    assert.ok(fetches.some((c) => /BODYSTRUCTURE/.test(c) && /BODY\.PEEK\[HEADER\]/.test(c)), fetches.join("\n"));
+    assert.ok(fetches.every((c) => !/BODY\.PEEK\[\]/.test(c)), "구조를 주는 서버면 원문 전체는 받지 않는다");
     assert.ok(!s.commands.some((c) => /STORE|EXPUNGE|MOVE|COPY|APPEND|DELETE|CREATE|RENAME/.test(c)), s.commands.join("\n"));
     assert.ok(s.commands.some((c) => /X-GM-RAW -category:promotions -category:social/.test(c)));
   });
@@ -167,4 +169,92 @@ test("네이버 「check IMAP/SMTP settings in the webmail」: IMAP 사용함·�
   assert.equal(r.code, "auth");
   assert.match(r.reason, /IMAP\/SMTP 설정」 탭/);
   assert.match(r.reason, /애플리케이션 비밀번호/);
+});
+
+// ── 안정성: 큰 첨부 · 깨진 MIME · 구조 없는 서버 · 멈춘 서버 · 끊김 ──
+const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64").replace(/.{76}/g, "$&\r\n");
+const at = (h: number) => new Date(NOW.getTime() - h * 3600e3);
+
+test("큰 첨부: 첨부 내용은 받지 않고 이름·크기만 · 본문(plain·html alternative)은 다 · 읽음 표시 그대로", async () => {
+  const pdf = Buffer.alloc(8 * 1024 * 1024, 7); // 8MB
+  const raw = [
+    "From: 김교수 <prof@uni.example>", "Subject: 논문 초안", "Message-ID: <att@uni>", "MIME-Version: 1.0",
+    "Content-Type: multipart/mixed; boundary=\"MX\"", "",
+    "--MX", "Content-Type: multipart/alternative; boundary=\"AL\"", "",
+    "--AL", "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64", "", b64("초안 보냅니다. 3장 검토 부탁해요."),
+    "--AL", "Content-Type: text/html; charset=utf-8", "", "<p>초안 보냅니다.</p>", "--AL--", "",
+    "--MX", "Content-Type: application/pdf; name=\"draft.pdf\"", "Content-Disposition: attachment; filename=\"draft.pdf\"", "Content-Transfer-Encoding: base64", "", b64(pdf),
+    "--MX", "Content-Type: text/plain; name=\"notes.txt\"", "Content-Disposition: attachment; filename=\"notes.txt\"", "", "첨부 글 파일 내용(받지 않아야 함)",
+    "--MX--", "",
+  ].join("\r\n");
+  await withServer({ gmail: false, messages: [{ uid: 21, internalDate: at(1), raw }] }, async (port, s) => {
+    const r = await fetchRecentMail(conn(port), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+    if (!r.ok) return;
+    const m = r.items[0];
+    assert.equal(m.body, "초안 보냅니다. 3장 검토 부탁해요.");
+    assert.doesNotMatch(m.body ?? "", /받지 않아야/);
+    assert.deepEqual(m.attachments?.map((a) => a.name), ["draft.pdf", "notes.txt"]);
+    assert.ok(Math.abs((m.attachments?.[0].size ?? 0) - pdf.length) < 64 * 1024, `크기 ${m.attachments?.[0].size}`);
+    assert.ok(s.sentBytes() < 64 * 1024, `보낸 바이트 ${s.sentBytes()} — 첨부까지 받으면 안 된다`);
+    assert.deepEqual(s.messages[0].flags, []);
+  });
+});
+
+test("깨진 메일: 모르는 charset · 잘린 base64 · 경계 없는 multipart · 아주 긴 줄 · 깊은 중첩 — 예외 없이 읽고 다른 메일도 그대로", async () => {
+  let deep = "Content-Type: text/plain\r\n\r\n깊은 본문";
+  for (let i = 0; i < 30; i++) deep = `Content-Type: multipart/mixed; boundary="d${i}"\r\n\r\n--d${i}\r\n${deep}\r\n--d${i}--`;
+  const msgs = [
+    { uid: 31, internalDate: at(1), raw: "From: a@x.example\r\nSubject: =?x-nope?B?@@@?=\r\nContent-Type: text/plain; charset=x-unknown-cs\r\n\r\nhello unknown\r\n" },
+    { uid: 32, internalDate: at(1), raw: "From: b@x.example\r\nSubject: cut\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n7JWI64WV7ZWY7IS47JqU\r\n7J" },
+    { uid: 33, internalDate: at(1), raw: "From: c@x.example\r\nSubject: no boundary\r\nContent-Type: multipart/mixed\r\n\r\nstray\r\n" },
+    { uid: 34, internalDate: at(1), raw: `From: d@x.example\r\nSubject: long\r\nContent-Type: text/plain\r\n\r\n${"a".repeat(2_000_000)}\r\n` },
+    { uid: 35, internalDate: at(1), raw: `From: e@x.example\r\nSubject: deep\r\n${deep}\r\n` },
+    { uid: 36, internalDate: at(1), raw: "From: =?utf-8?Q?=ZZ=?= <f@x.example>\r\nSubject: =?euc-kr?B?vsiz58fPvLy/5A==?=\r\nContent-Type: text/html; charset=euc-kr\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n<p>=BE=C8=B3=E7</p><script>x</scr\r\n" },
+    { uid: 37, internalDate: at(1), raw: "From: ok@x.example\r\nSubject: normal\r\n\r\n정상 메일\r\n" },
+  ];
+  await withServer({ gmail: false, messages: msgs }, async (port) => {
+    const r = await fetchRecentMail(conn(port), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+    if (!r.ok) return;
+    const by = new Map(r.items.map((m) => [m.uid, m]));
+    assert.equal(by.get(37)?.body, "정상 메일");
+    assert.equal(by.get(31)?.body, "hello unknown");
+    assert.equal(by.get(32)?.body, "안녕하세요");
+    assert.equal(by.get(34)?.body?.length, 2_000_000);
+    assert.equal(by.get(36)?.subject, "안녕하세요");
+    assert.ok(by.has(33) && by.has(35));
+  });
+});
+
+test("구조(BODYSTRUCTURE)를 못 주는 서버: 그 메일만 원문 전체로 읽는다", async () => {
+  await withServer({ gmail: false, noBodyStructure: true }, async (port, s) => {
+    const r = await fetchRecentMail(conn(port), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+    if (!r.ok) return;
+    assert.match(r.items.find((m) => m.uid === 11)?.body ?? "", /금요일까지 회신/);
+    assert.ok(s.commands.some((c) => /BODY\.PEEK\[\]/.test(c)));
+    assert.deepEqual(s.messages.map((m) => m.flags), sampleMessages(NOW).map((m) => m.flags ?? []));
+  });
+});
+
+test("멈춘 서버(로그인 뒤 FETCH 에 답 없음) · 중간에 끊김: 오래 걸리지 않고 실패로 끝나며 연결을 닫는다(데몬은 안 죽는다)", async () => {
+  for (const o of [{ stallOn: /^UID FETCH/ }, { stallOn: /^EXAMINE/ }, { dropOn: /^UID FETCH/ }, { dropOn: /^UID SEARCH/ }] as Partial<FakeImapOpts>[]) {
+    await withServer({ gmail: false, ...o }, async (port) => {
+      const t0 = Date.now();
+      const r = await fetchRecentMail(conn(port), { now: NOW, timeoutMs: 300 });
+      assert.equal(r.ok, false, JSON.stringify(o));
+      if (!r.ok) assert.ok(["timeout", "network"].includes(r.code), `${JSON.stringify(o)} → ${r.code} ${r.detail}`);
+      assert.ok(Date.now() - t0 < 5000, `${Date.now() - t0}ms`);
+    });
+  }
+});
+
+test("LOGOUT 에 답이 없는 서버: 읽은 결과는 그대로 돌려주고 오래 걸리지 않는다", async () => {
+  await withServer({ gmail: false, stallOn: /^LOGOUT/ }, async (port) => {
+    const t0 = Date.now();
+    const r = await fetchRecentMail(conn(port), { now: NOW, timeoutMs: 300 });
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.ok(Date.now() - t0 < 5000, `${Date.now() - t0}ms`);
+  });
 });

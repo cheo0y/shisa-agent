@@ -1,6 +1,6 @@
 // 메일 원문(RFC 5322 / MIME) 앞부분 → 보낸 사람·제목·날짜·본문 앞부분(텍스트). 새 의존성 없이 필요한 만큼만:
 // 머리말 펼치기, 인코딩된 낱말(=?charset?B|Q?…?=), base64·quoted-printable, 문자셋(TextDecoder — euc-kr 등), multipart 나누기, HTML → 텍스트.
-// 원문은 앞 몇십 KB 만 받아 오므로(잘린 base64 도) 끝까지 없어도 깨지지 않게 읽는다.
+// 원문이 잘려 와도(잘린 base64 도) 깨지지 않게 읽는다. 보통은 원문 전체 대신 구조(BODYSTRUCTURE)를 보고 글 부분만 받아 bodyFromParts 로 푼다(아래).
 
 export type ParsedMail = {
   from: string;          // 「이름 <주소>」 또는 주소
@@ -157,4 +157,76 @@ export function parseMail(src: Buffer | string): ParsedMail {
     text: tidy(body?.text ?? ""),
     bulk,
   };
+}
+
+// ── 구조(BODYSTRUCTURE)로 읽기: 원문 전체(첨부까지) 대신 글 본문 부분만 받는다(mail-imap.ts) ──
+// imapflow 가 풀어 준 BODYSTRUCTURE 모양(필요한 칸만)
+export type MimeNode = {
+  part?: string;                          // "1" · "1.2" … (맨 위 multipart 는 없음)
+  type: string;                           // "text/plain" · "multipart/alternative" …
+  parameters?: Record<string, string>;
+  encoding?: string;
+  size?: number;                          // 서버가 아는 크기(전송 인코딩된 바이트)
+  disposition?: string;
+  dispositionParameters?: Record<string, string>;
+  childNodes?: MimeNode[];
+};
+// 첨부: 이름·종류·크기만(내용은 받지 않는다). size 는 대략 원래 파일 크기
+export type MailAttachment = { name: string; type: string; size: number };
+// base64 는 76자 + 줄바꿈(2) 마다 57바이트
+
+const isText = (n: MimeNode) => n.type === "text/plain" || n.type === "text/html";
+const isAttach = (n: MimeNode) => (n.disposition ?? "").toLowerCase() === "attachment";
+// 맨 위가 multipart 가 아니면 본문은 BODY[1]
+const keyOf = (n: MimeNode) => n.part ?? "1";
+
+// 받아 올 글 본문 부분(BODY.PEEK[n]). 첨부로 붙은 글 파일·전달된 메일(message/rfc822) 안은 받지 않는다
+export function textParts(root: MimeNode): string[] {
+  const out: string[] = [];
+  const walk = (n: MimeNode, depth: number) => {
+    if (depth > 16) return;
+    if (n.type.startsWith("multipart/")) { for (const c of n.childNodes ?? []) walk(c, depth + 1); return; }
+    if (isText(n) && !isAttach(n)) out.push(keyOf(n));
+  };
+  walk(root, 0);
+  return [...new Set(out)];
+}
+
+// 첨부 목록: 「첨부」로 붙은 것 + 이름이 있는 글 아닌 부분(본문 속 그림 multipart/related 안은 뺀다)
+export function attachmentsOf(root: MimeNode): MailAttachment[] {
+  const out: MailAttachment[] = [];
+  const walk = (n: MimeNode, related: boolean, depth: number) => {
+    if (depth > 16) return;
+    if (n.type.startsWith("multipart/")) { for (const c of n.childNodes ?? []) walk(c, related || n.type === "multipart/related", depth + 1); return; }
+    const name = n.dispositionParameters?.filename ?? n.parameters?.name ?? "";
+    const want = isAttach(n) || (!isText(n) && !!name && !(related && n.type.startsWith("image/")) && (n.disposition ?? "").toLowerCase() !== "inline") || n.type === "message/rfc822";
+    if (!want) return;
+    const enc = (n.encoding ?? "").toLowerCase();
+    const raw = Number(n.size) || 0;
+    out.push({ name: (decodeWords(name).replace(/\s+/g, " ").trim() || (n.type === "message/rfc822" ? "(전달된 메일)" : "(이름 없음)")).slice(0, 300), type: n.type, size: enc === "base64" ? Math.floor((raw * 57) / 78) : raw });
+  };
+  walk(root, false, 0);
+  return out;
+}
+
+// 받아 온 부분들 → 본문 글. 고르는 법은 원문 읽기(partText)와 같다: alternative 는 text/plain 먼저(비었으면 html), 그 밖은 첫 글 부분
+// binary: 서버가 전송 인코딩을 이미 푼 부분(BINARY). 한 부분이 깨져도 그 부분만 빈 글로
+export function bodyFromParts(root: MimeNode, got: Map<string, Buffer>, binary?: Set<string>): string {
+  const walk = (n: MimeNode, depth: number): { text: string; html: boolean } | undefined => {
+    if (depth > 16) return undefined;
+    if (n.type.startsWith("multipart/")) {
+      const subs = (n.childNodes ?? []).map((c) => walk(c, depth + 1)).filter((x): x is { text: string; html: boolean } => !!x && !!x.text.trim());
+      if (n.type === "multipart/alternative") return subs.find((x) => !x.html) ?? subs[0];
+      return subs[0];
+    }
+    if (!isText(n) || isAttach(n)) return undefined;
+    const buf = got.get(keyOf(n)) ?? got.get(keyOf(n).toLowerCase());
+    if (!buf) return undefined;
+    try {
+      const raw = binary?.has(keyOf(n)) ? buf : decodeBody(buf.toString("latin1"), n.encoding);
+      const text = charsetDecode(raw, n.parameters?.charset);
+      return n.type === "text/html" ? { text: htmlToText(text), html: true } : { text, html: false };
+    } catch { return undefined; }
+  };
+  try { return tidy(walk(root, 0)?.text ?? ""); } catch { return ""; }
 }
