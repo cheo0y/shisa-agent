@@ -95,7 +95,7 @@ export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): 
   const timeout = opts.timeoutMs ?? TIMEOUT_MS;
   const o: ConstructorParameters<typeof ImapFlow>[0] = {
     host: c.host, port: c.port, secure: c.secure,
-    auth: { user: c.user, pass: c.password },
+    auth: { user: c.login ?? c.user, pass: c.password },
     logger: false, emitLogs: false, disableAutoIdle: true, disableCompression: true,
     connectionTimeout: timeout, greetingTimeout: timeout, socketTimeout: timeout * 3,
     ...(opts.tls ? { tls: opts.tls } : {}),

@@ -86,7 +86,7 @@ export type CalendarApiConn = { cap: "calendar"; mode: "api"; icsUrls: string[];
 // id: 계정마다 고정 이름(설정에 없으면 주소로 만든다 — 예전 한 계정 모양도 같은 id). 같은 주소는 한 번만
 export type MailImapAccount = {
   id: string; preset: MailPresetId | "custom"; host: string; port: number; secure: boolean;
-  user: string; password?: string;
+  user: string; login?: string; password?: string; // login: 서버 로그인 이름(비면 user)
 };
 export type MailImapConn = { cap: "mail"; mode: "imap"; accounts: MailImapAccount[]; sinceHours: number; skipPromotions: boolean };
 // 가져오기 하나(계정 하나 + 같이 쓰는 기간·거르기)
@@ -174,6 +174,7 @@ export function mailImapAccount(c: Record<string, any>, envPassword?: string): M
   return {
     id: okAccountId(c?.id) ? c.id : mailAccountId(user),
     preset: presetName as MailImapAccount["preset"], host, port, secure, user,
+    ...(str(c?.login) ? { login: str(c?.login) } : {}), // 로그인 이름이 주소와 다를 때(네이버·다음은 아이디만 받기도 한다)
     ...(password ? { password } : {}),
   };
 }

@@ -99,8 +99,18 @@ export async function connectMail(body: unknown, deps: {
   const env = deps.env ?? process.env;
   const plan = mailConnectPlan(body, deps.current(), env);
   if ("error" in plan) return { ok: false, status: 400, error: plan.error };
-  const r = await (deps.fetch ?? fetchRecentMail)(plan.target);
-  if (!r.ok) return { ok: false, status: 400, error: r.reason, code: r.code };
+  const fetchMail = deps.fetch ?? fetchRecentMail;
+  let r = await fetchMail(plan.target);
+  // 네이버·다음 IMAP 은 로그인 이름으로 아이디만 받기도 한다: 주소로 안 되면 @ 앞 아이디로 한 번 더
+  const local = plan.target.user.split("@")[0];
+  if (!r.ok && r.code === "auth" && (plan.target.preset === "naver" || plan.target.preset === "daum") && !plan.target.login && local && local !== plan.target.user) {
+    const r2 = await fetchMail({ ...plan.target, login: local });
+    if (r2.ok) { r = r2; plan.account.login = local; plan.target.login = local; }
+  }
+  if (!r.ok) {
+    console.log(`[mail] 연결 실패(${plan.target.preset}, ${r.code})${r.detail ? `: ${r.detail}` : ""}`); // detail 은 비밀번호를 가린 서버 답
+    return { ok: false, status: 400, error: r.reason, code: r.code };
+  }
   let conn: MailImapConn;
   try {
     const v = rawMailValue(readConfigObject(deps.path));

@@ -281,3 +281,24 @@ test("진짜 IMAP: 서버 둘 · 하나는 틀린 비밀번호 → 그 계정만
     await s2.close();
   }
 });
+
+test("네이버·다음: 주소로 로그인이 안 되면 @ 앞 아이디로 한 번 더, 되면 login 으로 저장해 다음부터 그걸로", async () => {
+  const path = join(tmp(), "config.json");
+  writeFileSync(path, JSON.stringify({}));
+  const tried: string[] = [];
+  const fetch = async (t: MailTarget): Promise<MailFetchResult> => {
+    tried.push(t.login ?? t.user);
+    return t.login === "myid" ? { ok: true, items: [], filtered: false } : { ok: false, code: "auth", reason: "x" };
+  };
+  const r = await connectMail({ preset: "naver", user: "myid@naver.com", password: "pw" }, { path, current: () => undefined, env: {}, fetch, apply: () => {} });
+  assert.ok(r.ok);
+  assert.deepEqual(tried, ["myid@naver.com", "myid"]);
+  assert.equal(readJson(path).connectors.mail.accounts[0].login, "myid");
+  const c = resolveConnectors({}, readJson(path)).mail;
+  assert.ok(c.mode === "imap" && c.accounts[0].login === "myid");
+  // Gmail 은 다시 해 보지 않는다
+  tried.length = 0;
+  const g = await connectMail({ preset: "gmail", user: "a@gmail.com", password: "abcdefghijklmnop" }, { path, current: () => undefined, env: {}, fetch, apply: () => {} });
+  assert.equal(g.ok, false);
+  assert.deepEqual(tried, ["a@gmail.com"]);
+});
