@@ -137,8 +137,11 @@ export type BusHandlers = {
   connectorsReload?: () => { changed: boolean; restarting: boolean };
   // [연결 해제]: config.json 의 connectors[cap] 을 off 로(토큰·ICS 주소도 지움) + 다시 읽기(disconnect.ts). POST /connectors/disconnect { cap }. 없으면 503
   connectorDisconnect?: (cap: unknown) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
-  // 메일(앱 비밀번호) 연결: 로그인해 보고(LOGIN → EXAMINE INBOX) 되면 config.json 에 저장(mail-connect.ts). POST /connectors/mail. 비밀번호는 응답에 없다
+  // 메일(앱 비밀번호) 계정 추가: 로그인해 보고(LOGIN → EXAMINE INBOX) 되면 config.json 의 accounts 에 붙인다(같은 주소면 그 계정을 바꾼다, mail-connect.ts).
+  // POST /connectors/mail. 비밀번호는 응답에 없다
   mailConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
+  mailRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
   guidelines?: GuidelinesApi;
   // 집중하기(focus.ts): GET /focus · GET /focus/stats?from&to · POST /focus/start|pause|resume|stop. 없으면 503
@@ -581,6 +584,13 @@ export class Bus {
       const body = method === "POST" || method === "PUT" ? await readJson(req) : undefined;
       const r = h.guidelines.handle(method, gl[1], body);
       return json(res, r.status, r.body);
+    }
+    const mr = url.pathname.match(/^\/connectors\/mail\/([\w-]{1,64})$/);
+    if (mr && req.method === "DELETE") {
+      if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });
+      if (!h.mailRemove) return json(res, 503, { error: "mail remove unavailable" });
+      const r = h.mailRemove(mr[1]);
+      return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
     }
     if (req.method === "PUT" && url.pathname === "/settings") {
       if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });

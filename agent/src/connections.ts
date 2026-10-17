@@ -250,12 +250,17 @@ export class Connections {
       else if (cs?.phase === "ok") row.detail = `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
       else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
       // 메일(IMAP): 설정만 보고 「연결됨」이라 하지 않는다. 가져온 메일 수·못 가져온 이유를 같은 줄에. AI 가 없으면 할 일로는 못 뽑는다
+      // 계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통」, 일부만 못 가져오면 주황(warn) + 「주소: 이유」, 다 못 가져오면 빨강
       const ms = cap === "mail" && x.mode === "imap" && st.ready ? this.d.mail?.() : undefined;
+      const multi = x.mode === "imap" && x.accounts.length > 1;
       if (ms?.phase === "pending") row.detail = `${row.detail} · 메일 가져오는 중`;
       else if (ms?.phase === "ok") {
         const stale = ms.at ? now.getTime() - Date.parse(ms.at) > 60 * 60e3 : false;
-        row.detail = `${row.detail} · 최근 ${ms.sinceHours ?? 24}시간 메일 ${ms.count ?? 0}통 가져옴 (${ago(ms.at, now)})`;
-        if (stale) { row.state = "warn"; row.detail = `${row.detail} · 오래됐어요`; }
+        row.detail = multi
+          ? `메일 ${x.mode === "imap" ? x.accounts.length : 0}개 계정 · 최근 메일 ${ms.count ?? 0}통 (${ago(ms.at, now)}, 읽기만)`
+          : `${row.detail} · 최근 ${ms.sinceHours ?? 24}시간 메일 ${ms.count ?? 0}통 가져옴 (${ago(ms.at, now)})`;
+        if (ms.reason) { row.state = "warn"; row.error = ms.reason; }
+        else if (stale) { row.state = "warn"; row.detail = `${row.detail} · 오래됐어요`; }
       } else if (ms?.phase === "failed") { row.state = "error"; row.detail = `${row.detail} · 메일을 가져오지 못했어요 (${ago(ms.at, now)})`; row.error = ms.reason; }
       if (x.mode === "imap" && provider === "local") row.detail = `${row.detail} · AI를 연결하면 메일에서 할 일을 뽑아요`;
       // MCP 연결은 Claude Code 뇌로만 읽는다 — 다른 뇌면 등록돼 있어도 브리핑에 안 들어간다

@@ -30,7 +30,7 @@ import { openSpec } from "./plat.ts";
 import { CalendarSync, alertDetail, alertVars } from "./calendar-sync.ts";
 import { withCalendarSync } from "./calendar-state.ts";
 import { MailSync, withMailSync } from "./mail-sync.ts";
-import { connectMail } from "./mail-connect.ts";
+import { connectMail, removeMailAccount } from "./mail-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { withRun, asRoutine } from "./runs.ts";
 import { KgBackfill } from "./kg/backfill.ts";
@@ -343,13 +343,24 @@ await bus.listen(cfg.port, {
     return status();
   },
   connectorsReload: () => reloadConnectors(),
-  // 메일(앱 비밀번호): 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 동기화 결과로)
+  // 메일(앱 비밀번호) 계정 추가·바꾸기: 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 그 계정의 동기화 결과로)
   mailConnect: (body) => connectMail(body, {
     path: join(HOME_DIR, "config.json"), current: () => cfg.connectors.mail,
-    apply: (conn, r) => {
+    apply: (conn, id, r) => {
       cfg.connectors.mail = conn;
-      mailSync.accept(conn, r);
-      console.log(`[connectors] 메일 연결함(${conn.preset}, ${r.items.length}통)`); // 주소·비밀번호는 남기지 않는다
+      mailSync.accept(conn, id, r);
+      console.log(`[connectors] 메일 계정 연결함(${conn.accounts.find((a) => a.id === id)?.preset ?? "?"}, ${r.items.length}통, 계정 ${conn.accounts.length}개)`); // 주소·비밀번호는 남기지 않는다
+      pushStatus();
+      bus.dashboardChanged();
+    },
+  }),
+  // 메일 계정 하나 빼기: 그 계정 비밀번호·가져온 메일을 지운다. 마지막이면 메일 연결이 꺼진다
+  mailRemove: (id) => removeMailAccount(id, {
+    path: join(HOME_DIR, "config.json"),
+    apply: (conn) => {
+      cfg.connectors.mail = conn as typeof cfg.connectors.mail;
+      mailSync.setConnector(conn);
+      console.log(`[connectors] 메일 계정 하나 뺌(남은 계정 ${conn.mode === "imap" ? conn.accounts.length : 0}개)`);
       pushStatus();
       bus.dashboardChanged();
     },

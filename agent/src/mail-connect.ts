@@ -1,20 +1,27 @@
-// 메일(앱 비밀번호) 연결하기: 패널 「더 연결하기」 메일 카드 → POST /connectors/mail { preset, user, password, host?, port? }.
-// 저장하기 전에 진짜로 로그인해 본다(LOGIN → EXAMINE INBOX → 최근 메일 읽기). 실패하면 아무것도 저장하지 않고 이유를 사람 말로 돌려준다.
-// 성공하면 config.json 의 connectors.mail 을 { mode: "imap", … , password } 로 바꾼다(다른 키는 그대로, 원자적 쓰기, 파일 권한 600).
-// 비밀번호는 응답·로그에 넣지 않는다. 비워 보내면 같은 주소로 저장된 비밀번호(또는 CY_AGENT_MAIL_PASSWORD)를 쓴다.
+// 메일(앱 비밀번호) 계정 추가·빼기: 패널 「더 연결하기」 메일 카드 → POST /connectors/mail { preset, user, password, host?, port? } · DELETE /connectors/mail/:id.
+// 추가는 저장하기 전에 진짜로 로그인해 본다(LOGIN → EXAMINE INBOX → 최근 메일 읽기). 실패하면 아무것도 저장하지 않고 이유를 사람 말로 돌려준다.
+// 성공하면 config.json 의 connectors.mail 을 { mode: "imap", accounts: [...] } 로 쓴다(다른 키는 그대로, 원자적 쓰기, 파일 권한 600).
+// 예전 한 계정 모양(user·password 가 mail 바로 아래)은 accounts 하나로 읽고, 이번에 새 모양으로 바꿔 쓴다. 계정 수 상한은 없다.
+// 같은 주소를 다시 넣으면 새 계정을 만들지 않고 그 계정의 비밀번호(와 서버)를 바꾼다. 비워 보내면 저장된 비밀번호를 쓴다.
+// 비밀번호는 응답·로그에 넣지 않는다.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { mailImapConn, type Conn, type MailImapConn } from "./connectors.ts";
+import { mailAccountId, mailImapConn, rawMailAccounts, type Conn, type MailImapConn, type MailTarget } from "./connectors.ts";
 import { fetchRecentMail, type MailFetchOpts, type MailFetchResult } from "./mail-imap.ts";
 import { guessMailPreset, isMailPreset } from "./mail-presets.ts";
 
 export type MailConnectBody = { preset?: string; user?: string; password?: string; host?: string; port?: number; secure?: boolean; sinceHours?: number };
+// updated: 이미 있던 주소라 그 계정을 바꿨다(새로 붙이지 않음). accounts: 저장한 뒤 계정 수
 export type MailConnectResult =
-  | { ok: true; account: string; preset: string; count: number; filtered: boolean }
+  | { ok: true; id: string; account: string; preset: string; count: number; filtered: boolean; updated: boolean; accounts: number }
   | { ok: false; status: 400 | 500; error: string; code?: string };
+export type MailRemoveResult =
+  | { ok: true; id: string; account: string; left: number }
+  | { ok: false; status: 400 | 404 | 500; error: string };
 
 const KEYS = new Set(["preset", "user", "password", "host", "port", "secure", "sinceHours"]);
 const obj = (x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : undefined);
+const imapOf = (c: Conn | undefined): MailImapConn | undefined => (c && c.cap === "mail" && c.mode === "imap" ? c : undefined);
 
 export function readConfigObject(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
@@ -36,8 +43,17 @@ export function writeMailConnector(path: string, mail: Record<string, unknown>):
   renameSync(tmp, path);
 }
 
-// 본문 → 저장할 connectors.mail 값과 연결. 틀린 모양이면 { error }
-export function mailConnectPlan(body: unknown, cur: Conn | undefined, env: NodeJS.ProcessEnv = process.env): { value: Record<string, unknown>; conn: MailImapConn } | { error: string } {
+// 파일의 connectors.mail(원본) → 새 모양 { mode: "imap", accounts(id 붙임), sinceHours?, skipPromotions? }. imap 이 아니면 계정 없음
+export function rawMailValue(file: Record<string, unknown>): { accounts: Record<string, unknown>[]; sinceHours?: unknown; skipPromotions?: unknown } {
+  const m = obj(obj(file.connectors)?.mail);
+  if (!m || m.mode !== "imap") return { accounts: [] };
+  const accounts = rawMailAccounts(m).map((a) => ({ id: typeof a.id === "string" && /^[\w-]{1,64}$/.test(a.id) ? a.id : mailAccountId(String(a.user ?? "")), ...a }));
+  return { accounts, ...(m.sinceHours !== undefined ? { sinceHours: m.sinceHours } : {}), ...(m.skipPromotions !== undefined ? { skipPromotions: m.skipPromotions } : {}) };
+}
+const mailValue = (v: ReturnType<typeof rawMailValue>): Record<string, unknown> => ({ mode: "imap", accounts: v.accounts, ...(v.sinceHours !== undefined ? { sinceHours: v.sinceHours } : {}), ...(v.skipPromotions !== undefined ? { skipPromotions: v.skipPromotions } : {}) });
+
+// 본문 → 저장할 계정 원본과 시험할 연결. 틀린 모양이면 { error }
+export function mailConnectPlan(body: unknown, cur: Conn | undefined, env: NodeJS.ProcessEnv = process.env): { account: Record<string, unknown>; target: MailTarget; sinceHours?: number; updated: boolean } | { error: string } {
   const b = obj(body);
   if (!b) return { error: "json object required" };
   for (const k of Object.keys(b)) if (!KEYS.has(k)) return { error: `unknown key: ${k}` };
@@ -48,40 +64,77 @@ export function mailConnectPlan(body: unknown, cur: Conn | undefined, env: NodeJ
   if (b.password !== undefined && typeof b.password !== "string") return { error: "비밀번호를 확인해 주세요." };
   let password = typeof b.password === "string" ? b.password : "";
   if (password.length > 512) return { error: "비밀번호가 너무 길어요." };
-  const same = cur && cur.cap === "mail" && cur.mode === "imap" && cur.user.toLowerCase() === user.toLowerCase() ? cur : undefined;
+  const now = imapOf(cur);
+  const same = now?.accounts.find((a) => a.user.toLowerCase() === user.toLowerCase());
+  const envFirst = !!env.CY_AGENT_MAIL_PASSWORD && (!now || now.accounts[0] === same); // 환경변수 비밀번호는 첫 계정 것
   if (!password.trim()) password = same?.password ?? "";
-  if (!password.trim() && !env.CY_AGENT_MAIL_PASSWORD) return { error: preset === "gmail" ? "앱 비밀번호 16자리를 넣어 주세요." : "비밀번호를 넣어 주세요." };
-  const value: Record<string, unknown> = { mode: "imap", preset, user };
+  if (!password.trim() && !envFirst) return { error: preset === "gmail" ? "앱 비밀번호 16자리를 넣어 주세요." : "비밀번호를 넣어 주세요." };
+  const account: Record<string, unknown> = { id: same?.id ?? mailAccountId(user), preset, user };
   if (preset === "custom") {
     if (typeof b.host !== "string" || !b.host.trim()) return { error: "메일 서버 주소(IMAP)를 넣어 주세요." };
-    value.host = b.host.trim();
-    if (b.port !== undefined) value.port = b.port;
-    if (b.secure === false) value.secure = false;
+    account.host = b.host.trim();
+    if (b.port !== undefined) account.port = b.port;
+    if (b.secure === false) account.secure = false;
   }
-  const hours = b.sinceHours ?? (same ? same.sinceHours : undefined);
-  if (hours !== undefined) {
-    if (typeof hours !== "number" || !Number.isFinite(hours) || hours <= 0) return { error: "sinceHours 는 0보다 큰 수예요." };
-    if (hours !== 24) value.sinceHours = hours;
+  let sinceHours: number | undefined;
+  if (b.sinceHours !== undefined) {
+    if (typeof b.sinceHours !== "number" || !Number.isFinite(b.sinceHours) || b.sinceHours <= 0) return { error: "sinceHours 는 0보다 큰 수예요." };
+    sinceHours = b.sinceHours;
   }
-  if (same && same.skipPromotions === false) value.skipPromotions = false;
-  if (password.trim()) value.password = preset === "gmail" ? password.replace(/\s+/g, "") : password.trim();
-  const conn = mailImapConn(value, env);
-  if (conn.mode !== "imap") return { error: conn.reason ?? "메일 설정을 확인해 주세요." };
-  if (!conn.password) return { error: "비밀번호를 넣어 주세요." };
-  return { value, conn };
+  if (password.trim()) account.password = preset === "gmail" ? password.replace(/\s+/g, "") : password.trim();
+  // 시험할 연결: 이 계정 하나(기간·거르기는 지금 설정 그대로)
+  const test = mailImapConn({ accounts: [account], sinceHours: sinceHours ?? now?.sinceHours, skipPromotions: now?.skipPromotions }, envFirst && !account.password ? env : {});
+  if (test.mode !== "imap") return { error: test.reason?.replace(/^mail: /, "") ?? "메일 설정을 확인해 주세요." };
+  const t = { ...test.accounts[0], sinceHours: test.sinceHours, skipPromotions: test.skipPromotions };
+  if (!t.password) return { error: "비밀번호를 넣어 주세요." };
+  return { account, target: t, ...(sinceHours !== undefined ? { sinceHours } : {}), updated: !!same };
 }
 
-// 시험 로그인 → 저장. accept: 성공한 결과를 동기화에 넘긴다(한 번 더 로그인하지 않게)
+// 계정 추가(같은 주소면 바꾸기): 시험 로그인 → 저장. apply: 새 연결과 그 계정의 결과를 동기화에 넘긴다(한 번 더 로그인하지 않게)
 export async function connectMail(body: unknown, deps: {
   path: string; current: () => Conn | undefined; env?: NodeJS.ProcessEnv;
-  fetch?: (c: MailImapConn, o?: MailFetchOpts) => Promise<MailFetchResult>;
-  apply: (conn: MailImapConn, r: MailFetchResult & { ok: true }) => void;
+  fetch?: (c: MailTarget, o?: MailFetchOpts) => Promise<MailFetchResult>;
+  apply: (conn: MailImapConn, id: string, r: MailFetchResult & { ok: true }) => void;
 }): Promise<MailConnectResult> {
-  const plan = mailConnectPlan(body, deps.current(), deps.env);
+  const env = deps.env ?? process.env;
+  const plan = mailConnectPlan(body, deps.current(), env);
   if ("error" in plan) return { ok: false, status: 400, error: plan.error };
-  const r = await (deps.fetch ?? fetchRecentMail)(plan.conn);
+  const r = await (deps.fetch ?? fetchRecentMail)(plan.target);
   if (!r.ok) return { ok: false, status: 400, error: r.reason, code: r.code };
-  try { writeMailConnector(deps.path, plan.value); } catch (e: any) { return { ok: false, status: 500, error: String(e?.message ?? e) }; }
-  deps.apply(plan.conn, r);
-  return { ok: true, account: plan.conn.user, preset: plan.conn.preset, count: r.items.length, filtered: r.filtered };
+  let conn: MailImapConn;
+  try {
+    const v = rawMailValue(readConfigObject(deps.path));
+    const i = v.accounts.findIndex((a) => String(a.user ?? "").toLowerCase() === String(plan.account.user).toLowerCase());
+    if (i >= 0) {
+      const old = v.accounts[i];
+      // 비밀번호를 비워 보냈으면 파일에 있던 것을 그대로(환경변수 값을 파일에 쓰지 않는다)
+      v.accounts[i] = { ...plan.account, id: old.id, ...(plan.account.password === undefined && old.password !== undefined ? { password: old.password } : {}) };
+    } else v.accounts.push(plan.account);
+    if (plan.sinceHours !== undefined) v.sinceHours = plan.sinceHours;
+    const value = mailValue(v);
+    const next = mailImapConn(value, env);
+    if (next.mode !== "imap") return { ok: false, status: 400, error: next.reason ?? "메일 설정을 확인해 주세요." };
+    writeMailConnector(deps.path, value);
+    conn = next;
+  } catch (e: any) { return { ok: false, status: 500, error: String(e?.message ?? e) }; }
+  const id = conn.accounts.find((a) => a.user.toLowerCase() === plan.target.user.toLowerCase())?.id ?? plan.target.id;
+  deps.apply(conn, id, r);
+  return { ok: true, id, account: plan.target.user, preset: plan.target.preset, count: r.items.length, filtered: r.filtered, updated: plan.updated, accounts: conn.accounts.length };
+}
+
+// 계정 하나 빼기: 그 계정(비밀번호까지)을 config.json 에서 지운다. 마지막 계정이면 메일 연결이 꺼진다({ mode: "off" }).
+// apply: 새 연결(또는 off) — 동기화가 그 계정의 가져온 메일을 지운다
+export function removeMailAccount(id: unknown, deps: { path: string; env?: NodeJS.ProcessEnv; apply: (conn: Conn) => void }): MailRemoveResult {
+  if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) return { ok: false, status: 400, error: "계정 id 를 확인해 주세요." };
+  try {
+    const v = rawMailValue(readConfigObject(deps.path));
+    const i = v.accounts.findIndex((a) => a.id === id);
+    if (i < 0) return { ok: false, status: 404, error: "그 메일 계정은 연결돼 있지 않아요." };
+    const [gone] = v.accounts.splice(i, 1);
+    const value = v.accounts.length ? mailValue(v) : { mode: "off" };
+    writeMailConnector(deps.path, value);
+    const conn: Conn = v.accounts.length ? mailImapConn(value, deps.env ?? process.env) : { cap: "mail", mode: "off" };
+    deps.apply(conn);
+    return { ok: true, id, account: String(gone.user ?? ""), left: v.accounts.length };
+  } catch (e: any) { return { ok: false, status: 500, error: String(e?.message ?? e) }; }
 }

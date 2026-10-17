@@ -6,11 +6,14 @@
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
 //   mode = "imap"    — 메일만. 메일 주소 + 앱 비밀번호로 받은편지함을 읽기 전용으로 연다(mail-imap.ts: EXAMINE·BODY.PEEK, 쓰기 명령 없음).
-//                       preset = gmail · naver · daum(서버 주소를 채운다), 그 밖의 IMAP 은 host·port 를 직접. 데몬이 직접 가져와 모델에 넘긴다(어느 뇌든 된다)
+//                       accounts = [{ id, preset, user, password, host?, port? }] 여러 개(상한 없음). preset = gmail · naver · daum(서버 주소를 채운다),
+//                       그 밖의 IMAP 은 host·port 를 직접. 예전 한 계정 모양(user·password 가 mail 바로 아래)도 accounts 하나로 읽는다.
+//                       데몬이 계정마다 직접 가져와 모델에 넘긴다(어느 뇌든 된다)
 //   mode = "off"     — 안 쓴다. 관련 기능은 조용히 빠지고 패널에 "연결 안 됨"으로 보인다.
 //
 // connectors 를 안 쓰면 전부 off. 비밀값(토큰·ICS 주소·메일 비밀번호)은 환경변수로도 줄 수 있다: CY_AGENT_SLACK_USER_TOKEN, CY_AGENT_CALENDAR_ICS_URL, CY_AGENT_MAIL_PASSWORD.
 // 쓰기 도구는 어느 모드에서도 막힌다(guard.ts). 매핑에 쓰기 도구 이름을 적어도 허용 목록에 들어가지 않는다.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { stripBom } from "./fs-atomic.ts";
 import { homedir } from "node:os";
@@ -78,12 +81,16 @@ export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
 export type CalendarApiConn = { cap: "calendar"; mode: "api"; icsUrls: string[]; timeZone: string; email?: string };
-// 메일 IMAP: password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다). sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24)
-// skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬). 다른 서비스는 모델이 광고성을 거른다
-export type MailImapConn = {
-  cap: "mail"; mode: "imap"; preset: MailPresetId | "custom"; host: string; port: number; secure: boolean;
-  user: string; password?: string; sinceHours: number; skipPromotions: boolean;
+// 메일 IMAP: 계정 여러 개(accounts). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다).
+// sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24, 모든 계정 같이). skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬)
+// id: 계정마다 고정 이름(설정에 없으면 주소로 만든다 — 예전 한 계정 모양도 같은 id). 같은 주소는 한 번만
+export type MailImapAccount = {
+  id: string; preset: MailPresetId | "custom"; host: string; port: number; secure: boolean;
+  user: string; password?: string;
 };
+export type MailImapConn = { cap: "mail"; mode: "imap"; accounts: MailImapAccount[]; sinceHours: number; skipPromotions: boolean };
+// 가져오기 하나(계정 하나 + 같이 쓰는 기간·거르기)
+export type MailTarget = MailImapAccount & { sinceHours: number; skipPromotions: boolean };
 export type Conn = OffConn | McpConn | SlackApiConn | CalendarApiConn | MailImapConn;
 type Common = OffConn | McpConn;
 export type Connectors = { slack: Common | SlackApiConn; calendar: Common | CalendarApiConn; mail: Common | MailImapConn; issues: Common };
@@ -132,31 +139,70 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
   };
 }
 
-// connectors.mail(mode imap) → 연결. 프리셋이 서버 주소를 채우고, 그 밖은 host·port 를 직접(암호화 없는 연결은 이 컴퓨터 안 주소만)
-export function mailImapConn(c: Record<string, any>, env: NodeJS.ProcessEnv = process.env): MailImapConn | OffConn {
+// 주소 → 계정 id(대소문자 무시, 늘 같은 값). 예전 한 계정 모양을 읽을 때·새로 추가할 때 같은 걸 쓴다
+export const mailAccountId = (user: string) => `m-${createHash("sha256").update(user.trim().toLowerCase()).digest("hex").slice(0, 10)}`;
+const okAccountId = (x: unknown): x is string => typeof x === "string" && /^[\w-]{1,64}$/.test(x);
+
+// connectors.mail 원본 → 계정 원본 목록. 예전 한 계정 모양({ user, password, … } 이 mail 바로 아래)은 accounts 하나로 읽는다
+export function rawMailAccounts(c: Record<string, any> | undefined): Record<string, any>[] {
+  if (!c || typeof c !== "object") return [];
+  if (Array.isArray(c.accounts)) return c.accounts.filter((a: unknown) => a && typeof a === "object" && !Array.isArray(a));
+  if (str(c.user) || str(c.host) || str(c.preset)) {
+    const { mode: _m, accounts: _a, sinceHours: _s, skipPromotions: _p, ...one } = c;
+    return [one];
+  }
+  return [];
+}
+
+// 계정 하나(원본) → 계정. 프리셋이 서버 주소를 채우고, 그 밖은 host·port 를 직접(암호화 없는 연결은 이 컴퓨터 안 주소만)
+export function mailImapAccount(c: Record<string, any>, envPassword?: string): MailImapAccount | { reason: string } {
   const presetName = str(c?.preset) ?? (str(c?.host) ? "custom" : "gmail");
-  if (presetName !== "custom" && !isMailPreset(presetName)) return { cap: "mail", mode: "off", reason: `mail: 모르는 메일 서비스 "${presetName}"` };
+  if (presetName !== "custom" && !isMailPreset(presetName)) return { reason: `mail: 모르는 메일 서비스 "${presetName}"` };
   const p = presetName === "custom" ? undefined : MAIL_PRESETS[presetName];
   const host = (p ? p.host : str(c?.host))?.toLowerCase();
-  if (!host || !mailHostOk(host)) return { cap: "mail", mode: "off", reason: "mail: imap 모드엔 메일 서버 주소(host)가 필요해요" };
+  if (!host || !mailHostOk(host)) return { reason: "mail: imap 모드엔 메일 서버 주소(host)가 필요해요" };
   const portRaw = Number(c?.port);
   const port = p ? p.port : Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : 993;
   const loopback = /^(127\.0\.0\.1|localhost|::1)$/.test(host);
   const secure = p ? true : c?.secure === false && loopback ? false : true;
   const user = str(c?.user) ?? "";
-  if (!user) return { cap: "mail", mode: "off", reason: "mail: imap 모드엔 메일 주소(user)가 필요해요" };
+  if (!user) return { reason: "mail: imap 모드엔 메일 주소(user)가 필요해요" };
   const pw = (v: unknown) => (typeof v === "string" && v.trim() && !/\.\.\.|…|YOUR_/.test(v) ? v : undefined);
   // Gmail 앱 비밀번호는 4글자씩 띄어 보여 준다 — 띄어쓰기를 빼고 쓴다. 다른 서비스 비밀번호는 앞뒤 공백만
   const clean = (v: string | undefined) => (v === undefined ? undefined : presetName === "gmail" ? v.replace(/\s+/g, "") : v.trim());
-  const password = clean(pw(env.CY_AGENT_MAIL_PASSWORD) ?? pw(c?.password));
+  const password = clean(pw(envPassword) ?? pw(c?.password));
+  return {
+    id: okAccountId(c?.id) ? c.id : mailAccountId(user),
+    preset: presetName as MailImapAccount["preset"], host, port, secure, user,
+    ...(password ? { password } : {}),
+  };
+}
+
+// connectors.mail(mode imap) → 연결(계정 여러 개). 계정 수 상한 없음. 틀린 계정은 빼고, 같은 주소는 앞의 것만.
+// 다 틀리면 off + 이유. CY_AGENT_MAIL_PASSWORD 는 첫 계정의 비밀번호(예전 한 계정 설정과 같게)
+export function mailImapConn(c: Record<string, any>, env: NodeJS.ProcessEnv = process.env): MailImapConn | OffConn {
+  const accounts: MailImapAccount[] = [];
+  const seen = new Set<string>();
+  let reason: string | undefined;
+  rawMailAccounts(c).forEach((raw, i) => {
+    const a = mailImapAccount(raw, i === 0 ? env.CY_AGENT_MAIL_PASSWORD : undefined);
+    if ("reason" in a) { reason ??= a.reason; return; }
+    const k = a.user.toLowerCase();
+    if (seen.has(k) || accounts.some((x) => x.id === a.id)) return;
+    seen.add(k);
+    accounts.push(a);
+  });
+  if (!accounts.length) return { cap: "mail", mode: "off", reason: reason ?? "mail: imap 모드엔 메일 주소(user)가 필요해요" };
   const h = Number(c?.sinceHours);
   return {
-    cap: "mail", mode: "imap", preset: presetName as MailImapConn["preset"], host, port, secure, user,
-    ...(password ? { password } : {}),
+    cap: "mail", mode: "imap", accounts,
     sinceHours: Number.isFinite(h) && h > 0 ? h : 24,
     skipPromotions: c?.skipPromotions !== false,
   };
 }
+
+// 연결 → 계정마다 가져오기 하나
+export const mailTargets = (c: MailImapConn): MailTarget[] => c.accounts.map((a) => ({ ...a, sinceHours: c.sinceHours, skipPromotions: c.skipPromotions }));
 
 // 설정 파일을 다시 읽은 결과가 지금 것과 다른가(비밀값 포함 — 토큰·ICS 주소만 바뀌어도 다시 켠다)
 export function connectorsChanged(cur: Connectors, next: Connectors): boolean {
@@ -198,8 +244,9 @@ export function slackIngestMode(c: Connectors = CONNECTORS): "api" | null {
 // ── 상태(패널 "연결" 카드) ───────────────────────────────────
 
 // server: mcp 모드일 때 Claude Code 에 등록한 서버 이름([연결 해제] 뒤 `claude mcp remove <이름>` 안내에 쓴다)
-// account·preset: imap 메일이면 연결한 주소와 서비스(gmail·naver·daum·custom). 비밀번호는 넣지 않는다
-export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string; account?: string; preset?: string };
+// account·preset: imap 메일이면 첫 계정의 주소와 서비스(gmail·naver·daum·custom). accounts: 계정 전부(id·주소·서비스·비밀번호 있나). 비밀번호는 넣지 않는다
+export type MailAccountStatus = { id: string; user: string; preset: string; ready: boolean };
+export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string; account?: string; preset?: string; accounts?: MailAccountStatus[] };
 
 export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string) => boolean = hasUserMcpServer): ConnectorStatus[] {
   return CAPABILITIES.map((cap) => {
@@ -209,9 +256,16 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
       case "off": return { ...base, ready: false, detail: x.reason ?? "연결 안 됨" };
       case "mcp": return has(x.server) ? { ...base, server: x.server, ready: true, detail: `MCP ${x.server}${x.preset ? ` (${x.preset})` : ""}` } : { ...base, server: x.server, ready: false, detail: `MCP 서버 "${x.server}"가 Claude Code에 등록돼 있지 않아요` };
       case "imap": {
-        const name = x.preset === "custom" ? x.host : MAIL_PRESETS[x.preset].label;
-        const who = { account: x.user, preset: x.preset };
-        return x.password ? { ...base, ...who, ready: true, detail: `${name} IMAP (${x.user}, 읽기만)` } : { ...base, ...who, ready: false, detail: "메일 비밀번호(앱 비밀번호)가 없어요" };
+        const ready = x.accounts.filter((a) => a.password);
+        const first = x.accounts[0];
+        const name = (a: MailImapAccount) => (a.preset === "custom" ? a.host : MAIL_PRESETS[a.preset].label);
+        const who = {
+          account: first.user, preset: first.preset,
+          accounts: x.accounts.map((a) => ({ id: a.id, user: a.user, preset: a.preset, ready: !!a.password })),
+        };
+        if (!ready.length) return { ...base, ...who, ready: false, detail: "메일 비밀번호(앱 비밀번호)가 없어요" };
+        const detail = x.accounts.length === 1 ? `${name(first)} IMAP (${first.user}, 읽기만)` : `메일 ${x.accounts.length}개 계정 (읽기만)`;
+        return { ...base, ...who, ready: true, detail };
       }
       case "api":
         if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: "Slack Web API (사용자 토큰)" } : { ...base, ready: false, detail: "userToken(xoxp-…)이 없어요" };

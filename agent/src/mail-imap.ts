@@ -7,7 +7,7 @@
 // 개수 상한은 없다: 기간(sinceHours, 기본 24시간) 안에 받은 메일은 전부. 본문은 메일마다 앞 BODY_BYTES 만 받는다.
 import { ImapFlow } from "imapflow";
 import type { ConnectionOptions } from "node:tls";
-import type { MailImapConn } from "./connectors.ts";
+import type { MailTarget } from "./connectors.ts";
 import { MAIL_PRESETS } from "./mail-presets.ts";
 import { parseMail } from "./mail-mime.ts";
 
@@ -26,6 +26,7 @@ export type MailItem = {
   bulk: boolean;         // 광고·뉴스레터·자동 발송으로 보인다
   messageId?: string;
   link?: string;         // Gmail 이면 그 메일을 여는 주소
+  account?: string;      // 어느 계정으로 받았나(받는 주소). 동기화가 붙인다(mail-sync.ts)
 };
 
 export type MailFailCode = "auth" | "app-password" | "imap-off" | "web-login" | "admin" | "network" | "timeout" | "tls" | "readonly" | "config" | "unknown";
@@ -34,10 +35,10 @@ export type MailFetchResult = { ok: true; items: MailItem[]; filtered: boolean }
 // 시험이 가짜 서버(로컬 TLS·평문)에 붙을 수 있게: tls(신뢰할 인증서 등)·client(가짜 ImapFlow)만 바꾼다. 설정 파일로는 못 바꾼다
 export type MailFetchOpts = { now?: Date; tls?: ConnectionOptions; timeoutMs?: number; client?: (o: ConstructorParameters<typeof ImapFlow>[0]) => ImapFlow };
 
-const svcName = (c: Pick<MailImapConn, "preset" | "host">) => (c.preset === "custom" ? c.host : MAIL_PRESETS[c.preset].label);
+const svcName = (c: Pick<MailTarget, "preset" | "host">) => (c.preset === "custom" ? c.host : MAIL_PRESETS[c.preset].label);
 
 // imapflow 오류 → 사람 말. 서버 응답 글(responseText)·코드로 가른다. 비밀번호는 오류 글에 넣지 않는다
-export function mailFailure(err: any, c: Pick<MailImapConn, "preset" | "host" | "password">): { code: MailFailCode; reason: string; detail?: string } {
+export function mailFailure(err: any, c: Pick<MailTarget, "preset" | "host" | "password">): { code: MailFailCode; reason: string; detail?: string } {
   const text = [err?.responseText, err?.serverResponseCode, err?.response, err?.message].filter((x) => typeof x === "string").join(" ");
   const code = String(err?.code ?? "");
   const scrub = (s: string) => (c.password ? s.split(c.password).join("***") : s).replace(/\s+/g, " ").trim().slice(0, 200);
@@ -86,7 +87,7 @@ export function mailFailure(err: any, c: Pick<MailImapConn, "preset" | "host" | 
 const toIso = (d: unknown) => (d instanceof Date && Number.isFinite(d.getTime()) ? d.toISOString() : typeof d === "string" && Number.isFinite(Date.parse(d)) ? new Date(d).toISOString() : undefined);
 
 // 최근 sinceHours 동안 받은 메일 전부(새 것 먼저). 로그인 시험도 이걸로 한다(LOGIN → EXAMINE INBOX → 읽기)
-export async function fetchRecentMail(c: MailImapConn, opts: MailFetchOpts = {}): Promise<MailFetchResult> {
+export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): Promise<MailFetchResult> {
   if (!c.password) return { ok: false, code: "config", reason: "메일 비밀번호(앱 비밀번호)가 없어요." };
   const now = opts.now ?? new Date();
   const since = new Date(now.getTime() - c.sinceHours * 3600e3);

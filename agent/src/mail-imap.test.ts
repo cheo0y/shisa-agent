@@ -8,11 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFakeImap, sampleMessages, type FakeImapOpts } from "./fixtures/fake-imap.ts";
 import { fetchRecentMail, mailFailure } from "./mail-imap.ts";
-import { mailImapConn, type MailImapConn } from "./connectors.ts";
+import { mailImapConn, mailTargets, type MailImapConn, type MailTarget } from "./connectors.ts";
 
 const NOW = new Date();
 const USER = "tester@gmail.com", PASS = "abcdabcdabcdabcd";
-const conn = (port: number, over: Record<string, unknown> = {}) => mailImapConn({ preset: "custom", host: "127.0.0.1", port, secure: false, user: USER, password: PASS, ...over }, {}) as MailImapConn;
+const target = (c: Record<string, unknown>): MailTarget => mailTargets(mailImapConn(c, {}) as MailImapConn)[0];
+const conn = (port: number, over: Record<string, unknown> = {}) => target({ preset: "custom", host: "127.0.0.1", port, secure: false, user: USER, password: PASS, ...over });
 async function withServer(o: Partial<FakeImapOpts>, fn: (port: number, s: Awaited<ReturnType<typeof startFakeImap>>) => Promise<void>) {
   const s = await startFakeImap({ user: USER, pass: PASS, messages: sampleMessages(NOW), gmail: true, ...o });
   try { await fn(s.port, s); } finally { await s.close(); }
@@ -150,7 +151,7 @@ test("TLS(993 처럼): 자체 서명 인증서 서버에 붙어 읽는다(시험
   } catch { t.skip("openssl 없음"); return; }
   const key = readFileSync(join(dir, "k.pem"), "utf8"), cert = readFileSync(join(dir, "c.pem"), "utf8");
   await withServer({ tls: { key, cert } }, async (port) => {
-    const c = mailImapConn({ preset: "custom", host: "127.0.0.1", port, user: USER, password: PASS }, {}) as MailImapConn;
+    const c = target({ preset: "custom", host: "127.0.0.1", port, user: USER, password: PASS });
     assert.equal(c.secure, true);
     const bad = await fetchRecentMail(c, { now: NOW, timeoutMs: 3000 });
     assert.equal(bad.ok, false, "모르는 인증서는 믿지 않는다");

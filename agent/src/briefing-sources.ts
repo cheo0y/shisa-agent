@@ -39,7 +39,7 @@ export function readySources(c: Connectors = CONNECTORS, has: (server: string) =
   const out = new Set<SourceId>();
   for (const cap of CAPABILITIES) {
     const x = c[cap];
-    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.icsUrls.length > 0 : false) : x.mode === "imap" ? !!x.password : false) out.add(cap);
+    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.icsUrls.length > 0 : false) : x.mode === "imap" ? x.accounts.some((a) => !!a.password) : false) out.add(cap);
   }
   return out;
 }

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
 import { loadConfig } from "./config.ts";
-import { connectorStatus, mailImapConn, resolveConnectors, type MailImapConn } from "./connectors.ts";
+import { connectorStatus, mailAccountId, mailImapConn, resolveConnectors, type MailImapConn } from "./connectors.ts";
 import { guessMailPreset } from "./mail-presets.ts";
 import { decodeWords, htmlToText, parseMail } from "./mail-mime.ts";
 import { connectMail, mailConnectPlan } from "./mail-connect.ts";
@@ -25,42 +25,45 @@ const PW = "abcd efgh ijkl mnop";
 const NOW = new Date("2026-10-17T03:00:00Z");
 const tmp = () => mkdtempSync(join(tmpdir(), "mail-"));
 const tmpStore = () => new Store(join(tmp(), "t.db"));
+// 계정 하나만 쓰는 설정 → 그 계정(예전 한 계정 모양으로 읽는다)
+const one = (c: Record<string, unknown>) => { const x = mailImapConn(c, {}); return x.mode === "imap" ? x.accounts[0] : undefined; };
 const item = (over: Partial<MailItem> = {}): MailItem => ({ uid: 1, from: "김팀장 <boss@example.com>", fromAddr: "boss@example.com", subject: "견적서 회신", date: "2026-10-17T01:00:00.000Z", snippet: "금요일까지 회신 부탁", unread: true, bulk: false, messageId: "q1@example.com", ...over });
 
 // ── 설정 ────────────────────────────────────────────────
 
 test("설정: gmail 프리셋은 imap.gmail.com:993 TLS · 앱 비밀번호 띄어쓰기는 뺀다 · 기간 기본 24시간", () => {
-  const c = resolveConnectors({}, { connectors: { mail: { mode: "imap", preset: "gmail", user: "me@gmail.com", password: PW } } }).mail;
+  const c = resolveConnectors({}, { connectors: { mail: { mode: "imap", accounts: [{ preset: "gmail", user: "me@gmail.com", password: PW }] } } }).mail;
   assert.equal(c.mode, "imap");
   if (c.mode !== "imap") return;
-  assert.deepEqual({ host: c.host, port: c.port, secure: c.secure, password: c.password, sinceHours: c.sinceHours, skipPromotions: c.skipPromotions }, { host: "imap.gmail.com", port: 993, secure: true, password: "abcdefghijklmnop", sinceHours: 24, skipPromotions: true });
+  const a = c.accounts[0];
+  assert.deepEqual({ host: a.host, port: a.port, secure: a.secure, password: a.password, sinceHours: c.sinceHours, skipPromotions: c.skipPromotions }, { host: "imap.gmail.com", port: 993, secure: true, password: "abcdefghijklmnop", sinceHours: 24, skipPromotions: true });
 });
 
 test("설정: naver·daum 프리셋 · 그 밖은 host·port 직접 · 프리셋은 host·port·secure 를 덮어쓰지 못한다", () => {
-  const n = mailImapConn({ preset: "naver", user: "a@naver.com", password: " pw ", host: "evil.example", port: 143, secure: false }, {});
-  assert.ok(n.mode === "imap" && n.host === "imap.naver.com" && n.port === 993 && n.secure === true && n.password === "pw");
-  const d = mailImapConn({ preset: "daum", user: "a@daum.net", password: "x" }, {});
-  assert.ok(d.mode === "imap" && d.host === "imap.daum.net");
-  const c = mailImapConn({ host: "mail.example.com", port: 1993, user: "a@example.com", password: "x" }, {});
-  assert.ok(c.mode === "imap" && c.preset === "custom" && c.port === 1993 && c.secure === true);
+  const n = one({ preset: "naver", user: "a@naver.com", password: " pw ", host: "evil.example", port: 143, secure: false });
+  assert.ok(n && n.host === "imap.naver.com" && n.port === 993 && n.secure === true && n.password === "pw");
+  const d = one({ preset: "daum", user: "a@daum.net", password: "x" });
+  assert.ok(d && d.host === "imap.daum.net");
+  const c = one({ host: "mail.example.com", port: 1993, user: "a@example.com", password: "x" });
+  assert.ok(c && c.preset === "custom" && c.port === 1993 && c.secure === true);
   // 암호화 없는 연결은 이 컴퓨터 안 주소만
-  const plainRemote = mailImapConn({ host: "mail.example.com", port: 143, secure: false, user: "a@example.com", password: "x" }, {});
-  assert.ok(plainRemote.mode === "imap" && plainRemote.secure === true);
-  const plainLocal = mailImapConn({ host: "127.0.0.1", port: 1143, secure: false, user: "a@example.com", password: "x" }, {});
-  assert.ok(plainLocal.mode === "imap" && plainLocal.secure === false);
+  const plainRemote = one({ host: "mail.example.com", port: 143, secure: false, user: "a@example.com", password: "x" });
+  assert.ok(plainRemote && plainRemote.secure === true);
+  const plainLocal = one({ host: "127.0.0.1", port: 1143, secure: false, user: "a@example.com", password: "x" });
+  assert.ok(plainLocal && plainLocal.secure === false);
 });
 
 test("설정: 틀린 모양은 off + 이유 · 주소 없음 · 모르는 서비스 · 자리표시 비밀번호는 없는 것", () => {
   assert.match(String((mailImapConn({ preset: "gmail" }, {}) as any).reason), /메일 주소/);
   assert.match(String((mailImapConn({ preset: "yahoo", user: "a@b.c" }, {}) as any).reason), /모르는 메일 서비스/);
-  const p = mailImapConn({ preset: "gmail", user: "a@gmail.com", password: "YOUR_APP_PASSWORD" }, {});
-  assert.ok(p.mode === "imap" && p.password === undefined);
+  const p = one({ preset: "gmail", user: "a@gmail.com", password: "YOUR_APP_PASSWORD" });
+  assert.ok(p && p.password === undefined);
   assert.equal(resolveConnectors({}, { connectors: { mail: { mode: "api" } } }).mail.mode, "off"); // api 모드는 메일에 없다
 });
 
 test("설정: 환경변수 CY_AGENT_MAIL_PASSWORD 가 파일보다 먼저", () => {
   const c = resolveConnectors({ CY_AGENT_MAIL_PASSWORD: "envpass" }, { connectors: { mail: { mode: "imap", preset: "naver", user: "a@naver.com", password: "filepass" } } }).mail;
-  assert.ok(c.mode === "imap" && c.password === "envpass");
+  assert.ok(c.mode === "imap" && c.accounts[0].password === "envpass");
 });
 
 test("주소로 서비스 짐작: gmail.com · naver.com · daum.net/hanmail.net, 그 밖은 모름", () => {
@@ -135,14 +138,15 @@ test("연결 확인: 로그인 되면 config.json 에 저장(다른 키 그대�
   writeFileSync(path, JSON.stringify({ slackBotToken: "xoxb-1", connectors: { calendar: { mode: "api", icsUrl: "https://c/x.ics" } } }));
   let applied: MailImapConn | undefined;
   const r = await connectMail({ preset: "gmail", user: "me@gmail.com", password: PW }, { path, current: () => undefined, env: {}, fetch: okFetch(), apply: (c) => { applied = c; } });
-  assert.deepEqual(r, { ok: true, account: "me@gmail.com", preset: "gmail", count: 1, filtered: true });
+  const id = mailAccountId("me@gmail.com");
+  assert.deepEqual(r, { ok: true, id, account: "me@gmail.com", preset: "gmail", count: 1, filtered: true, updated: false, accounts: 1 });
   assert.doesNotMatch(JSON.stringify(r), /abcd/);
   const saved = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(saved.slackBotToken, "xoxb-1");
   assert.equal(saved.connectors.calendar.mode, "api");
-  assert.deepEqual(saved.connectors.mail, { mode: "imap", preset: "gmail", user: "me@gmail.com", password: "abcdefghijklmnop" });
+  assert.deepEqual(saved.connectors.mail, { mode: "imap", accounts: [{ id, preset: "gmail", user: "me@gmail.com", password: "abcdefghijklmnop" }] });
   if (process.platform !== "win32") assert.equal(statSync(path).mode & 0o777, 0o600);
-  assert.equal(applied?.host, "imap.gmail.com");
+  assert.equal(applied?.accounts[0].host, "imap.gmail.com");
   // 다시 읽은 설정과 메모리 연결이 같다(데몬이 「연결이 바뀜」으로 다시 켜지지 않게)
   assert.deepEqual(resolveConnectors({}, saved).mail, applied);
 });
@@ -165,10 +169,10 @@ test("연결 확인: 본문 검증 · 서비스는 주소로 짐작 · 비워 �
   assert.match(String((mailConnectPlan({ user: "a@x.com", password: "p", preset: "custom" }, undefined, {}) as any).error), /서버 주소/);
   assert.match(String((mailConnectPlan({ user: "a@x.com", password: "p", evil: 1 }, undefined, {}) as any).error), /unknown key/);
   const p = mailConnectPlan({ user: "a@naver.com", password: "pw" }, undefined, {});
-  assert.ok(!("error" in p) && p.conn.preset === "naver" && p.conn.host === "imap.naver.com");
+  assert.ok(!("error" in p) && p.target.preset === "naver" && p.target.host === "imap.naver.com" && !p.updated);
   const cur = mailImapConn({ preset: "naver", user: "a@naver.com", password: "stored", sinceHours: 48 }, {});
   const again = mailConnectPlan({ user: "A@naver.com" }, cur, {});
-  assert.ok(!("error" in again) && again.conn.password === "stored" && again.conn.sinceHours === 48);
+  assert.ok(!("error" in again) && again.target.password === "stored" && again.target.sinceHours === 48 && again.updated);
   const other = mailConnectPlan({ user: "b@naver.com" }, cur, {});
   assert.ok("error" in other, "다른 주소엔 저장된 비밀번호를 쓰지 않는다");
 });
