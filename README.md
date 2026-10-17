@@ -366,7 +366,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 |---|---|---|---|
 | 캘린더(회의 알림·일정) | `api`: 비공개 ICS 주소 | `mcp`(Google Calendar·Microsoft 365) | [calendar.md](docs/connect/calendar.md) |
 | Slack(DM·멘션 → 할 일) | `api`: 내 Slack 앱의 읽기 전용 사용자 토큰 | `mcp` | [slack.md](docs/connect/slack.md) |
-| 메일(답장·조치 필요한 메일 → 할 일) | `imap`: 메일 주소 + 앱 비밀번호(Gmail·네이버·다음, 그 밖의 IMAP) | `mcp`(Gmail·Microsoft 365) | [mail.md](docs/connect/mail.md) |
+| 메일(답장·조치 필요한 메일 → 할 일) | `imap`: 메일 주소 + 앱 비밀번호(Gmail·네이버·다음, 그 밖의 IMAP, 계정 여러 개) | `mcp`(Gmail·Microsoft 365) | [mail.md](docs/connect/mail.md) |
 | 이슈 | `mcp`(GitHub·Jira·Linear) |  | [issues.md](docs/connect/issues.md) |
 | 뇌 | 설치 마법사에서 고르기 | `brain.provider` | [brain.md](docs/connect/brain.md) |
 | Claude Code |  |  | [claude-code.md](docs/connect/claude-code.md) |
@@ -381,7 +381,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
   "connectors": {
     "calendar": { "mode": "api", "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics", "email": "me@example.com" },
     "slack": { "mode": "api", "userToken": "xoxp-..." },
-    "mail": { "mode": "imap", "preset": "gmail", "user": "me@gmail.com", "password": "YOUR_APP_PASSWORD" },
+    "mail": { "mode": "imap", "accounts": [{ "preset": "gmail", "user": "me@gmail.com", "password": "YOUR_APP_PASSWORD" }] },
     "issues": { "mode": "mcp", "preset": "github" }
   },
   "repoRoots": ["/Users/YOUR_NAME/code"]

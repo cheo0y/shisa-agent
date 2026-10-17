@@ -156,7 +156,7 @@ type Bubble = {
 - `ConnRow` 필드: `id`, `label`, `group: core|service|local`, `state: ok|warn|error|off|unknown`, `detail`, `error?`(가림), `check`, `pending?`, `doc?`, `used?`, `briefing?`.
 - `check`는 `id`(`net|claude|gh|local`)만 다시 확인한다.
 - 캘린더 두 줄(`connector:calendar`·`calendar`)은 설정만 보지 않고 실제 동기화 결과(아래 「캘린더 동기화 상태」)를 따른다. 가져오는 중이면 `detail`에 「일정 가져오는 중」, 가져왔으면 일정 수, 못 가져왔으면 `state: error`와 `error`에 사람이 읽는 이유가 들어간다.
-- 메일 줄(`connector:mail`)도 `imap` 모드면 실제 동기화 결과(아래 「메일(앱 비밀번호)」)를 따른다. `summary`는 「직접 연결(IMAP, 읽기만)」, `detail`에 가져온 메일 수와 때, 못 가져왔으면 `state: error`와 `error`에 이유가 들어간다. 한 시간 넘게 못 가져왔으면 `warn`이다. 뇌가 `local`이면 「AI를 연결하면 메일에서 할 일을 뽑아요」가 붙는다.
+- 메일 줄(`connector:mail`)도 `imap` 모드면 실제 동기화 결과(아래 「메일(앱 비밀번호)」)를 따른다. `summary`는 「직접 연결(IMAP, 읽기만)」, `detail`에 가져온 메일 수와 때(계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통 (때, 읽기만)」), 모든 계정을 못 가져왔으면 `state: error`와 `error`에 이유가 들어간다. 일부 계정만 못 가져왔으면 `state: warn`, `error`는 「주소: 이유」(여럿이면 « / »로 잇는다). 한 시간 넘게 못 가져왔으면 `warn`이다. 뇌가 `local`이면 「AI를 연결하면 메일에서 할 일을 뽑아요」가 붙는다.
 
 ### 그 밖
 
@@ -179,17 +179,19 @@ type Bubble = {
   - `todos[]`(아래), `recentDone[]`, `proposals[]`, `today{date,asked,items}`
   - `connectors[]{cap,label,mode,ready,detail,doc,sync?}`, `meetings[]{id,subject,start,end,link?}`, `todoRules[]`
   - `sync`는 연결된 캘린더 줄에만 붙는다: `{ phase: pending|ok|failed, at?, meetings?, reason? }`. 패널 연결 카드는 이걸로 「연결됨 · 일정 가져오는 중」·「연결됨 · 일정을 못 가져옴」(+ 이유)을 보인다.
-  - 메일이 `imap` 모드면 메일 줄에 `account`(연결한 주소), `preset`(`gmail|naver|daum|custom`), `sync{ phase, at?, count?, reason? }`가 붙는다. 비밀번호는 어떤 응답에도 넣지 않는다.
+  - 메일이 `imap` 모드면 메일 줄에 `account`·`preset`(첫 계정의 주소·서비스 `gmail|naver|daum|custom`), `accounts[{ id, user, preset, ready }]`, `sync{ phase, at?, count?, reason?, accounts[{ id, user, phase, at?, count?, reason? }] }`가 붙는다. `sync.phase`는 하나라도 가져왔으면 `ok`, `sync.reason`은 못 가져온 계정이 있으면(일부여도) 채운다. 비밀번호는 어떤 응답에도 넣지 않는다.
 
 ### 메일(앱 비밀번호, `mail-imap.ts`·`mail-sync.ts`·`mail-connect.ts`)
 
-- `POST /connectors/mail { preset?, user, password?, host?, port?, sinceHours? }` → 200 `{ ok: true, account, preset, count, filtered }` / 400 `{ error, code? }`. 저장하기 전에 실제로 로그인한다(LOGIN → EXAMINE INBOX → 최근 메일 읽기). 실패하면 아무것도 저장하지 않는다. `preset`을 비우면 주소로 짐작한다(`@gmail.com`·`@naver.com`·`@daum.net`·`@hanmail.net`, 그 밖은 `custom`). `password`를 비우면 같은 주소로 저장된 비밀번호를 쓴다. 다른 키는 400이다.
-- 성공하면 `config.json`의 `connectors.mail`만 `{ mode: "imap", preset, user, password }`로 바꾼다(다른 키는 그대로, 임시 파일 → rename, 권한 600). 데몬은 다시 켜지 않고 바로 반영한다. 연결 해제(`POST /connectors/disconnect { cap: "mail" }`)는 비밀번호와 가져온 메일까지 지운다.
+- `POST /connectors/mail { preset?, user, password?, host?, port?, sinceHours? }`: 계정 추가 → 200 `{ ok: true, id, account, preset, count, filtered, updated, accounts }` / 400 `{ error, code? }`. 저장하기 전에 실제로 로그인한다(LOGIN → EXAMINE INBOX → 최근 메일 읽기). 실패하면 아무것도 저장하지 않는다. `preset`을 비우면 주소로 짐작한다(`@gmail.com`·`@naver.com`·`@daum.net`·`@hanmail.net`, 그 밖은 `custom`). 이미 있는 주소(대소문자 무시)면 새로 붙이지 않고 그 계정의 비밀번호·서버를 바꾼다(`updated: true`). `password`를 비우면 그 주소로 저장된 비밀번호를 쓴다. 다른 키는 400이다. 계정 수 상한은 없다.
+- 성공하면 `config.json`의 `connectors.mail`만 `{ mode: "imap", accounts: [{ id, preset, user, password, host?, port? }], sinceHours?, skipPromotions? }`로 쓴다(다른 키는 그대로, 임시 파일 → rename, 권한 600). 예전 한 계정 모양(`user`·`password`가 `mail` 바로 아래)은 accounts 하나로 읽고(`id`는 주소로 만든 `m-…`), 이때 새 모양으로 바꿔 쓴다. 데몬은 다시 켜지 않고 바로 반영한다.
+- `DELETE /connectors/mail/:id`(헤더 `X-CY-Agent: 1`): 계정 하나 빼기 → 200 `{ ok: true, id, account, left }` / 404(없는 계정) / 400(틀린 id). 그 계정의 비밀번호와 가져온 메일을 지운다. 마지막 계정이면 `connectors.mail`이 `{ mode: "off" }`가 된다. 연결 해제(`POST /connectors/disconnect { cap: "mail" }`)는 모든 계정의 비밀번호와 가져온 메일까지 지운다.
+- `CY_AGENT_MAIL_PASSWORD`는 첫 계정의 비밀번호다(파일보다 먼저).
 - `code`: `auth`(주소·비밀번호 틀림, 서비스별 안내가 붙는다) · `app-password`(일반 비밀번호를 거절함) · `imap-off` · `web-login`(브라우저에서 보안 확인 필요) · `admin`(회사·학교 관리자가 막음) · `network` · `timeout` · `tls` · `readonly`(서버가 받은편지함을 읽기 전용으로 열지 않음) · `config` · `unknown`.
 - 읽기 전용: 받은편지함은 EXAMINE으로 열고, 서버가 READ-ONLY로 답하지 않으면 아무것도 읽지 않는다. 본문은 `BODY.PEEK[]`로 앞 48KB만 받아 읽음 표시가 바뀌지 않는다. 플래그 바꾸기·지우기·옮기기·보내기 코드는 없다.
 - 기간은 `sinceHours`(기본 24시간)이고 개수 상한은 없다. Gmail(X-GM-EXT-1)이면 `X-GM-RAW "-category:promotions -category:social"`로 프로모션·소셜을 서버에서 거른다(`skipPromotions: false`로 끈다). 다른 서비스는 `List-Unsubscribe`·`List-Id`·`Precedence: bulk`·noreply 보낸 사람을 「광고·뉴스레터·자동 발송으로 보임」으로 표시만 하고, 할 일로 만들지는 모델이 정한다.
-- `MailSync`가 15분마다, 그리고 브리핑 직전에 가져와 `cy.db`의 `mail_state`(`state`·`items`)에 둔다. `state`: `phase`(`off|pending|ok|failed`), `key`(서버·주소), `at`, `lastOkAt`, `count`, `filtered`, `sinceHours`, `reason`, `code`.
-- 맥락: inline 맥락(`buildContext`, 브리핑과 Claude Code가 아닌 뇌의 채팅)에 「## 최근 받은 메일」 블록이 들어간다. 줄마다 받은 때(KST)·보낸 사람·제목·표시(안 읽음·광고성)·`ref=mail:<Message-ID>`·Gmail 링크·본문 앞부분 600자. 비었거나 못 가져왔으면 상태 한 줄(가져오는 중·이유·받은 메일 없음)을 넣는다. Claude Code 채팅(tools)은 머리말에 「메일: 최근 24시간 N통(안 읽음 M)」 한 줄이 붙고, 자세한 건 `cy` 맥락 도구 `mail_recent`로 읽는다.
+- `MailSync`가 15분마다, 그리고 브리핑 직전에 계정마다 동시에 따로 가져와 `cy.db`의 `mail_state`에 둔다(`state`, 계정마다 `items:<id>`). 한 계정이 실패해도 다른 계정 결과는 그대로이고, 실패한 계정은 전에 가져온 메일을 남긴다. `state`: 합친 `phase`(`off|pending|ok|failed`), `at`, `lastOkAt`, `count`(모든 계정 합), `filtered`, `sinceHours`, `reason`, `code`, `accounts[{ id, user, preset, key(서버·주소), phase, at, lastOkAt, count, filtered, reason, code }]`. 빠진 계정의 메일은 지운다.
+- 맥락: inline 맥락(`buildContext`, 브리핑과 Claude Code가 아닌 뇌의 채팅)에 「## 최근 받은 메일」 블록이 들어간다. 줄마다 받은 때(KST)·받은 계정(`(받은 계정 주소)`)·보낸 사람·제목·표시(안 읽음·광고성)·`ref=mail:<Message-ID>`·Gmail 링크·본문 앞부분 600자. 비었거나 못 가져왔으면 상태 한 줄(가져오는 중·이유·받은 메일 없음)을 넣는다. 계정이 여럿이면 머리에 계정 수를 적고 계정마다 상태 줄(가져온 때·수 또는 실패 이유)을 넣는다. Claude Code 채팅(tools)은 머리말에 「메일: 최근 24시간 N통(안 읽음 M)」 한 줄(계정이 여럿이면 「메일(계정 K개)」, 못 가져온 계정이 있으면 그 이유)이 붙고, 자세한 건 `cy` 맥락 도구 `mail_recent`로 읽는다.
 - 브리핑 지시는 「위 "최근 받은 메일"에서 답장이나 조치가 필요한 것만 할 일로, 광고·뉴스레터·자동 알림은 빼고, source는 mail」이다. 메일 도구(MCP)는 쓰지 않으니 어느 뇌에서도 된다.
 - 비밀번호는 `GET /settings`·`GET /dashboard`·`GET /connections`·`/status`에 나오지 않는다. 데몬 로그는 설정한 비밀번호를 그 글자 그대로 가리고(`log.ts addLogSecret`), `password` 칸도 가린다. 앱의 도움 보내기도 `password` 칸을 가린다.
 
