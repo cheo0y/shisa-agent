@@ -81,7 +81,7 @@ export function mailFailure(err: any, c: Pick<MailTarget, "preset" | "host" | "p
     return out("timeout", `${name} 서버가 답하지 않았어요. 인터넷 연결을 확인하고 다시 해 주세요.`);
   }
   if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS|certificate|ssl|tls/i.test(code + " " + text)) {
-    return out("tls", `${name} 서버의 보안 인증서를 확인하지 못했어요. 회사 네트워크나 보안 프로그램이 연결을 가로챘을 수 있어요.`);
+    return out("tls", `${name} 서버의 보안 인증서를 확인하지 못했어요. 회사 네트워크나 백신(메일·HTTPS 검사)이 연결을 가로챘을 수 있어요. 그 프로그램의 메일 검사에서 시사를 예외로 넣어 보세요.`);
   }
   if (/ENOTFOUND|EAI_AGAIN/.test(code + " " + text)) {
     return out("network", `메일 서버(${c.host})를 찾지 못했어요. 인터넷 연결을 확인해 주세요.`);

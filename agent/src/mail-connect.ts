@@ -4,12 +4,13 @@
 // 예전 한 계정 모양(user·password 가 mail 바로 아래)은 accounts 하나로 읽고, 이번에 새 모양으로 바꿔 쓴다. 계정 수 상한은 없다.
 // 같은 주소를 다시 넣으면 새 계정을 만들지 않고 그 계정의 비밀번호(와 서버)를 바꾼다. 비워 보내면 저장된 비밀번호를 쓴다.
 // 비밀번호는 응답·로그에 넣지 않는다.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { mailAccountId, mailImapConn, rawMailAccounts, type Conn, type MailImapConn, type MailTarget } from "./connectors.ts";
 import { fetchRecentMail, type MailFetchOpts, type MailFetchResult } from "./mail-imap.ts";
 import { guessMailPreset, isMailPreset } from "./mail-presets.ts";
 import { addLogSecret } from "./log.ts";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 
 export type MailConnectBody = { preset?: string; user?: string; password?: string; host?: string; port?: number; secure?: boolean; sinceHours?: number };
 // updated: 이미 있던 주소라 그 계정을 바꿨다(새로 붙이지 않음). accounts: 저장한 뒤 계정 수
@@ -26,7 +27,7 @@ const imapOf = (c: Conn | undefined): MailImapConn | undefined => (c && c.cap ==
 
 export function readConfigObject(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
-  const raw = readFileSync(path, "utf8");
+  const raw = stripBom(readFileSync(path, "utf8")); // 메모장 BOM
   if (!raw.trim()) return {};
   let v: unknown;
   try { v = JSON.parse(raw); } catch { throw new Error("config.json 을 읽을 수 없어요(JSON 오류). 덮어쓰지 않았어요"); }
@@ -34,14 +35,13 @@ export function readConfigObject(path: string): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
-// connectors.mail 만 바꿔 쓴다(임시 파일 → rename)
-export function writeMailConnector(path: string, mail: Record<string, unknown>): void {
+// connectors.mail 만 바꿔 쓴다(임시 파일 → rename, fs-atomic.ts: 윈도우에서 대상 파일이 잠깐 잠겨 있으면 다시, 실패하면 비밀번호가 든 임시 파일을 지운다).
+// 권한 600 은 맥·리눅스. 윈도우는 사용자 프로필 폴더의 기본 권한(본인·SYSTEM·관리자)으로 보호된다
+export function writeMailConnector(path: string, mail: Record<string, unknown>, deps: Parameters<typeof writeFileAtomic>[2] = {}): void {
   const cur = readConfigObject(path);
   const next = { ...cur, connectors: { ...(obj(cur.connectors) ?? {}), mail } };
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { ...deps, mode: 0o600 });
 }
 
 // 파일의 connectors.mail(원본) → 새 모양 { mode: "imap", accounts(id 붙임), sinceHours?, skipPromotions? }. imap 이 아니면 계정 없음
