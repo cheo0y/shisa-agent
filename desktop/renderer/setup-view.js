@@ -612,7 +612,36 @@ export function clearSlot(id) {
   slotValues.delete(id);
 }
 
+// 다시 그려도 보던 자리·쓰던 칸은 그대로: 화면을 통째로 새로 만들므로(replaceChildren) 스크롤 칸(.setup-scroll)의 scrollTop 과
+// 포커스(칸의 data-slot 또는 aria-label)·커서 자리를 그리기 전에 잡아 두고 그린 뒤 되돌린다. 입력 중인 값은 draft 에 있어 남는다.
+// 맨 위로 보내야 할 때(화면이 바뀜)는 panel.js 가 그린 뒤 scrollTop 을 0 으로 다시 정한다
+function keepView(root) {
+  const sc = root.querySelector?.('.setup-scroll');
+  const top = sc ? sc.scrollTop : 0;
+  const el = typeof document !== 'undefined' ? document.activeElement : null;
+  const inside = el && el !== root && typeof root.contains === 'function' && root.contains(el);
+  const key = inside ? (el.dataset?.slot ? ['data-slot', el.dataset.slot] : el.getAttribute?.('aria-label') ? ['aria-label', el.getAttribute('aria-label')] : null) : null;
+  let at = null;
+  try { at = key && typeof el.selectionStart === 'number' ? [el.selectionStart, el.selectionEnd] : null; } catch { at = null; }
+  return () => {
+    const next = root.querySelector?.('.setup-scroll');
+    if (next && top) next.scrollTop = top;
+    if (!key) return;
+    const q = (v) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
+    const back = root.querySelector?.(`[${key[0]}="${q(key[1])}"]`);
+    if (!back || back === document.activeElement) return;
+    try { back.focus({ preventScroll: true }); } catch { /* 무시 */ }
+    try { if (at) back.setSelectionRange(at[0], at[1]); } catch { /* 고를 수 없는 칸 */ }
+    if (next && top) next.scrollTop = top;
+  };
+}
+
 export function renderSetup(root, state) {
+  const restore = keepView(root);
+  try { drawSetup(root, state); } finally { restore(); }
+}
+
+function drawSetup(root, state) {
   redraw = () => renderSetup(root, state);
   const {
     phase, agent, picked, cursor, choices, link, keyStatus, done, connectAgent, connected,
@@ -647,7 +676,7 @@ export function renderSetup(root, state) {
     root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, onAddCalendar: state.onAddCalendar, onRemoveCalendar: state.onRemoveCalendar, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
     if (keep) {
       const el = root.querySelector(`[data-slot="${keep}"]`);
-      if (el) { el.focus(); const at = caret ?? el.value.length; el.setSelectionRange(at, at); }
+      if (el) { el.focus({ preventScroll: true }); const at = caret ?? el.value.length; el.setSelectionRange(at, at); }
       focusSlot = null;
     }
     return;
