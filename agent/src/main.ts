@@ -72,6 +72,8 @@ try {
     console.error(`[cy-agent] 포트 ${cfg.port} 를 이미 다른 데몬이나 프로그램이 쓰고 있어 이 데몬은 끝낼게요 (종료 코드 ${EXIT_PORT_TAKEN})`);
     process.exit(EXIT_PORT_TAKEN);
   }
+  // Windows: Hyper-V·WSL·Docker 가 이 포트를 예약 범위에 넣으면 EADDRINUSE 가 아니라 EACCES 로 막힌다(아무도 안 쓰는데 못 연다)
+  if (e?.code === "EACCES") console.error(`[cy-agent] 포트 ${cfg.port} 를 열 권한이 없어요.${process.platform === "win32" ? " 윈도우가 이 포트를 예약해 둔 것일 수 있어요(확인: netsh interface ipv4 show excludedportrange protocol=tcp)." : ""}`);
   throw e;
 }
 if (!modelWorkAllowed(cfg)) console.log("[onboarding] 설치 마법사를 마치기 전: 브리핑·정리 작업은 쉬어요");

@@ -168,8 +168,11 @@ const paths = await packager({
   quiet: true,
 });
 const APP = paths[0];
+// 데몬 런타임 의존성(agent/package.json dependencies — 메일 imapflow 등)과 데몬이 읽는 캐릭터 파일(clips.json·lines.json)도 들었나
+const AGENT_DEPS = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO, 'agent', 'package.json'), 'utf8')).dependencies ?? {});
 for (const need of [`${EXE_NAME}.exe`, 'resources/app.asar', 'resources/agent/src/main.ts', 'resources/assets/character/eyes_open.png',
-  `resources/agent/node_modules/@anthropic-ai/${SDK_BIN}`]) {
+  'resources/assets/characters/clips.json', 'resources/assets/characters/lines.json',
+  `resources/agent/node_modules/@anthropic-ai/${SDK_BIN}`, ...AGENT_DEPS.map((d) => `resources/agent/node_modules/${d}/package.json`)]) {
   if (!fs.existsSync(path.join(APP, need))) throw new Error(`앱 폴더에 ${need} 가 없어요 (${APP})`);
 }
 fs.copyFileSync(ICO, path.join(DIST, `${EXE_NAME}.ico`)); // 릴리스에 같이 올린다(제어판 「앱」 목록 아이콘, release.md)

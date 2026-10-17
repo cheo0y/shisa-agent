@@ -70,9 +70,13 @@ function findWinBin(name, { home, pathEnv, exists, env }) {
   return null;
 }
 
-export function readCodexLoggedIn(home = os.homedir(), readFile = fs.readFileSync) {
+// Codex 로그인 파일: CODEX_HOME 이 있으면 그 폴더(데몬 chat-models.ts 의 모델 목록 파일과 같은 규칙), 없으면 ~/.codex
+export function codexHome(home = os.homedir(), env = process.env) {
+  return String(env?.CODEX_HOME ?? '').trim() || path.join(home, '.codex');
+}
+export function readCodexLoggedIn(home = os.homedir(), readFile = fs.readFileSync, env = process.env) {
   try {
-    return codexAuthLoggedIn(readFile(path.join(home, '.codex', 'auth.json'), 'utf8'));
+    return codexAuthLoggedIn(readFile(path.join(codexHome(home, env), 'auth.json'), 'utf8'));
   } catch {
     return false;
   }
