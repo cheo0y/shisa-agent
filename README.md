@@ -355,9 +355,10 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 
 ## 연결
 
-기능마다 어디서 읽어 올지는 `~/.cy-agent/config.json`의 `connectors`에서 정합니다. 모드는 세 가지입니다.
+기능마다 어디서 읽어 올지는 `~/.cy-agent/config.json`의 `connectors`에서 정합니다. 모드는 네 가지입니다.
 
 - `api`: 시사가 직접 읽습니다. 모델 비용이 들지 않고, 어떤 뇌를 쓰든 동작합니다.
+- `imap`: 메일만 씁니다. 메일 주소와 앱 비밀번호로 시사가 받은편지함을 직접 읽습니다(읽기 전용). 어떤 뇌를 쓰든 동작합니다.
 - `mcp`: Claude Code에 등록해 둔 MCP 서버로 읽습니다. 지금은 뇌가 Claude Code일 때만 됩니다.
 - `off`: 쓰지 않습니다.
 
@@ -365,13 +366,13 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 |---|---|---|---|
 | 캘린더(회의 알림·일정) | `api`: 비공개 ICS 주소 | `mcp`(Google Calendar·Microsoft 365) | [calendar.md](docs/connect/calendar.md) |
 | Slack(DM·멘션 → 할 일) | `api`: 내 Slack 앱의 읽기 전용 사용자 토큰 | `mcp` | [slack.md](docs/connect/slack.md) |
-| 메일 | `mcp`(Gmail·Microsoft 365) 또는 `off` |  | [mail.md](docs/connect/mail.md) |
+| 메일(답장·조치 필요한 메일 → 할 일) | `imap`: 메일 주소 + 앱 비밀번호(Gmail·네이버·다음, 그 밖의 IMAP) | `mcp`(Gmail·Microsoft 365) | [mail.md](docs/connect/mail.md) |
 | 이슈 | `mcp`(GitHub·Jira·Linear) |  | [issues.md](docs/connect/issues.md) |
 | 뇌 | 설치 마법사에서 고르기 | `brain.provider` | [brain.md](docs/connect/brain.md) |
 | Claude Code |  |  | [claude-code.md](docs/connect/claude-code.md) |
 | 그 밖의 읽기용 MCP(노션 등) |  |  | [more-mcp.md](docs/connect/more-mcp.md) |
 
-무엇을 연결하든 읽기만 합니다. 메일 보내기, Slack에 글쓰기, 일정 바꾸기 같은 쓰기 도구는 막아 두었습니다. 지금 무엇이 연결돼 있는지는 패널 「개요」의 연결 카드나 설정 창의 「연결 상태」에서 확인할 수 있습니다. 캘린더 줄에는 가져온 일정 수나, 못 가져왔다면 그 이유가 보입니다.
+무엇을 연결하든 읽기만 합니다. 메일 보내기, Slack에 글쓰기, 일정 바꾸기 같은 쓰기 도구는 막아 두었습니다. 지금 무엇이 연결돼 있는지는 패널 「개요」의 연결 카드나 설정 창의 「연결 상태」에서 확인할 수 있습니다. 캘린더 줄에는 가져온 일정 수나, 못 가져왔다면 그 이유가 보입니다. 메일 줄도 같습니다.
 
 설정은 대략 이런 모양입니다.
 
@@ -380,7 +381,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
   "connectors": {
     "calendar": { "mode": "api", "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics", "email": "me@example.com" },
     "slack": { "mode": "api", "userToken": "xoxp-..." },
-    "mail": "off",
+    "mail": { "mode": "imap", "preset": "gmail", "user": "me@gmail.com", "password": "YOUR_APP_PASSWORD" },
     "issues": { "mode": "mcp", "preset": "github" }
   },
   "repoRoots": ["/Users/YOUR_NAME/code"]
@@ -405,7 +406,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 | `user.name` / `user.aliases` | `CY_AGENT_USER_NAME` | git `user.name` | 부를 이름 / 지식그래프에서 "나"로 볼 다른 이름들. 비워 두면 git 이름을 부르고, git 이름·이메일 아이디·맥 계정 이름도 "나"로 봅니다 |
 | `repoRoots` |  | 새 설치는 `[]`, 예전 설정은 `["~/code"]` | 코드를 고쳐도 되는 레포 폴더. 개요의 내 커밋도 이 폴더에서만 읽습니다. 이 밖은 건드리지 않습니다 |
 | `allowMcp` |  | `[]` | 커넥터 밖에서 채팅이 더 써도 되는 MCP 서버 이름(예: `["notion"]`). 여기 없는 서버는 Claude Code에 등록돼 있어도 브리핑·채팅에서 쓰지 않습니다 |
-| `connectors.<기능>` | `CY_AGENT_SLACK_USER_TOKEN`, `CY_AGENT_CALENDAR_ICS_URL` | 전부 off | 위 [연결](#연결) 참고 |
+| `connectors.<기능>` | `CY_AGENT_SLACK_USER_TOKEN`, `CY_AGENT_CALENDAR_ICS_URL`, `CY_AGENT_MAIL_PASSWORD` | 전부 off | 위 [연결](#연결) 참고 |
 | `slackBotToken` / `slackAppToken` / `slackUserId` | `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` / `SLACK_USER_ID` |  | (선택) Slack 봇 DM·할 일 캔버스. [slack.md](docs/connect/slack.md) |
 | `models.quick` / `.general` / `.code` / `.light` | `CY_AGENT_MODEL_QUICK` / `_GENERAL` / `_CODE` / `_LIGHT` | Sonnet / Sonnet / Opus / Haiku | 더블클릭 대화 / 브리핑·채팅 / 코드 고치기 / 가벼운 일 (Claude Code일 때) |
 | `brainModels.<뇌>.quick` / `.general` / `.light` |  | 그 AI 기본 | Codex·Gemini·OpenAI·Genspark일 때 쓸 모델. 설정 창 「세부 모델」에서 지금 AI 칸만 바뀌고 다른 AI 값은 그대로입니다 |
