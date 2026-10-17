@@ -50,10 +50,17 @@
   ```powershell
   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.local\bin", "User")
   ```
-- Codex: [Codex CLI 설치 안내](https://developers.openai.com/codex)대로 설치하고 로그인하세요.
+- Codex: [Codex CLI 설치 안내](https://developers.openai.com/codex)대로 설치하고 로그인하세요. 채팅 입력줄에서 Codex 모델을 고를 때 목록은 Codex가 남긴 `%USERPROFILE%\.codex\models_cache.json`(환경 변수 `CODEX_HOME`을 정했다면 그 폴더)에서 읽습니다. 목록이 비어 있으면 PowerShell에서 `codex`를 한 번 실행한 뒤 다시 열어 보거나, 모델 이름을 직접 넣으면 됩니다.
 - API 키: Gemini·OpenAI·Claude API 키가 있다면 설치 마법사에 붙여 넣기만 하면 됩니다.
 
 설치한 뒤에는 시사를 한 번 껐다 켜야 마법사에서 「찾았어요 ✓」로 보일 수 있습니다(새로 깐 프로그램 경로를 앱이 처음 켜질 때 읽기 때문입니다).
+
+### 윈도우에서 알아 둘 것
+
+- 근무 시간(설정 창 「근무 시간」)의 출근·점심·퇴근 시각과 요일은 이 PC의 시간대를 따릅니다. 알림 시각이 어긋나면 윈도우 「설정」 → 「시간 및 언어」 → 「날짜 및 시간」에서 표준 시간대를 확인해 주세요.
+- 직접 만든 캐릭터의 그림·영상은 `%USERPROFILE%\.cy-agent\characters` 폴더에 저장됩니다. 영상이 재생되는 중에 지운 파일은 윈도우가 잠가 두어 바로 지워지지 않을 수 있는데, 목록에서는 바로 빠지고 남은 파일은 다음에 시사를 켤 때 치웁니다.
+- 설정 파일 `%USERPROFILE%\.cy-agent\config.json`은 메모장으로 고쳐도 됩니다(「UTF-8(BOM)」으로 저장해도 읽습니다). 고친 뒤에는 알림 영역 아이콘에서 「종료」를 누르고 시사를 다시 켜 주세요.
+- 키와 토큰은 `config.json`에 저장됩니다. 윈도우에서는 파일 권한(맥의 600) 대신 사용자 프로필 폴더의 기본 권한(본인·SYSTEM·관리자만 읽기)으로 보호됩니다. PC를 여러 사람이 관리자 권한으로 함께 쓴다면 이 점을 알아 두세요.
 
 ## 업데이트
 
@@ -86,6 +93,8 @@
 | 회사 PC라 「관리자가 이 앱을 차단했습니다」가 뜸 | 회사 보안 정책(AppLocker·Defender 등)이 서명 안 된 앱을 막는 경우입니다. 휴대용 zip도 똑같이 막힐 수 있으니 IT 담당자에게 문의해 주세요 |
 | 캐릭터가 안 보임 | 알림 영역(시계 옆 `^`)에 시사 아이콘이 있으면 이미 켜져 있는 것이니, 아이콘을 눌러 「패널 열기」를 해 보세요. 없으면 시작 메뉴에서 시사를 다시 엽니다 |
 | 패널에 「시사 꺼짐」이 계속 보임 | 시사를 종료했다가 다시 열어 주세요. 백신이 `resources\agent` 안의 파일을 막았을 수도 있습니다 |
+| 「시사 꺼짐」이 계속 보이고 로그에 「포트 47823 를 열 권한이 없어요」가 있음 | Hyper-V·WSL·Docker가 이 포트를 예약해 둔 경우입니다. PowerShell에서 `netsh interface ipv4 show excludedportrange protocol=tcp`로 47823이 든 범위가 있는지 확인하고, 있으면 PC를 다시 시작하거나 관리자 PowerShell에서 `net stop winnat` 다음 `net start winnat`을 실행한 뒤 시사를 다시 켜 주세요 |
+| 캘린더 등 연결에서 「보안 연결(인증서)」 오류가 남 | 백신이나 회사 보안 프로그램이 HTTPS를 검사하느라 연결을 가로챈 경우입니다. 시사는 윈도우 인증서 저장소도 믿으니 보안 프로그램의 인증서가 윈도우에 설치돼 있으면 됩니다. 그래도 안 되면 그 프로그램의 HTTPS(웹) 검사에서 시사(`Shisa.exe`)를 예외로 넣어 주세요 |
 | PowerShell에서 `claude`(또는 `claude auth login`)를 인식하지 못함 | 설치 폴더 `%USERPROFILE%\.local\bin`이 Path에 없는 경우입니다. 위 [뇌(AI) 준비](#뇌ai-준비-선택)의 한 줄로 Path에 추가하고 PowerShell을 다시 열어 주세요 |
 | 뇌 고르기에서 Claude Code를 못 찾음 | PowerShell에서 `claude --version`이 되는지 확인하고, 시사를 껐다 다시 켜 주세요 |
 | 그래도 안 됨 | `%USERPROFILE%\.cy-agent\logs` 안의 `.log` 파일을 [의견 보내기](../README.md#의견-보내기)로 함께 보내 주세요 |
@@ -123,6 +132,6 @@ npm run dist:win -- --arch=x64 --no-installer   # Setup.exe 없이 앱 폴더와
 
 - 코드 서명이 없어서 SmartScreen 경고가 뜹니다.
 - 자동 업데이트는 하지 않습니다. 새 버전 알림을 보고 시사를 종료한 뒤 Setup.exe를 다시 실행합니다(통째로 다시 설치).
-- 확인 전: Claude Code·Codex 작업 기록 읽기, 코드 고치기·워크트리, 캘린더·Slack 연결 뒤 데몬 다시 켜기, 캐릭터 창의 투명 배경·항상 위·여러 모니터 위치, 단축키(`⌘` 대신 `Ctrl`), 로그인할 때 자동 실행.
+- 확인 전: Claude Code·Codex 작업 기록 읽기, 코드 고치기·워크트리, 캘린더·Slack 연결 뒤 데몬 다시 켜기, 캐릭터 창의 투명 배경·항상 위·여러 모니터 위치, 단축키(`⌘` 대신 `Ctrl`), 로그인할 때 자동 실행, 채팅 입력줄의 AI·모델 고르기(Codex 목록), 직접 만든 캐릭터의 영상 올리기·지우기, 근무 시간 인사.
 - 터미널 설치(`ops/install.sh`, launchd)는 맥 전용입니다. 윈도우는 Setup.exe만 지원합니다.
 - ARM 전용 빌드(`--arch=arm64`)는 만들 수는 있지만 릴리스에는 올리지 않습니다.
