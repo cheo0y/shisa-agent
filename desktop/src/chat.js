@@ -18,6 +18,7 @@
 //                새 답도 이 창이 보인다), 없으면 줄 선 말의 글만 바뀜(pending.text)
 //   { type: 'consumed' }                   replies 를 다 꺼내 씀
 //   accepted 에 follow: true 면 그 threadId 를 따라간다 — 그 대화방의 답은 어느 창에서 보냈든 이 창의 replies 로
+//   { type: 'all', on }                    on 이면 다른 창(패널)에서 보낸 말의 답도 이 창의 replies 로(others: true 를 붙여)
 import { normalizeSection } from './dashboard.js';
 import { normAttachments } from './attachments.js';
 
@@ -35,6 +36,7 @@ export function initialChat() {
     finished: [], // 최근 끝난 { chatId, text, show, error, stopped?, threadId? } — accepted 가 늦게 와도 짝 맞추기
     replies: [], // 이 창이 보여줘야 할 답 (mine ∩ finished, 또는 follow 대화방의 답)
     follow: null, // 이 창이 따라가는 대화방 id — 다른 창(패널)에서 보낸 말의 답도 이 창이 보여준다(캐릭터 대화방)
+    all: false, // 켜면 어느 창에서 보냈든 모든 답을 replies 로(설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선」)
   };
 }
 
@@ -74,8 +76,8 @@ export function chatReducer(state, action) {
       // 답이 POST 응답보다 먼저 와버린 경우 바로 replies 로
       const tid = typeof action.threadId === 'string' && action.threadId ? action.threadId : state.pending[id]?.threadId;
       const follow = action.follow === true && tid ? tid : state.follow ?? null;
-      // (따라가던 대화방의 답이면 이미 replies 로 나갔다)
-      if (done) return { ...state, follow, replies: wants(state, null, done.threadId) ? state.replies : [...state.replies, done] };
+      // (따라가던 대화방의 답이거나 all 이면 이미 replies 로 나갔다)
+      if (done) return { ...state, follow, replies: wants(state, null, done.threadId) || state.all ? state.replies : [...state.replies, done] };
       const prev = state.pending[id] ?? { step: null };
       // POST 응답의 queued 를 믿는다 — SSE queued 가 늦게 와도 대기 중. 이미 thinking 을 받았으면(running) 그대로
       const queued = !prev.running && (prev.queued || action.queued === true);
@@ -146,7 +148,7 @@ export function chatReducer(state, action) {
           pending,
           finished: cap([...state.finished, fin], MAX_FINISHED),
           mine: state.mine.filter((x) => x !== id),
-          replies: wants(state, id, tid) ? [...state.replies, fin] : state.replies,
+          replies: addReply(state, fin),
         };
       }
       if (ev.status === 'done' || ev.status === 'error') {
@@ -164,11 +166,13 @@ export function chatReducer(state, action) {
           messages: cap([...state.messages, msg], MAX_MESSAGES),
           finished: cap([...state.finished, fin], MAX_FINISHED),
           mine: state.mine.filter((x) => x !== id),
-          replies: wants(state, id, tid) ? [...state.replies, fin] : state.replies,
+          replies: addReply(state, fin),
         };
       }
       return state;
     }
+    case 'all':
+      return state.all === (action.on === true) ? state : { ...state, all: action.on === true };
     case 'consumed':
       return state.replies.length ? { ...state, replies: [] } : state;
     default:
@@ -178,6 +182,11 @@ export function chatReducer(state, action) {
 
 // 이 창이 보여줄 답인가: 이 창에서 보냈거나, 이 창이 따라가는 대화방의 답
 const wants = (state, id, tid) => state.mine.includes(id) || (!!tid && !!state.follow && tid === state.follow);
+// 끝난 답을 replies 에: 이 창 것이면 그대로, all 이면 다른 창 것도 others 를 붙여(그 창이 이미 보여주니 섹션을 열진 않는다)
+function addReply(state, fin) {
+  if (wants(state, fin.chatId, fin.threadId)) return [...state.replies, fin];
+  return state.all ? [...state.replies, { ...fin, others: true }] : state.replies;
+}
 
 // 레포 잠금 대기 정보(이벤트·GET /chat/queue running[].held): 데몬이 지은 이유 글 그대로
 function heldOf(x) {

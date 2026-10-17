@@ -181,7 +181,7 @@ function renderBrains() {
   }
 }
 
-// ---- 이 앱(로그인할 때 켜기 · 새 버전 알림) ----
+// ---- 이 앱(로그인할 때 켜기 · 새 버전 알림 · 패널이 열려 있어도 캐릭터 말풍선) ----
 let appPrefs = null;
 function renderAppPrefs() {
   const box = $('app-prefs');
@@ -192,6 +192,7 @@ function renderAppPrefs() {
   const rows = [
     { key: 'openAtLogin', on: login.on === true, label: `로그인할 때 ${who()} 켜기`, disabled: !login.available },
     { key: 'updateCheck', on: appPrefs.updateCheck !== false, label: '새 버전이 나오면 알려 주기 (하루 한 번 확인)' },
+    { key: 'panelOverlay', on: appPrefs.panelOverlay !== false, label: '패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창 표시' },
   ];
   for (const r of rows) {
     const lab = el('label', `toggle${r.on ? '' : ' off'}`);
