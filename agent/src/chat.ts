@@ -16,7 +16,7 @@ import { MEMORY_OPS_SCHEMA, applyMemoryOps, extractRememberedFact, rememberFact,
 import { RULE_SCHEMA, RULE_GUIDE } from "./todo-rules.ts";
 import { codeBlock, relatedRepo, type RelatedRepo } from "./code-read.ts";
 import { meetingsContext, type ActionVia, type PendingAction } from "./actions.ts";
-import { mailSummaryLine } from "./mail-sync.ts";
+import { mailFocusContext, mailSummaryLine } from "./mail-sync.ts";
 import { inRunContext, type RunOrigin } from "./runs.ts";
 import { fixBranch } from "./fixer.ts";
 import { worktreeSummary } from "./agent-worktrees.ts";
@@ -223,7 +223,7 @@ const CHAT_CONTEXT_INLINE = "- 위 맥락(세션·할 일·대시보드 요약)�
 const CHAT_CONTEXT_TOOLS = `${CTX_GUIDE}
 - 할 일을 바꾸라는데(todo_ops) 대상 할 일이 머리말에 없으면 todos_list(query) 로 찾아 그 id 를 쓴다.
 - 메일·일정·Slack 원문 등 바깥 정보가 필요하거나 사용자가 무언가를 해 달라고(올려줘·보내줘·답해줘·고쳐줘) 하면 업무 도구(연결된 MCP 등)를 쓴다.`;
-const CHAT_CONTEXT_NOTOOLS = "- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일은 「최근 받은 메일」 블록(있을 때)의 보낸 사람·제목·본문 앞부분까지만 보인다. 그 밖의 메일·Slack 원문은 볼 수 없다고 짧게 말한다.";
+const CHAT_CONTEXT_NOTOOLS = "- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일 목록은 「최근 받은 메일」 블록(있을 때)에 보낸 사람·제목·본문 앞부분으로 있고, 사용자가 보낸 사람·제목을 말하거나 전체 본문을 달라고 하면 그 메일들의 본문 전체가 「사용자가 가리킨 메일 전체 본문」 블록에 들어온다. 그 블록이 있으면 본문 전체를 보고 답한다(앞부분만 보인다고 하지 않는다). 블록에 없는 메일의 전체 본문이 필요하면 보낸 사람이나 제목을 말해 달라고 한다. Slack 원문은 볼 수 없다고 짧게 말한다.";
 const chatSystem = (context: string, base = INTERACTIVE_SYSTEM, writeGuide = WRITE_GUIDE) => `${base}
 - 지금은 데스크톱 캐릭터에 붙은 입력창으로 대화 중이다. 이전 대화 흐름을 이어서 답한다.
 ${context}
@@ -305,8 +305,11 @@ export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text:
     ? `(기록) ${t.text.slice(0, 400)}`
     : `${t.role === "user" ? "사용자" : character().name}${t.todoId ? ` (할 일 "${t.todoTitle ?? t.todoId}"에 대해)` : ""}: ${t.text.slice(0, 1200)}${refs(t)}`);
   const guidelines = guidelinesFor(store, "chat"); // 사용자가 정한 행동 지침(guidelines.ts) — 맥락 넣는 법과 상관없이 늘
+  // 사용자가 가리킨 메일(보낸 사람·제목·「전체 본문」·바로 앞 답에 나온 메일)은 전체 본문을 넣는다(도구 없는 뇌도 읽게, mail-pick.ts)
+  const prevAnswer = [...history].reverse().find((t) => t.role === "assistant")?.text ?? "";
+  const mailBodies = inlineContext(cfg) ? mailFocusContext(store, text, prevAnswer) : "";
   const head = inlineContext(cfg)
-    ? [buildContext(store, new Date(), { selfId: cfg.slackUserId, query: focus ? `${focus.title} ${text}` : text, sessions: sessionsAllowed(cfg) }), workHoursLine(workHoursOf(cfg as unknown as Record<string, unknown>), new Date()), "", ...(guidelines ? [guidelines, ""] : []), summary ?? "", "", ...(meeting(store) ? [meeting(store), ""] : [])]
+    ? [buildContext(store, new Date(), { selfId: cfg.slackUserId, query: focus ? `${focus.title} ${text}` : text, sessions: sessionsAllowed(cfg) }), ...(mailBodies ? ["", mailBodies] : []), workHoursLine(workHoursOf(cfg as unknown as Record<string, unknown>), new Date()), "", ...(guidelines ? [guidelines, ""] : []), summary ?? "", "", ...(meeting(store) ? [meeting(store), ""] : [])]
     : [contextHeader(cfg, { ...(thread ? { thread } : {}), ...(focus ? { focus } : {}), ...(guidelines ? { guidelines } : {}), mail: mailSummaryLine(store) }), ""];
   return [
     ...head,

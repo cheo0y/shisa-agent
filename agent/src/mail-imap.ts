@@ -4,15 +4,15 @@
 //   1) 받은편지함은 EXAMINE 으로 연다(mailboxOpen readOnly). 서버가 READ-ONLY 로 열지 않았다고 답하면 아무것도 읽지 않고 끝낸다
 //   2) 본문은 BODY.PEEK[] 로만 받는다(imapflow fetch 의 source) — 읽음 표시(\Seen)가 바뀌지 않는다
 //   3) 플래그 바꾸기·지우기·옮기기·복사·보내기(SMTP) 코드는 없다(mail-imap.test.ts 가 이 파일에 그런 호출이 없는지 본다)
-// 개수 상한은 없다: 기간(sinceHours, 기본 24시간) 안에 받은 메일은 전부. 본문은 메일마다 앞 BODY_BYTES 만 받는다.
+// 개수 상한은 없다: 기간(sinceHours, 기본 24시간) 안에 받은 메일은 전부. 본문도 자르지 않고 메일 전체(BODY.PEEK[])를 받아 글자 본문을 남긴다
+// (목록 맥락엔 앞부분 snippet 만, 사용자가 가리킨 메일은 body 전체를 넣는다 — mail-sync.ts).
 import { ImapFlow } from "imapflow";
 import type { ConnectionOptions } from "node:tls";
 import type { MailTarget } from "./connectors.ts";
 import { MAIL_PRESETS } from "./mail-presets.ts";
 import { parseMail } from "./mail-mime.ts";
 
-export const BODY_BYTES = 48 * 1024; // 메일마다 받아 오는 원문 앞부분(머리말 + 본문 앞)
-export const SNIPPET_CHARS = 600;    // 맥락에 넣는 본문 앞부분 글자 수
+export const SNIPPET_CHARS = 600;    // 목록 맥락에 넣는 본문 앞부분 글자 수(전체 본문은 body)
 export const TIMEOUT_MS = 20_000;
 
 export type MailItem = {
@@ -22,6 +22,7 @@ export type MailItem = {
   subject: string;
   date: string;          // 받은 때(서버 INTERNALDATE, 없으면 Date 머리말) ISO
   snippet: string;
+  body?: string;         // 글자 본문 전체(HTML 메일은 글자만, 첨부는 뺌). 자르지 않는다
   unread: boolean;       // 아직 안 읽음(\Seen 없음) — 읽기만 하니 그대로 남는다
   bulk: boolean;         // 광고·뉴스레터·자동 발송으로 보인다
   messageId?: string;
@@ -118,17 +119,19 @@ export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): 
     const items: MailItem[] = [];
     if (uids.length) {
       const got: { uid: number; flags?: Set<string>; internalDate?: Date | string; source?: Buffer; emailId?: string }[] = [];
-      for await (const m of client.fetch(uids, { uid: true, flags: true, internalDate: true, source: { start: 0, maxLength: BODY_BYTES } }, { uid: true })) {
+      for await (const m of client.fetch(uids, { uid: true, flags: true, internalDate: true, source: true }, { uid: true })) {
         got.push({ uid: m.uid, flags: m.flags, internalDate: m.internalDate, source: m.source });
       }
       for (const m of got) {
         const p = parseMail(m.source ?? Buffer.alloc(0));
         const at = toIso(m.internalDate) ?? p.date;
         if (!at || Date.parse(at) < since.getTime()) continue;
-        const snippet = p.text.replace(/\s+/g, " ").trim();
+        const body = p.text.trim();
+        const snippet = body.replace(/\s+/g, " ").trim();
         items.push({
           uid: m.uid, from: p.from || p.fromAddr || "(보낸 사람 없음)", fromAddr: p.fromAddr, subject: p.subject || "(제목 없음)", date: at,
           snippet: snippet.length > SNIPPET_CHARS ? `${snippet.slice(0, SNIPPET_CHARS - 1)}…` : snippet,
+          body,
           unread: !(m.flags?.has("\\Seen") ?? false), bulk: p.bulk,
           ...(p.messageId ? { messageId: p.messageId } : {}),
           ...(gm && p.messageId ? { link: `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(`rfc822msgid:${p.messageId}`)}` } : {}),

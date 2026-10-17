@@ -237,12 +237,13 @@ test("비어 있을 때 상태 줄: 가져오는 중 · 실패 이유 · 받은 
 });
 
 test("채팅 맥락: 도구 없는 뇌 규칙에 메일 블록 안내 · Claude Code 머리말엔 한 줄 + mail_recent 도구", async () => {
-  assert.match(NO_TOOLS_SYSTEM, /메일은 「최근 받은 메일」 블록이 전부다/);
-  assert.match(CHAT_SYSTEM_NOTOOLS, /「최근 받은 메일」 블록\(있을 때\)의 보낸 사람·제목·본문 앞부분까지만/);
+  assert.match(NO_TOOLS_SYSTEM, /「사용자가 가리킨 메일 전체 본문」 블록\(본문 전체\)이 전부다/);
+  assert.match(CHAT_SYSTEM_NOTOOLS, /「사용자가 가리킨 메일 전체 본문」 블록에 들어온다/);
+  assert.doesNotMatch(CHAT_SYSTEM_NOTOOLS, /앞부분까지만/);
   const store = tmpStore();
   await new MailSync(store, gconn(), { fetch: okFetch([item(), item({ uid: 2, unread: false })]), now: () => NOW }).sync();
   const line = mailSummaryLine(store);
-  assert.equal(line, "- 메일: 최근 24시간 2통(안 읽음 1) — 보낸 사람·제목·본문 앞부분은 mail_recent");
+  assert.equal(line, "- 메일: 최근 24시간 2통(안 읽음 1) — 보낸 사람·제목·본문 앞부분은 mail_recent, 한 통의 전체 본문은 mail_read(ref)");
   assert.match(contextHeader({} as any, { now: NOW, mail: line }), /- 메일: 최근 24시간 2통/);
   const cfg = loadConfig({}, {} as any);
   const out = await (ctxHandlers(cfg, store) as any).mail_recent();

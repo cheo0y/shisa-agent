@@ -6,6 +6,7 @@ import type { Store } from "./store.ts";
 import { mailTargets, type Conn, type MailImapAccount, type MailImapConn, type MailTarget } from "./connectors.ts";
 import { addLogSecret } from "./log.ts";
 import { fetchRecentMail, type MailFailCode, type MailFetchOpts, type MailFetchResult, type MailItem } from "./mail-imap.ts";
+import { mailBodyBlock, mailRef, pickMails } from "./mail-pick.ts";
 
 export type MailPhase = "off" | "pending" | "ok" | "failed";
 // 계정 하나의 가져오기 결과. 계정마다 따로 가져오고 따로 남긴다(하나가 실패해도 나머지는 그대로)
@@ -104,12 +105,13 @@ export function mailAggregate(accounts: MailAccountState[], sinceHours?: number)
 
 const kstHm = (iso?: string) => (iso ? new Date(Date.parse(iso) + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ") : "");
 
-// 메일 한 통 → 맥락 한 줄(데이터, 지시 아님). 개수 상한 없음 — 본문은 메일마다 앞부분만. 받은 계정(받는 주소)을 줄마다 붙인다
+// 메일 한 통 → 맥락 한 줄(데이터, 지시 아님). 개수 상한 없음. 목록엔 본문 앞부분만(전체 본문은 사용자가 가리킨 메일만 — mail-pick.ts). 받은 계정(받는 주소)을 줄마다 붙인다
 export function mailLine(m: MailItem): string {
   const tags = [m.unread ? "안 읽음" : "", m.bulk ? "광고·뉴스레터·자동 발송으로 보임" : ""].filter(Boolean).join(", ");
-  const ref = m.messageId ? `mail:${m.messageId}` : `mail:uid-${m.uid}`;
+  const ref = mailRef(m);
   const to = m.account ? ` (받은 계정 ${m.account})` : "";
-  return `- [${kstHm(m.date)}]${to} ${m.from} — 「${m.subject}」${tags ? ` (${tags})` : ""} ref=${ref}${m.link ? ` 링크 ${m.link}` : ""}\n  - 본문 앞부분: ${m.snippet || "(본문 없음)"}`;
+  const cut = (m.body ?? "").replace(/\s+/g, " ").trim().length > (m.snippet ?? "").replace(/…$/, "").length;
+  return `- [${kstHm(m.date)}]${to} ${m.from} — 「${m.subject}」${tags ? ` (${tags})` : ""} ref=${ref}${m.link ? ` 링크 ${m.link}` : ""}\n  - 본문 앞부분${cut ? "(전체 본문은 따로 있다)" : ""}: ${m.snippet || "(본문 없음)"}`;
 }
 
 // 메일이 비었거나 못 가져왔을 때 맥락에 넣을 한 줄
@@ -158,7 +160,14 @@ export function mailSummaryLine(store: Db): string {
   if (s.phase !== "ok") return `- ${who}: ${s.phase === "pending" ? "가져오는 중" : `못 가져옴(${s.reason ?? "이유 모름"})`} — 자세히는 mail_recent`;
   const items = readMailItems(store);
   const fail = s.reason ? ` · 못 가져온 계정 있음(${s.reason})` : "";
-  return `- ${who}: 최근 ${s.sinceHours ?? 24}시간 ${items.length}통(안 읽음 ${items.filter((m) => m.unread).length})${fail} — 보낸 사람·제목·본문 앞부분은 mail_recent`;
+  return `- ${who}: 최근 ${s.sinceHours ?? 24}시간 ${items.length}통(안 읽음 ${items.filter((m) => m.unread).length})${fail} — 보낸 사람·제목·본문 앞부분은 mail_recent, 한 통의 전체 본문은 mail_read(ref)`;
+}
+
+// 채팅: 사용자 말이 가리킨 메일들의 전체 본문 블록(mail-pick.ts). prevAnswer: 바로 앞 답(「그거 전체 본문」을 풀 때). 없으면 ""
+export function mailFocusContext(store: Db, text: string, prevAnswer = ""): string {
+  const s = readMailState(store);
+  if (!s || s.phase === "off") return "";
+  return mailBodyBlock(pickMails(text, readMailItems(store), prevAnswer));
 }
 
 // 패널 연결 카드(GET /dashboard connectors): 메일 줄에 동기화 결과를 붙인다. accounts: 계정마다(주소·가져온 수·실패 이유)

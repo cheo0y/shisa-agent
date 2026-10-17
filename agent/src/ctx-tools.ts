@@ -20,7 +20,8 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
-import { mailContext } from "./mail-sync.ts";
+import { mailContext, readMailItems } from "./mail-sync.ts";
+import { findMail, mailBodyBlock } from "./mail-pick.ts";
 
 export { CTX_SERVER, CTX_TOOL_NAMES };
 export type ContextMode = "tools" | "inline";
@@ -74,7 +75,7 @@ export const CTX_GUIDE = `- 업무 맥락은 프롬프트에 넣지 않았다. �
   - 할 일(뭐 해야 돼·열린 일·백로그·끝낸 일·todo_ops 에 쓸 id·할 일 규칙) → todos_list(status)
   - 어제·최근에 한 작업 → sessions_recent(project?, hours?) — 한 세션의 마지막 요청·응답 전문은 session_get(id)
   - 답 안 한 Slack DM·멘션 → slack_unanswered · 다가오는 회의(respond_event 의 event_id) → meetings_upcoming
-  - 최근 받은 메일(메일 앱 비밀번호 연결 — 보낸 사람·제목·본문 앞부분) → mail_recent
+  - 최근 받은 메일(메일 앱 비밀번호 연결 — 보낸 사람·제목·본문 앞부분) → mail_recent · 한 통의 전체 본문(사용자가 본문·원문·자세히를 원하면) → mail_read(id=ref)
   - 프로젝트 현황(내가 만든 프로젝트·할 일 수 포함)·오늘 커밋·진행 중인 제안 → dashboard_summary · 최근 7일 프로젝트(레포 경로) → projects_recent
   - 사용자 취향·습관·자주 일하는 사람 → profile_get
 - 인사·잡담·짧은 대꾸, 또는 이 대화에 이미 나온 정보로 답할 수 있으면 cy 도구를 부르지 않는다. 필요할 때도 꼭 필요한 것만(보통 1–3번).
@@ -115,6 +116,8 @@ export function capOut(s: string, max = CTX_MAX_OUT): string {
   return s.length > max ? `${s.slice(0, max - 40)}\n…(잘림 — 더 좁혀서 다시 물어라)` : s;
 }
 const out = (title: string, body: string, isError = false): Text => ({ content: [{ type: "text", text: capOut(`## ${title} ${DATA_NOTE}\n${body || "(없음)"}`) }], ...(isError ? { isError } : {}) });
+// 메일(목록·전체 본문)은 자르지 않는다 — 개수·본문 상한 없음(mail-imap.ts·mail-pick.ts)
+const outAll = (title: string, body: string): Text => ({ content: [{ type: "text", text: `## ${title} ${DATA_NOTE}\n${body || "(없음)"}` }] });
 
 export type CtxDeps = { now?: () => Date; dashboard?: () => Promise<Dashboard> };
 export type TodoStatus = "open" | "backlog" | "done" | "history" | "all";
@@ -238,7 +241,15 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
     }),
     mail_recent: () => guard("최근 받은 메일", () => {
       const s = mailContext(store);
-      return out("최근 받은 메일 (받은편지함 읽기 전용)", s ? s.split("\n").slice(1).join("\n") : "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+      return outAll("최근 받은 메일 (받은편지함 읽기 전용)", s ? s.split("\n").slice(1).join("\n") : "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+    }),
+    mail_read: (a: { id?: string; ids?: string[] } = {}) => guard("메일 전체 본문", () => {
+      const ids = [...(Array.isArray(a.ids) ? a.ids : []), ...(a.id ? [a.id] : [])];
+      const items = readMailItems(store);
+      const found = ids.map((id) => findMail(items, id)).filter((m): m is NonNullable<typeof m> => !!m);
+      const miss = ids.filter((id) => !findMail(items, id));
+      const body = found.length ? mailBodyBlock(found).split("\n").slice(1).join("\n") : "";
+      return outAll("메일 전체 본문 (받은편지함 읽기 전용)", [body, ...(miss.length ? [`(없는 메일: ${miss.join(", ")} — mail_recent 의 ref 를 쓴다)`] : []), ...(!ids.length ? ["(id 를 주세요 — mail_recent 의 ref=…)"] : [])].filter(Boolean).join("\n"));
     }),
     meetings_upcoming: () => guard("다가오는 회의", () => {
       const s = meetingsContext(store, now());
@@ -264,6 +275,7 @@ export function ctxMcpServer(cfg: Config, store: Store, deps: CtxDeps = {}) {
     tool("dashboard_summary", "내가 만든 프로젝트(id·기한·남은 할 일)·오늘 커밋 수·진행 중인 제안·마지막 브리핑", {}, h.dashboard_summary, RO),
     tool("projects_recent", "최근 7일 프로젝트(레포 경로·마지막 활동·세션·커밋·브랜치)", {}, h.projects_recent, RO),
     tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분)", {}, h.mail_recent, RO),
+    tool("mail_read", "메일 한 통(또는 여러 통)의 전체 본문 — id 는 mail_recent 줄의 ref(mail:…)", { id: z.string().max(1000).optional().describe("ref, 예: mail:abc@example.com"), ids: z.array(z.string().max(1000)).optional().describe("여러 통이면") }, h.mail_read, RO),
     tool("meetings_upcoming", "다가오는 회의(eventId·시간·내 응답) — 회의 수락·거절할 때", {}, h.meetings_upcoming, RO),
   ];
   return createSdkMcpServer({

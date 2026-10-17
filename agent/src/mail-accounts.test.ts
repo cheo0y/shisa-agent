@@ -223,7 +223,7 @@ test("브리핑·채팅 재료: 메일마다 받은 계정(받는 주소) · 계
   assert.match(ctx, /- 계정 me@gmail\.com: .*2통/);
   assert.match(ctx, /- 계정 me@naver\.com: 마지막 가져오기는 실패했다: 메일 주소나 비밀번호가 맞지 않아요\. 이 계정 메일은 없다/);
   assert.match(ctx, /\(받은 계정 me@gmail\.com\) 김팀장 <boss@example\.com> — 「견적서 회신」/);
-  assert.equal(mailSummaryLine(store), "- 메일(계정 2개): 최근 24시간 2통(안 읽음 2) · 못 가져온 계정 있음(me@naver.com: 메일 주소나 비밀번호가 맞지 않아요.) — 보낸 사람·제목·본문 앞부분은 mail_recent");
+  assert.equal(mailSummaryLine(store), "- 메일(계정 2개): 최근 24시간 2통(안 읽음 2) · 못 가져온 계정 있음(me@naver.com: 메일 주소나 비밀번호가 맞지 않아요.) — 보낸 사람·제목·본문 앞부분은 mail_recent, 한 통의 전체 본문은 mail_read(ref)");
   // 한 계정이어도 줄마다 받은 계정을 적는다
   const one = tmpStore();
   await new MailSync(one, mailImapConn({ preset: "gmail", user: "solo@gmail.com", password: "aaaabbbbccccdddd" }, {}), { fetch: async () => ({ ok: true, items: [item()], filtered: true }), now: () => NOW }).sync();
