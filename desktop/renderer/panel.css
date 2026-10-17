@@ -1431,3 +1431,9 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 .setup-mail .setup-gate { margin-top: 8px; }
 .setup-mail .setup-fold { margin-top: 8px; }
 .setup-mail .setup-fold summary { padding: 6px 0; color: var(--muted); font-size: 12.5px; }
+/* 메일 계정 여러 개: 줄마다 서비스 · 주소 · 가져온 수(못 가져오면 주황) · [빼기] */
+.setup-mail-accounts { margin: 6px 0 8px; }
+.setup-mail-accounts li { flex-wrap: wrap; }
+.setup-mail-acct { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.setup-mail-acct.fail { color: var(--warn-fg, #b45309); }
+.setup-mail-add-title { display: block; margin-top: 10px; font-size: 13px; }

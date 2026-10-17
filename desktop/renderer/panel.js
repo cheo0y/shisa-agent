@@ -6,7 +6,7 @@ import { shapeDashboard, overlayHidden, priorityLabel, SECTIONS, SECTION_LABELS,
 import { needsSetup, stepForCap } from '../src/setup.js';
 import { isFeature, isAgent, buildWalk, agentSteps } from '../src/setup-flow.js';
 import { renderSetup, clearApiDraft, readSlot, clearSlot, clearMailDraft } from './setup-view.js';
-import { mailConnected } from '../src/mail-connect.js';
+import { mailConnected, mailConnectedText, withMailAccount, withoutMailAccount } from '../src/mail-connect.js';
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
 import { createProjectsView } from './projects-view.js';
@@ -479,7 +479,7 @@ function renderConnectors(list) {
         c.ready && c.detail ? h('span.muted.small.conn-detail', { text: c.detail }) : null,
         h('span.spacer'),
         ...connectorActions(c)),
-      c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
+      c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
       c.ready || c.mode === 'off' ? null : h('div.conn-hint.muted.small', null,
         h('span', { text: !c.detail || c.detail === '연결 안 됨' ? '연결 안 됨' : `연결 안 됨. ${c.detail}` }))))),
     connNote ? h('p.small.conn-note', { role: 'status', text: connNote }) : null,
@@ -712,11 +712,23 @@ function renderSetupView(resetScroll) {
         try { r = await cy.mailConnect(body); } catch { r = { ok: false, error: '연결하지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
         if (r?.ok) {
           clearMailDraft();
-          setupMail = { busy: false, result: { ok: true, text: `**연결했어요.** 최근 메일 ${r.count ?? 0}통을 읽었어요. 읽기만 해요.` } };
-          vm = { ...vm, connectors: (vm.connectors || []).filter((c) => c.cap !== 'mail').concat([{ cap: 'mail', label: '메일', mode: 'imap', modeLabel: '앱 비밀번호', ready: true, detail: '', account: r.account, preset: r.preset, sync: { phase: 'ok', count: r.count ?? 0 } }]) };
+          setupMail = { busy: false, result: { ok: true, text: mailConnectedText(r) } };
+          vm = { ...vm, connectors: withMailAccount(vm.connectors, r) }; // 목록에 바로 붙인다(폼은 비움)
           loadSoon();
         } else setupMail = { busy: false, result: { ok: false, text: r?.error || '연결하지 못했어요.' } };
         redraw(false);
+      },
+      // 계정 하나 빼기: 그 계정 비밀번호·가져온 메일만 지운다(마지막이면 메일 연결이 꺼짐)
+      onRemove: async (id) => {
+        let r;
+        try { r = await cy.mailRemove(id); } catch { r = { ok: false, error: '빼지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
+        if (r?.ok) {
+          setupMail = { busy: false, result: { ok: true, text: `**${r.account} 계정을 뺐어요.**` } };
+          vm = { ...vm, connectors: withoutMailAccount(vm.connectors, id) };
+          loadSoon();
+        } else setupMail = { busy: false, result: { ok: false, text: r?.error || '빼지 못했어요.' } };
+        redraw(false);
+        return r;
       },
       onDisconnect: async () => {
         let r;

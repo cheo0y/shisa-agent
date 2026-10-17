@@ -48,7 +48,7 @@ import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } fro
 import { denied } from './src/denied.js';
 import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
-import { cleanMailBody } from './src/mail-connect.js';
+import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
 const SQUIRREL = squirrelPlan({ platform: process.platform, argv: process.argv, execPath: process.execPath });
@@ -1349,10 +1349,22 @@ function setupIPC() {
     const r = await post('/connectors/mail', body, 60_000);
     if (r.ok && r.data?.ok) {
       sendPanel('dashboard', {}); // 연결 카드를 바로
-      return { ok: true, account: r.data.account, preset: r.data.preset, count: r.data.count, filtered: !!r.data.filtered };
+      return { ok: true, id: String(r.data.id ?? ''), account: r.data.account, preset: r.data.preset, count: r.data.count, filtered: !!r.data.filtered, updated: !!r.data.updated, accounts: r.data.accounts };
     }
     if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), ...(r.data.code ? { code: String(r.data.code) } : {}) };
     return { ok: false, error: r.status ? `연결하지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
+  });
+  // 메일 계정 하나 빼기: 데몬이 그 계정 비밀번호·가져온 메일을 지운다(마지막이면 메일 연결이 꺼짐)
+  ipcMain.handle('mail-remove', async (e, id) => {
+    if (!fromOurs(e) || !okMailId(id)) return denied();
+    if (!connected) return { ok: false, error: `${who()}가 꺼져 있어서 뺄 수 없어요. ${who()}를 켜고 다시 해 주세요.` };
+    const r = await request('DELETE', `/connectors/mail/${id}`);
+    if (r.ok && r.data?.ok) {
+      sendPanel('dashboard', {});
+      return { ok: true, account: String(r.data.account ?? ''), left: Number(r.data.left) || 0 };
+    }
+    if (r.data?.error) return { ok: false, error: String(r.data.error) };
+    return { ok: false, error: r.status ? `빼지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
   });
   // 연결된 캘린더 목록(가린 이름만) · 하나 빼기(id)
   ipcMain.handle('calendar-list', (e) => (fromOurs(e) ? { ok: true, items: calendarList() } : denied()));

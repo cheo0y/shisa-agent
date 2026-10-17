@@ -109,8 +109,10 @@ contextBridge.exposeInMainWorld('cy', {
   // [연결 해제]: AI(gemini|claude|openai|genspark|claudecode|codexcli) · 커넥터(slack|calendar|mail|issues)
   sisaDisconnect: (provider) => ipcRenderer.invoke('sisa-disconnect', String(provider || '')),
   connectorDisconnect: (cap) => ipcRenderer.invoke('connector-disconnect', String(cap || '')),
-  // 메일(앱 비밀번호) 연결: { preset, user, password, host?, port? } → 데몬이 로그인해 보고 저장 → { ok, account, preset, count } | { ok: false, error, code? }
+  // 메일(앱 비밀번호) 계정 추가(같은 주소면 비밀번호 바꾸기): { preset, user, password, host?, port? } → 데몬이 로그인해 보고 저장 → { ok, id, account, preset, count, updated } | { ok: false, error, code? }
   mailConnect: (body) => ipcRenderer.invoke('mail-connect', body && typeof body === 'object' ? body : {}),
+  // 메일 계정 하나 빼기(id) → { ok, account, left } | { ok: false, error }
+  mailRemove: (id) => ipcRenderer.invoke('mail-remove', String(id || '')),
   // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label }] }(주소는 없음) · 하나 빼기(id) → { ok, items, note?, error? }
   calendarList: () => ipcRenderer.invoke('calendar-list'),
   calendarRemove: (id) => ipcRenderer.invoke('calendar-remove', String(id || '')),

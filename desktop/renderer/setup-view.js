@@ -6,7 +6,7 @@ import { sayFor, providerById, connectSteps, slotCheck, BRAIN_CHOICES, EXTRAS, S
 import { setupSummary, okFolder } from '../src/setup-plan.js';
 import { HUB_CAP, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { calendarRemoveCopy } from '../src/calendars.js';
-import { MAIL_SERVICES, MAIL_CHECK, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, mailService, guessService, mailFormCheck, mailConnectBody, mailStatusText } from '../src/mail-connect.js';
+import { MAIL_SERVICES, MAIL_CHECK, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, MAIL_ADD_MORE, mailService, guessService, mailFormCheck, mailConnectBody, mailAccountState, mailRemoveCopy } from '../src/mail-connect.js';
 
 const slotValues = new Map();
 let redraw = null;
@@ -397,29 +397,33 @@ function calendarsBlock(calendars, onAdd, onRemove) {
       h('button.ghost', { type: 'button', text: 'Outlook 캘린더 하나 더 추가', onclick: () => onAdd('outlook') })) : null);
 }
 
-// 메일(앱 비밀번호): 서비스 고르기 · 주소(서비스 짐작) · 비밀번호(가림) · 서비스별 안내·링크 · [연결](데몬이 로그인해 보고 저장) · 연결되면 [연결 해제]
-// 비밀번호는 이 화면 메모리에만 있다가 [연결] 때 데몬으로 간다. 연결되면 바로 지운다
+// 메일(앱 비밀번호), 계정 여러 개: 위에 연결된 계정 목록(서비스 · 주소 · 가져온 수 또는 못 가져온 이유 · [빼기]),
+// 그 아래 「계정 추가」 폼(서비스 고르기 · 주소(서비스 짐작) · 비밀번호(가림) · 서비스별 안내·링크 · [연결]). 목록이 있으면 폼은 「＋ 다른 메일 계정 추가」로 접어 둔다.
+// 같은 주소를 다시 넣으면 그 계정 비밀번호를 바꾼다(데몬). 비밀번호는 이 화면 메모리에만 있다가 [연결] 때 데몬으로 간다. 연결되면 폼을 비운다
 const mailDraft = { service: 'gmail', user: '', password: '', host: '', port: '', picked: false };
 let mailConfirming = false;
-export function clearMailDraft() { mailDraft.password = ''; }
-function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onOpen }) {
-  const box = h('div.setup-folder.setup-mail', { dataset: { id: 'mail' } });
-  const title = h('span.setup-pick-title', { text: mail ? `${MAIL_TITLE} · 연결됨` : MAIL_TITLE });
-  const kids = [title, h('p.setup-blurb', { text: MAIL_BLURB })];
-  if (mail) {
-    kids.push(h('p.setup-mail-status', { text: mailStatusText(mail) }));
-    if (noAi) kids.push(h('p.setup-blurb', { text: MAIL_NO_AI }));
-    if (onDisconnect) kids.push(disconnectControl(document, {
-      ...connectorDisconnectCopy('mail'),
-      open: mailConfirming,
-      onOpen: () => { mailConfirming = true; },
-      onClose: () => { mailConfirming = false; },
-      onConfirm: () => onDisconnect(),
-    }));
-    if (result) kids.push(h(`p.setup-gate${result.ok ? '.ok' : ''}`, null, ...richNodes(result.text)));
-    box.append(...kids);
-    return box;
-  }
+let mailRemoving = '';
+let mailAddOpen = false;
+export function clearMailDraft() {
+  Object.assign(mailDraft, { service: 'gmail', user: '', password: '', host: '', port: '', picked: false });
+  mailAddOpen = false;
+}
+function mailAccountsList(accounts, onRemove) {
+  const last = accounts.length === 1;
+  return h('ul.setup-repos.setup-mail-accounts', null, accounts.map((a) => h(`li${a.phase === 'failed' || !a.ready ? '.fail' : ''}`, { dataset: { id: a.id } },
+    h('span.cal-kind', { text: mailService(a.preset).title }),
+    h('code', { text: a.user }),
+    h(`span.setup-mail-acct${a.phase === 'failed' || !a.ready ? '.fail' : ''}`, { text: mailAccountState(a) }),
+    onRemove && a.id ? disconnectControl(document, {
+      ...mailRemoveCopy(a, last),
+      open: mailRemoving === a.id,
+      onOpen: () => { mailRemoving = a.id; },
+      onClose: () => { if (mailRemoving === a.id) mailRemoving = ''; },
+      onConfirm: () => onRemove(a.id),
+    }) : null)));
+}
+function mailForm({ busy, result, onConnect, onOpen }) {
+  const kids = [];
   const svc = mailService(mailDraft.service);
   const select = document.createElement('select');
   select.setAttribute('aria-label', '메일 서비스');
@@ -458,7 +462,7 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onOpen }
   // 자세한 방법(서비스별)·연결한 뒤 확인하기: 접어 두고 눌러서 펼친다
   if (svc.guide?.length) kids.push(h('details.setup-mail-more', null, h('summary', { text: `${svc.title} 자세한 방법 보기` }), h('ol', null, svc.guide.map((t) => h('li', null, ...richNodes(t))))));
   kids.push(h('details.setup-mail-more', null, h('summary', { text: '연결한 뒤 확인하기' }), h('ol', null, MAIL_CHECK.map((t) => h('li', null, ...richNodes(t))))));
-  kids.push(h('small.setup-mail-note', { text: ['읽기만 해요. 보내기·지우기·읽음 표시 바꾸기는 하지 않아요.', svc.note, '비밀번호는 이 맥의 시사 설정 파일에만 저장해요.'].filter(Boolean).join(' ') }));
+  kids.push(h('small.setup-mail-note', { text: ['읽기만 해요. 보내기·지우기·읽음 표시 바꾸기는 하지 않아요.', svc.note, '비밀번호는 이 맥의 시사 설정 파일에만 저장해요. 이미 붙인 주소를 넣으면 비밀번호를 바꿔요.'].filter(Boolean).join(' ') }));
   if (result && !result.ok) kids.push(h('p.setup-gate', null, ...richNodes(result.text)));
   const connect = h('button.primary', { type: 'button', text: busy ? '확인하는 중…' : '연결', disabled: !!busy });
   connect.addEventListener('click', () => {
@@ -467,6 +471,33 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onOpen }
     onConnect?.(mailConnectBody(mailDraft));
   });
   kids.push(h('div.setup-fields.row', null, h('span.spacer'), connect));
+  return h('div.setup-mail-form', null, ...kids);
+}
+function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onRemove, onOpen }) {
+  const box = h('div.setup-folder.setup-mail', { dataset: { id: 'mail' } });
+  const accounts = mail?.accounts ?? [];
+  const title = h('span.setup-pick-title', { text: accounts.length ? `${MAIL_TITLE} · ${accounts.length}개 계정` : MAIL_TITLE });
+  const kids = [title, h('p.setup-blurb', { text: MAIL_BLURB })];
+  if (accounts.length) {
+    kids.push(mailAccountsList(accounts, onRemove));
+    if (noAi) kids.push(h('p.setup-blurb', { text: MAIL_NO_AI }));
+  }
+  if (result?.ok) kids.push(h('p.setup-gate.ok', null, ...richNodes(result.text)));
+  // 계정이 있으면 추가 폼은 접어 둔다(실패 이유가 있으면 펼친 채로)
+  const open = !accounts.length || mailAddOpen || (result && !result.ok) || busy;
+  if (open) {
+    if (accounts.length) kids.push(h('span.setup-pick-title.setup-mail-add-title', { text: '메일 계정 추가' }));
+    kids.push(mailForm({ busy, result, onConnect, onOpen }));
+  } else {
+    kids.push(h('div.setup-fields.row', null, h('button.ghost.setup-mail-add', { type: 'button', text: MAIL_ADD_MORE, onclick: () => { mailAddOpen = true; redraw?.(); } })));
+  }
+  if (accounts.length && onDisconnect) kids.push(disconnectControl(document, {
+    ...connectorDisconnectCopy('mail'),
+    open: mailConfirming,
+    onOpen: () => { mailConfirming = true; },
+    onClose: () => { mailConfirming = false; },
+    onConfirm: () => onDisconnect(),
+  }));
   kids.push(h('details.setup-fold', null, h('summary', { text: '고급' }), h('p.setup-blurb', { text: MAIL_ADVANCED })));
   box.append(...kids);
   return box;

@@ -158,8 +158,23 @@ export function shapeConnectors(list) {
       // 메일(앱 비밀번호): 연결한 주소·서비스(비밀번호는 데몬이 보내지 않는다)
       ...(c.mode === 'imap' && /^[^\s@]{1,200}@[^\s@]{1,200}$/.test(str(c.account)) ? { account: c.account } : {}),
       ...(c.mode === 'imap' && /^(gmail|naver|daum|custom)$/.test(str(c.preset)) ? { preset: c.preset } : {}),
+      ...(c.mode === 'imap' && Array.isArray(c.accounts) ? { accounts: shapeMailAccounts(c.accounts) } : {}), // 메일 계정 여러 개(주소·서비스만)
       ...(ready && shapeSync(c.sync) ? { sync: shapeSync(c.sync) } : {}),
     });
+  }
+  return out;
+}
+
+const MAIL_ID = /^[\w-]{1,64}$/;
+const MAIL_ADDR = /^[^\s@]{1,200}@[^\s@]{1,200}$/;
+// 메일 계정 목록(데몬 connectorStatus accounts): id·주소·서비스·비밀번호 있나. 모양이 틀린 것·같은 id 는 건너뛴다
+function shapeMailAccounts(list) {
+  const seen = new Set();
+  const out = [];
+  for (const a of arr(list)) {
+    if (!a || typeof a !== 'object' || !MAIL_ID.test(str(a.id)) || !MAIL_ADDR.test(str(a.user)) || seen.has(a.id)) continue;
+    seen.add(a.id);
+    out.push({ id: a.id, user: a.user, preset: /^(gmail|naver|daum|custom)$/.test(str(a.preset)) ? a.preset : 'custom', ready: a.ready === true });
   }
   return out;
 }
@@ -172,6 +187,13 @@ function shapeSync(s) {
     ...(Number.isInteger(s.meetings) && s.meetings >= 0 ? { meetings: s.meetings } : {}),
     ...(Number.isInteger(s.count) && s.count >= 0 ? { count: s.count } : {}), // 메일: 가져온 메일 수
     ...(s.phase === 'failed' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 300) } : {}),
+    // 메일: 일부 계정만 못 가져와도 이유(「주소: 이유」)가 온다 · 계정마다 결과
+    ...(s.phase === 'ok' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 600) } : {}),
+    ...(Array.isArray(s.accounts) ? { accounts: arr(s.accounts).filter((a) => a && MAIL_ID.test(str(a.id)) && ['pending', 'ok', 'failed'].includes(a.phase)).map((a) => ({
+      id: a.id, phase: a.phase,
+      ...(Number.isInteger(a.count) && a.count >= 0 ? { count: a.count } : {}),
+      ...(a.phase === 'failed' && str(a.reason).trim() ? { reason: str(a.reason).trim().slice(0, 300) } : {}),
+    })) } : {}),
   };
 }
 
@@ -182,6 +204,15 @@ export function connectorChipView(c) {
   if (!c.ready) return { tone: 'warn', text: `준비 안 됨 · ${c.modeLabel}` };
   const s = c.sync;
   if (c.cap === 'mail' && c.mode === 'imap') {
+    const n = c.accounts?.length ?? 0;
+    if (n > 1) {
+      const head = `메일 ${n}개 계정`;
+      if (s?.phase === 'pending') return { tone: 'ok', text: `연결됨 · ${head}`, hint: '받은편지함을 읽고 있어요. 잠시만 기다려 주세요.' };
+      if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 메일을 못 가져옴', hint: s.reason || '메일을 가져오지 못했어요.' };
+      if (s?.phase === 'ok' && s.reason) return { tone: 'warn', text: `연결됨 · ${head}`, hint: `최근 메일 ${s.count ?? 0}통 · 못 가져온 계정: ${s.reason}` };
+      if (s?.phase === 'ok') return { tone: 'ok', text: `연결됨 · ${head}`, hint: `최근 메일 ${s.count ?? 0}통을 읽었어요. 읽기만 해요.` };
+      return { tone: 'ok', text: `연결됨 · ${head}` };
+    }
     if (s?.phase === 'pending') return { tone: 'ok', text: '연결됨 · 메일 가져오는 중', hint: '받은편지함을 읽고 있어요. 잠시만 기다려 주세요.' };
     if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 메일을 못 가져옴', hint: s.reason || '메일을 가져오지 못했어요.' };
     if (s?.phase === 'ok' && Number.isInteger(s.count)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `최근 메일 ${s.count}통을 읽었어요. 읽기만 해요.` };

@@ -55,7 +55,7 @@ test('연결 카드: imap 메일은 주소·서비스·가져온 메일 수 · �
   assert.match(connectorChipView(list[0]).hint, /최근 메일 4통/);
   const m = mailConnected(list);
   assert.equal(mailStatusText(m), 'Gmail · me@gmail.com · 최근 메일 4통 읽음');
-  assert.match(mailStatusText({ ...m, sync: { phase: 'failed', reason: '앱 비밀번호가 틀렸어요' } }), /못 가져왔어요: 앱 비밀번호가 틀렸어요/);
+  assert.match(mailStatusText(mailConnected(shapeConnectors([{ cap: 'mail', mode: 'imap', ready: true, account: 'me@gmail.com', preset: 'gmail', sync: { phase: 'failed', reason: '앱 비밀번호가 틀렸어요' } }]))), /못 가져왔어요: 앱 비밀번호가 틀렸어요/);
   assert.equal(mailConnected(shapeConnectors([{ cap: 'mail', mode: 'mcp', ready: true, server: 'gmail' }])), null);
   assert.match(connectorDisconnectCopy('mail').note, /메일 비밀번호와 가져온 메일을 시사에서 지워요/);
 });
@@ -121,17 +121,20 @@ test('화면: 더 연결하기에 메일 카드(서비스 고르기·주소·가
   renderSetup(root, { ...state, mail: { ...mail, result: { ok: false, text: '메일 주소나 비밀번호가 맞지 않아요.' } } });
   assert.match(root.byClass('setup-mail')[0].text, /메일 주소나 비밀번호가 맞지 않아요/);
   clearMailDraft();
-  // 연결됨: 상태 · AI 없으면 안내 · [연결 해제]
-  const connected = { account: 'gildong@naver.com', preset: 'naver', ready: true, sync: { phase: 'ok', count: 3 } };
+  // 연결됨: 계정 목록(서비스 · 주소 · 가져온 수) · AI 없으면 안내 · 폼은 접힘 · [연결 해제]
+  const connected = mailConnected(shapeConnectors([{ cap: 'mail', mode: 'imap', ready: true, account: 'gildong@naver.com', preset: 'naver', accounts: [{ id: 'm-1', user: 'gildong@naver.com', preset: 'naver', ready: true }], sync: { phase: 'ok', count: 3, accounts: [{ id: 'm-1', phase: 'ok', count: 3 }] } }]));
   renderSetup(root, { ...state, mail: { ...mail, mail: connected, result: { ok: true, text: '**연결했어요.** 최근 메일 3통을 읽었어요.' } } });
   const on = root.byClass('setup-mail')[0];
-  assert.match(on.text, /메일\(앱 비밀번호\) · 연결됨/);
-  assert.match(on.text, /네이버 메일 · gildong@naver\.com · 최근 메일 3통 읽음/);
+  assert.match(on.text, /메일\(앱 비밀번호\) · 1개 계정/);
+  assert.match(on.text, /네이버 메일gildong@naver\.com최근 메일 3통 읽음/);
   assert.match(on.text, /AI를 연결하면 메일에서 할 일을 뽑아요/);
+  assert.match(on.text, /＋ 다른 메일 계정 추가/);
+  assert.equal(on.all((n) => n.attrs['aria-label'] === '메일 주소').length, 0, '계정이 있으면 폼은 접어 둔다');
   assert.ok(!on.text.includes('secret-pw'));
-  on.byClass('dc-open')[0].fire('click');
+  const full = on.byClass('dc-open').at(-1);
+  full.fire('click');
   assert.match(on.text, /메일 연결을 끊을까요\?/);
-  on.byClass('dc-yes')[0].fire('click');
+  on.byClass('dc-yes').at(-1).fire('click');
   await tick();
   assert.match(on.text, /메일 연결을 끊었어요/);
   delete globalThis.document;
