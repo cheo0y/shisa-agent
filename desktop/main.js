@@ -50,6 +50,7 @@ import { denied } from './src/denied.js';
 import { okCalendarColor, okEventsQuery } from './src/calendar-tab.js';
 import { withCalendarColor, withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
+import { panelOnActivation } from './src/panel-activation.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
@@ -1006,7 +1007,7 @@ function createTray() {
 }
 
 // ---- 앱(Dock·Cmd+Tab·메뉴 막대) ----
-// Dock 에 보이는 일반 앱 — Cmd+Tab/Dock 으로 돌아오면 대시보드 패널이 앞으로 온다.
+// Dock 에 보이는 일반 앱. Dock 클릭·다시 실행하면 대시보드 패널이 앞으로 온다(Cmd+Tab·스페이스 전환으로는 안 연다).
 // 오버레이는 비활성 패널이라 앱 활성화와 상관없이 항상 위·모든 Space 에 그대로 있다.
 function toggleCharacter() {
   if (!win) return;
@@ -1047,20 +1048,13 @@ function createAppMenu() {
   ]));
 }
 
-// 앱이 활성화될 때(Cmd+Tab, Dock 클릭, 다시 실행) 패널을 앞으로.
-// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 제외.
+// Dock 클릭·다시 실행만 패널을 연다(src/panel-activation.js). 앱 전환·스페이스 전환·캐릭터 창 포커스로는 열지 않는다.
+// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 Dock 활성화도 제외.
 let activationQuietUntil = 0;
 const quietActivation = (ms) => { activationQuietUntil = Math.max(activationQuietUntil, Date.now() + ms); };
 
-function onAppActivated() {
-  if (quitting || Date.now() < activationQuietUntil) return;
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused && focused === win) return; // 오버레이 입력창 쓰는 중
-  if (focused && focused === sessionWin) return; // 작업 세션 창을 보는 중
-  if (focused && focused === debugWin) return; // 도움 보내기 창
-  if (focused && focused === settingsUi?.window) return; // 설정 창을 보는 중
-  if (panel && panel.isVisible() && focused === panel) return; // 이미 앞
-  showPanel(null);
+function onActivation(kind) {
+  if (panelOnActivation({ kind, now: Date.now(), quietUntil: activationQuietUntil, quitting })) showPanel(null);
 }
 
 function setDockMenu() {
@@ -1120,10 +1114,10 @@ function setupAppActivation() {
     setDockMenu();
   }
   quietActivation(2000); // 시작 직후(로그인 자동 실행) 패널을 띄우지 않음
-  app.on('did-become-active', () => setTimeout(onAppActivated, 50));
-  // Dock 클릭 / 실행 중 다시 열기 — 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
-  app.on('activate', () => { if (!quitting && Date.now() >= activationQuietUntil) showPanel(null); });
-  app.on('second-instance', () => showPanel(null));
+  // did-become-active 로는 열지 않는다: 다른 데스크톱·전체 화면 앱에서 돌아오기만 해도 와서 닫은 패널이 다시 열렸다
+  // Dock 클릭 / 실행 중 다시 열기: 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
+  app.on('activate', () => onActivation('dock'));
+  app.on('second-instance', () => onActivation('second-instance'));
 }
 
 // 맥에서 setFocusable 을 바꾸면 창이 처음 위치로 돌아간다. 바꾸기 전 자리를 붙잡아 둔다.
