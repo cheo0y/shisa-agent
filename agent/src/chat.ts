@@ -36,9 +36,10 @@ import { autoMergeConsent, textMergeConsent } from "./auto-merge.ts";
 import { parsePrRef } from "./merge-request.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { codingReady } from "./coding.ts";
+import { calendarBlockText, calendarTz, covered, midnight, NEED_SCHEMA, parseNeeds, rangeArgs, rangeFromText, readCalendarBlock } from "./calendar-ai.ts";
 
 export type { PanelSection };
-export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; focus_ops?: FocusOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[] };
+export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; focus_ops?: FocusOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[]; need?: unknown[] };
 // 머지해 달라는 PR 하나(모델 출력 merges) — 데몬이 PR 을 읽어 머지 승인 카드로(merge-request.ts).
 // userSaid: 사용자가 이번 말에서 그 PR 을 머지하라고 직접 말함 → 데몬이 사용자 말을 다시 보고(auto-merge.ts textMergeConsent) 맞으면 ✓ 없이 바로
 export type MergeAsk = { pr: string; repo?: string; userSaid?: boolean };
@@ -222,6 +223,7 @@ export const CHAT_SCHEMA = {
     guideline: GUIDELINE_SCHEMA,
     merges: CHAT_MERGES,
     auto_merge: CHAT_AUTO_MERGE,
+    need: NEED_SCHEMA, // 맥락에 없는 기간의 일정이 필요하면(데몬이 읽어 같은 질문을 다시 보낸다, calendar-ai.ts). 선택 칸
   },
 } as const;
 
@@ -230,7 +232,7 @@ const CHAT_CONTEXT_INLINE = "- 위 맥락(세션·할 일·대시보드 요약)�
 const CHAT_CONTEXT_TOOLS = `${CTX_GUIDE}
 - 할 일을 바꾸라는데(todo_ops) 대상 할 일이 머리말에 없으면 todos_list(query) 로 찾아 그 id 를 쓴다.
 - 메일·일정·Slack 원문 등 바깥 정보가 필요하거나 사용자가 무언가를 해 달라고(올려줘·보내줘·답해줘·고쳐줘) 하면 업무 도구(연결된 MCP 등)를 쓴다.`;
-const CHAT_CONTEXT_NOTOOLS = "- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일 목록은 「최근 받은 메일」 블록(있을 때)에 보낸 사람·제목·본문 앞부분으로 있고, 사용자가 보낸 사람·제목을 말하거나 전체 본문을 달라고 하면 그 메일들의 본문 전체가 「사용자가 가리킨 메일 전체 본문」 블록에 들어온다. 그 블록이 있으면 본문 전체를 보고 답한다(앞부분만 보인다고 하지 않는다). 블록에 없는 메일의 전체 본문이 필요하면 보낸 사람이나 제목을 말해 달라고 한다. Slack 원문은 볼 수 없다고 짧게 말한다.";
+const CHAT_CONTEXT_NOTOOLS = "- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일 목록은 「최근 받은 메일」 블록(있을 때)에 보낸 사람·제목·본문 앞부분으로 있고, 사용자가 보낸 사람·제목을 말하거나 전체 본문을 달라고 하면 그 메일들의 본문 전체가 「사용자가 가리킨 메일 전체 본문」 블록에 들어온다. 그 블록이 있으면 본문 전체를 보고 답한다(앞부분만 보인다고 하지 않는다). 블록에 없는 메일의 전체 본문이 필요하면 보낸 사람이나 제목을 말해 달라고 한다. Slack 원문은 볼 수 없다고 짧게 말한다.\n- 일정은 맥락의 일정 블록(「오늘·내일 일정」, 「일정 10/19(월)~…」)을 본다. 사용자가 물은 기간(다음 주·이번 달·특정 날짜·요일)이 블록에 없으면 답을 쓰지 말고 need 에 [{ kind: \"calendar\", from: \"YYYY-MM-DD\", to: \"YYYY-MM-DD\" }] 만 넣는다(주는 월요일 시작, to 는 그날까지 들어감) — 데몬이 그 기간을 읽어 같은 질문을 다시 보낸다. 블록에 그 기간이 있으면 need 는 빈 배열로 두고 바로 답한다. 블록에 없는 날의 일정을 지어내지 않고, 읽은 기간에 일정이 없으면 없다고 말한다.";
 const chatSystem = (context: string, base = INTERACTIVE_SYSTEM, writeGuide = WRITE_GUIDE) => `${base}
 - 지금은 데스크톱 캐릭터에 붙은 입력창으로 대화 중이다. 이전 대화 흐름을 이어서 답한다.
 ${context}
@@ -310,7 +312,8 @@ const meeting = (store: Store) => { const m = meetingsContext(store); return m.i
 // 채팅 프롬프트. contextMode tools(기본): 작은 머리말(시각·사용자·이 대화·대상 할 일) + 이 대화의 최근 흐름 + 집어 든 할 일 + 코드 + 지금 한 말 —
 // 업무 맥락은 모델이 cy 도구로 필요할 때 읽는다. inline: 예전처럼 큰 맥락 + 대시보드 요약 + 다가오는 회의를 앞에 붙인다
 // attachNote: 이번 말에 붙인 첨부 목록(attachments.ts attachmentInput — 블록은 따로). 지난 말의 첨부는 "[첨부: 이름 — 경로]" 한 줄씩만
-export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text: string, summary: string | undefined, focus?: Todo, repo?: RelatedRepo, thread?: Thread, attachNote?: string): string {
+// extra: 데몬이 더 읽어 붙이는 맥락 블록(이번 말의 기간 일정 — calendar-ai.ts, need 로 다시 물을 때 그 기간)
+export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text: string, summary: string | undefined, focus?: Todo, repo?: RelatedRepo, thread?: Thread, attachNote?: string, extra: string[] = []): string {
   const refs = (t: ChatTurn) => (t.attachments?.length ? `${t.text ? " " : ""}${t.attachments.map((a) => attachmentRef(a, t.threadId ?? thread?.id)).join(" ")}` : "");
   const turns = history.slice(-HISTORY_TURNS * 2).map((t) => t.role === "system"
     ? `(기록) ${t.text.slice(0, 400)}`
@@ -325,6 +328,7 @@ export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text:
   const focusLine = focusPromptLine(); // 지금 집중하기 상태(focus_ops 판단용)
   return [
     ...head,
+    ...extra.flatMap((b) => [b, ""]),
     ...(focusLine ? [focusLine, ""] : []),
     "## 이 대화의 최근 흐름(다른 대화 창의 내용은 모른다)", turns.length ? turns.join("\n") : "(없음 — 새 대화)",
     // 예전 기록에 다른 이름(옛 「cy」·바꾸기 전 캐릭터)으로 소개한 말이 있어도 지금 이름으로 답하게
@@ -346,9 +350,40 @@ export async function converse(
   const thread = threadId ? store.thread(threadId) : undefined;
   // 첨부: 목록·경로는 프롬프트 글에, 그림·PDF·글 내용은 블록으로(없으면 예전처럼 글 프롬프트만)
   const att = attachments?.length && threadId ? attachmentInput(attachments, threadId, { tools: (cfg.brain?.provider ?? "claude-code") === "claude-code" }) : undefined;
-  const prompt = chatPrompt(cfg, store, history, text, summary, focus, repo, thread, att?.note);
   const via: ActionVia = thread?.kind === "hover" ? "hover" : "chat";
-  const r = await ask<ChatReply>(cfg, prompt, CHAT_SCHEMA, onStep, { ...chatAskOpts(cfg, text || attachmentsTitle(attachments), repo, threadId, via, model), ...(inlineContext(cfg) ? {} : { ctx: { ...ctx, store } }), ...(abort ? { abort } : {}), ...(att?.blocks.length ? { blocks: att.blocks } : {}), facts: brainFacts(store) });
+  const tz = ctx?.timeZone ?? calendarTz();
+  const now = ctx?.now?.() ?? new Date();
+  const readOpts = { ...(ctx?.calendar ? { read: ctx.calendar } : {}), tz, tools: false };
+  const extra: string[] = [];
+  const seen: { fromMs: number; toMs: number }[] = [];
+  // 도구 없는 뇌: 말에 일정·날짜·기간 말이 있으면 그 기간(못 정하면 앞으로 14일)을 미리 읽어 붙인다(빠른 길 — 맞으면 need 없이 한 번에 답)
+  if (inlineContext(cfg)) {
+    const kr = rangeFromText(text, now, tz);
+    if (kr) {
+      const rg = { fromMs: midnight(kr.from, tz), toMs: midnight(kr.to, tz) };
+      seen.push(rg);
+      extra.push(calendarBlockText(await readCalendarBlock(store, rg, readOpts)));
+    }
+  }
+  const once = () => ask<ChatReply>(cfg, chatPrompt(cfg, store, history, text, summary, focus, repo, thread, att?.note, extra), CHAT_SCHEMA, onStep, { ...chatAskOpts(cfg, text || attachmentsTitle(attachments), repo, threadId, via, model), ...(inlineContext(cfg) ? {} : { ctx: { ...ctx, store } }), ...(abort ? { abort } : {}), ...(att?.blocks.length ? { blocks: att.blocks } : {}), facts: brainFacts(store) });
+  let r = await once();
+  // need: 모델이 맥락에 없는 기간을 달라고 하면 읽어 붙이고 같은 질문을 다시(상한 없음). 이미 읽은 기간을 또 달라면 멈추고 있는 데이터로 답하게
+  for (;;) {
+    const needs = parseNeeds(r?.need);
+    if (!needs.length || abort?.signal.aborted) break;
+    const ranges = needs.map((n) => rangeArgs({ from: n.from, to: n.to }, now, tz)).filter((x): x is { fromMs: number; toMs: number } => !("error" in x));
+    const fresh = ranges.filter((x) => !covered(x, seen));
+    if (!fresh.length) {
+      if (String(r?.reply_md ?? "").trim()) break;
+      extra.push("(요청한 기간의 일정은 위 일정 블록에 이미 다 있다. need 는 빈 배열로 두고 지금 있는 데이터로 답한다. 블록에 없는 일정은 없는 것이다)");
+      r = await once();
+      break;
+    }
+    onStep("일정 확인 중…");
+    for (const rg of fresh) { seen.push(rg); extra.push(calendarBlockText(await readCalendarBlock(store, rg, readOpts))); }
+    r = await once();
+  }
+  if (!String(r?.reply_md ?? "").trim() && parseNeeds(r?.need).length) r = { ...r, reply_md: "일정을 읽었는데 답을 만들지 못했어요. 한 번 더 물어봐 주세요.", bubble: r.bubble || "다시 물어봐 줘요" };
   return { ...tidyThought(r), show: SECTIONS.includes(r.show as PanelSection) ? r.show : null, proposals: r.proposals ?? [], todo_ops: r.todo_ops ?? [], project_ops: Array.isArray(r.project_ops) ? r.project_ops : [], plan_ops: r.plan_ops ?? [], memory_ops: r.memory_ops ?? [], focus_ops: Array.isArray(r.focus_ops) ? r.focus_ops : [], rule: r.rule ?? null, guideline: r.guideline ?? null, actions: Array.isArray(r.actions) ? r.actions : [], merges: Array.isArray(r.merges) ? r.merges : [], auto_merge: Array.isArray(r.auto_merge) ? r.auto_merge : [] };
 }
 

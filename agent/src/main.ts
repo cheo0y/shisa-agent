@@ -37,6 +37,7 @@ import { connectMail, removeMailAccount } from "./mail-connect.ts";
 import { addCalendar, calendarCardRows, calendarList as calendarListOf } from "./calendar-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { CalendarView } from "./calendar-view.ts";
+import { setCalendarRead } from "./calendar-ai.ts";
 import { withRun, asRoutine } from "./runs.ts";
 import { KgBackfill } from "./kg/backfill.ts";
 import { refineIncremental } from "./kg/refine.ts";
@@ -111,6 +112,8 @@ const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind:
 calendar.onChange = () => bus.dashboardChanged();
 // 캘린더 탭: 보는 기간을 ICS 에서 직접 읽는다(받은 글은 몇 분 들고 있다). MCP 는 동기화해 둔 회의만
 const calendarView = new CalendarView({ conn: () => cfg.connectors.calendar, configPath: join(HOME_DIR, "config.json"), state: () => calendar.state(), meetings: (from, to) => calendar.between(from, to) });
+// AI 도 같은 길로 다음 주·이번 달 일정을 읽는다(맥락 도구 calendar_events · 도구 없는 뇌의 일정 블록, calendar-ai.ts)
+setCalendarRead((range) => calendarView.events(range), () => { const c = cfg.connectors.calendar; return c.mode === "api" && c.cap === "calendar" ? c.timeZone : "Asia/Seoul"; });
 // 메일(앱 비밀번호 IMAP, 읽기 전용): 15분마다·브리핑 직전에 받은편지함을 가져와 브리핑·채팅 맥락에 넣는다(mail-sync.ts)
 const mailSync = new MailSync(store, cfg.connectors.mail);
 mailSync.onChange = () => bus.dashboardChanged();
