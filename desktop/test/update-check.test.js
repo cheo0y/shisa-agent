@@ -174,3 +174,13 @@ test('newestRelease: 맥(v<버전>)·윈도우(v<버전>-windows) 릴리스가 �
   assert.equal(newestRelease({ message: 'Not Found' }, { platform: 'win32' }), null);
   assert.equal(newestRelease([], { platform: 'darwin' }), null);
 });
+
+test('새 버전 알림은 ✕ 로 닫을 수 있다(closable), 2분 뒤 사라지는 것도 그대로', async () => {
+  const { normalizeBubble } = await import('../src/bubbles.js');
+  const b = normalizeBubble(updateBubble({ version: '0.3.1', url: `${RELEASES_PAGE}/tag/v0.3.1`, platform: 'darwin' }));
+  assert.equal(b.closable, true);
+  assert.equal(b.ttlMs, 120000);
+  assert.equal(normalizeBubble({ id: 'x', text: 'y' }).closable, undefined);
+  const src = (await import('node:fs')).readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(src, /b\.closable[\s\S]{0,200}button\('✕', 'close', \(\) => dismiss\(b\.id\)\)/);
+});

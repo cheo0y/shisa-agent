@@ -209,6 +209,14 @@ html, body {
 .item.leaving { opacity: 0; transform: translateY(-6px) scale(0.95); pointer-events: none; }
 
 .bubble .text { display: inline; }
+/* ✕ 닫기(새 버전 알림 등): 오른쪽 위 모서리, 글과 겹치지 않게 안쪽 여백 */
+.bubble:has(> button.close) { padding-right: 26px; }
+.bubble > button.close {
+  position: absolute; top: 5px; right: 6px; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted, #888);
+  font-size: 11px; line-height: 18px; cursor: pointer; pointer-events: auto;
+}
+.bubble > button.close:hover { background: var(--bubble-border); color: inherit; }
 .bubble .meta {
   display: flex;
   flex-wrap: wrap; /* 머지 승인: ✓ 머지 · ✗ 안 함 · 추가질문 · PR 보기 · 패널에서 보기 */

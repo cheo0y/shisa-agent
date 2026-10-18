@@ -414,6 +414,15 @@ function fillEl(item, b) {
     meta.append(n);
   }
   if (b.link) meta.append(button(b.linkLabel ?? linkLabel(b.link), 'link', () => cy.openLink(b.link)));
+  // ✕ 닫기(closable): 다시 그릴 때 겹치지 않게 하나만
+  const bub = meta.parentElement;
+  bub?.querySelector(':scope > button.close')?.remove();
+  if (b.closable && bub) {
+    const x = button('✕', 'close', () => dismiss(b.id));
+    x.setAttribute('aria-label', '닫기');
+    x.title = '닫기';
+    bub.append(x);
+  }
   if (b.open) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
   else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
