@@ -198,7 +198,7 @@ const CAL_ICS = [
     title: '설정 파일에 주소를 넣으세요',
     say: 'config.json 의 주소 자리만 방금 복사한 것으로 바꿉니다. 이 주소는 비밀번호와 같습니다.',
     codeLabel: 'config.json 에 넣기',
-    code: '{\n  "connectors": {\n    "calendar": {\n      "mode": "api",\n      "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics",\n      "timeZone": "Asia/Seoul",\n      "email": "gildong@example.com"\n    }\n  }\n}',
+    code: '{\n  "connectors": {\n    "calendar": {\n      "mode": "api",\n      "calendars": [\n        { "name": "회사", "url": "https://calendar.google.com/calendar/ical/.../basic.ics" }\n      ],\n      "timeZone": "Asia/Seoul",\n      "email": "gildong@example.com"\n    }\n  }\n}',
   },
 ];
 

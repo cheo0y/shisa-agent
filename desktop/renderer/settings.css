@@ -234,3 +234,24 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin:
 .ce-foot .ce-risky { order: -1; margin-right: auto; }
 /* 테두리 켠 칸 미리 보기: 그림 크기에 딱 맞는 둥근 카드(오버레이와 같게) */
 .slot-pic.framed { width: auto; max-width: 100%; align-self: center; background: none; border-radius: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22); }
+
+/* 캘린더 목록(calendar-editor.js, 패널 설치 탭과 같은 것) */
+.cal-editor { margin-top: 6px; display: grid; gap: 6px; width: 100%; }
+.cal-editor .setup-pick-title { font-weight: 650; font-size: 12.5px; }
+.cal-editor .setup-blurb, .cal-editor small { color: var(--muted); font-size: 11.5px; margin: 0; }
+.cal-editor .cal-list li { flex-direction: column; align-items: stretch; gap: 3px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.cal-editor .cal-list li.off { opacity: 0.65; }
+.cal-editor .cal-top, .cal-editor .cal-bottom { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.cal-editor .cal-label { flex: 1; min-width: 0; }
+.cal-editor .cal-state { flex: 1; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.cal-editor .cal-state.ok { color: var(--ok); }
+.cal-editor .cal-state.fail { color: var(--err-fg); }
+.cal-editor .cal-switch { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); cursor: pointer; }
+.cal-editor .cal-bottom .dc.asking, .cal-editor .cal-bottom .dc.done { flex-basis: 100%; }
+.cal-editor .setup-fields { display: grid; gap: 6px; }
+.cal-editor .setup-fields label { display: grid; gap: 2px; font-size: 12px; }
+.cal-editor .setup-fields.row { display: flex; align-items: center; gap: 6px; }
+.cal-editor .spacer { flex: 1; }
+.cal-editor input[type="text"] { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); min-width: 0; }
+.cal-editor .setup-gate { margin: 0; font-size: 12px; color: var(--err-fg); }
+.cal-editor .setup-gate.ok { color: var(--ok); }

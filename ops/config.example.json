@@ -6,7 +6,9 @@
     "slack": { "mode": "api", "userToken": "xoxp-..." },
     "calendar": {
       "mode": "api",
-      "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics",
+      "calendars": [
+        { "name": "회사", "url": "https://calendar.google.com/calendar/ical/.../basic.ics", "enabled": true }
+      ],
       "timeZone": "Asia/Seoul",
       "email": "gildong@example.com"
     },

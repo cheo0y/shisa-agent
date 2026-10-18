@@ -53,7 +53,7 @@ test('연결 안 함이면 등록 명령을 치우고, 비밀 주소는 남긴�
   assert.equal(add.code, undefined);
   assert.match(add.say, /코딩 에이전트/);
   const cal = buildWalk(['calendar'], { calendar: 'ics' }, 'none');
-  assert.match(textOf(cal), /icsUrl/);
+  assert.match(textOf(cal), /"calendars"/);
   assert.equal(cal.some((s) => s.id === 'calendar-mcp-add'), false);
 });
 

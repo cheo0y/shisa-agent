@@ -115,8 +115,13 @@ contextBridge.exposeInMainWorld('cy', {
   mailConnect: (body) => ipcRenderer.invoke('mail-connect', body && typeof body === 'object' ? body : {}),
   // 메일 계정 하나 빼기(id) → { ok, account, left } | { ok: false, error }
   mailRemove: (id) => ipcRenderer.invoke('mail-remove', String(id || '')),
-  // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label }] }(주소는 없음) · 하나 빼기(id) → { ok, items, note?, error? }
+  // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label, name, enabled, phase?, meetings?, reason? }] }(주소는 없음)
+  // · 더하기({ name?, url }) → 데몬이 시험으로 읽고 저장 { ok, name, events, items } | { ok: false, error, duplicate? }
+  // · 별칭 고치기(id, name) · 켜기/끄기(id, on) · 하나 빼기(id) → { ok, items, note?, error? }
   calendarList: () => ipcRenderer.invoke('calendar-list'),
+  calendarAdd: (body) => ipcRenderer.invoke('calendar-add', { name: String(body?.name ?? ''), url: String(body?.url ?? '') }),
+  calendarRename: (id, name) => ipcRenderer.invoke('calendar-rename', String(id || ''), String(name ?? '')),
+  calendarToggle: (id, on) => ipcRenderer.invoke('calendar-toggle', String(id || ''), !!on),
   calendarRemove: (id) => ipcRenderer.invoke('calendar-remove', String(id || '')),
   // 뇌(말 거는 AI) 연결 상태(brain-state.js brainView) — 없으면 입력 대신 연결 안내 카드
   brain: () => ipcRenderer.invoke('brain-get'),

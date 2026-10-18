@@ -79,7 +79,7 @@ test('안내 문구에 문서와 같은 등록 명령이 있다', () => {
   assert.match(cal, /@cocal\/google-calendar-mcp/);
   assert.match(cal, /"preset": "google-calendar"/);
   assert.match(cal, /@softeria\/ms-365-mcp-server --read-only/);
-  assert.match(cal, /icsUrl/);
+  assert.match(cal, /"calendars"/);
 
   const mail = codes(stepById('mail'));
   assert.match(mail, /@gongrzhe\/server-gmail-autoauth-mcp/);

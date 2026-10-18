@@ -26,11 +26,14 @@ test('비밀값·토큰·키·달력주소·쿠키를 가린다', () => {
     'userToken=s.abcdefghijklmnopqrst',
     'ics https://foo.example/feed.ics?token=sekrit',
     'https://calendar.google.com/calendar/ical/me%40x.com/private-ABCDEF/basic.ics',
+    '{"calendars":[{"id":"0123456789abcdef","name":"회사","url":"https://cal.example.com/feed/zzsecretzz","enabled":true}]}',
     '{"apiKey":"sk-abcdefghijklmnopqrstuvwxyz0123456789","keys":{"gemini":"AIzaSyAAA"}}',
     'hex ' + 'ab'.repeat(32),
     'b64 ' + 'A'.repeat(48) + '==',
   ].join('\n');
   const out = redact(raw);
+  assert.equal(out.includes('zzsecretzz'), false, '캘린더 목록 주소(.ics 로 안 끝나도)');
+  assert.ok(out.includes('"name":"회사"'), '별칭은 남는다');
   assert.equal(out.includes('xoxb-'), false);
   assert.equal(out.includes('xoxp-'), false);
   assert.equal(out.includes('xoxe-1-'), false);

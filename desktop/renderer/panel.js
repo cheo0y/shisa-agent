@@ -6,7 +6,7 @@ import { createMarkdown } from '../src/markdown.js';
 import { shapeDashboard, overlayHidden, priorityLabel, SECTIONS, SECTION_LABELS, normalizeSection, relativeTime, clockTime, visibleSections, connectorChipView } from '../src/dashboard.js';
 import { needsSetup, stepForCap } from '../src/setup.js';
 import { isFeature, isAgent, buildWalk, agentSteps } from '../src/setup-flow.js';
-import { renderSetup, clearApiDraft, readSlot, clearSlot, clearMailDraft } from './setup-view.js';
+import { renderSetup, clearApiDraft, readSlot, clearMailDraft, resetCalendarEditor } from './setup-view.js';
 import { mailConnected, mailConnectedText, withMailAccount, withoutMailAccount } from '../src/mail-connect.js';
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
@@ -142,7 +142,8 @@ let keyStatus = '';
 let keyNote = ''; // 키는 맞지만 알릴 말(Genspark 무료 플랜 → 크레딧 필요)
 let gskFound = false; // gsk login 한 Genspark 키가 이 맥에 있나
 let afterConnect = ''; // 'claudecode'·'codexcli': 그 도구 연결을 마치면 시사의 AI로 쓴다
-let setupCalendars = []; // 연결된 캘린더(main calendar-list: 가린 이름만, 주소 없음)
+let setupCalendars = []; // 저장된 캘린더(main calendar-list: 별칭·가린 이름·결과, 주소 없음). 데몬 설정 파일 기준이라 어디서 들어와도 같다
+const calendarScreen = () => setupPhase === 'extras' || (setupPhase === 'connect' && (setupLink === 'gcal' || setupLink === 'outlook'));
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
 let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
@@ -233,6 +234,19 @@ async function loadCalendars() {
   setupCalendars = items;
   setupKey = '';
   if (section === 'setup') renderSetupView(false);
+}
+
+// 캘린더 더하기·별칭·켜기/끄기·빼기 하나: main 이 돌려준 저장 목록으로 바꾸고 설치 표시(done)도 다시 읽는다. 다시 그리기는 편집기가 한다
+async function calendarOp(fn) {
+  let r;
+  try { r = await fn(); } catch { r = null; }
+  if (Array.isArray(r?.items)) setupCalendars = r.items;
+  try {
+    const got = await cy.sisaGet();
+    if (got && typeof got === 'object') sisa = { ...sisa, ...got, done: got.done || {} };
+  } catch { /* 다음에 다시 읽는다 */ }
+  loadSoon();
+  return r ?? { ok: false };
 }
 
 function clampSetupCursor() {
@@ -575,7 +589,7 @@ function renderSetupView(resetScroll) {
     return;
   }
   setupKey = key;
-  if (setupPhase === 'extras') loadCalendars();
+  if (calendarScreen()) loadCalendars();
   const top = resetScroll ? 0 : ($('sec-setup').querySelector('.setup-scroll')?.scrollTop ?? 0);
   const redraw = (scroll) => { setupKey = ''; renderSetupView(scroll); };
   renderSetup($('sec-setup'), {
@@ -687,11 +701,13 @@ function renderSetupView(resetScroll) {
     },
     onOpenExtra: (id) => {
       if (!EXTRAS.includes(id) || !hubItem(id)) return;
-      if (id === 'gcal' || id === 'outlook') { clearSlot(id); setupSlotError = null; } // 하나 더 추가할 때 앞 주소가 남지 않게
       setupLink = id;
       afterConnect = '';
       setupPhase = 'connect';
       setupCursor = 0;
+      // 캘린더 카드: 저장된 캘린더가 있으면 바로 목록 단계로(안내는 「이전」으로 다시 볼 수 있다)
+      if ((id === 'gcal' || id === 'outlook') && setupCalendars.length) setupCursor = Math.max(0, connectSteps(id, connectAgentNow()).length - 1);
+      if (id === 'gcal' || id === 'outlook') resetCalendarEditor();
       agentLoginState = { loggedIn: false, installed: null };
       saveSetup();
       redraw(true);
@@ -745,32 +761,15 @@ function renderSetupView(resetScroll) {
         return r;
       },
     },
-    // 연결된 캘린더: 하나 더 추가(같은 안내를 다시) · 하나 빼기(그 주소만, 마지막이면 캘린더 연결 해제)
+    // 저장된 캘린더(「더 연결할까요?」 카드 요약 · 캘린더 카드 안 목록). 더하기·별칭·켜기/끄기·빼기 뒤엔 main 이 준 목록으로 바로
     calendars: setupCalendars,
-    slotError: setupSlotError,
-    onAddCalendar: (id) => {
-      if (id !== 'gcal' && id !== 'outlook') return;
-      clearSlot(id);
-      setupSlotError = null;
-      setupLink = id;
-      afterConnect = '';
-      setupPhase = 'connect';
-      setupCursor = 0;
-      saveSetup();
-      redraw(true);
-    },
-    onRemoveCalendar: async (id) => {
-      let r;
-      try { r = await cy.calendarRemove(id); } catch { r = { ok: false }; }
-      if (r?.ok) {
-        try {
-          const got = await cy.sisaGet();
-          if (got && typeof got === 'object') sisa = { ...sisa, ...got, done: got.done || {} };
-        } catch { /* 다음에 다시 읽는다 */ }
-        loadSoon();
-        setTimeout(() => { setupCalendars = Array.isArray(r.items) ? r.items : setupCalendars; redraw(false); }, 1500); // 뺐다는 글을 잠깐 보여 주고 목록을 다시
-      }
-      return r;
+    calendar: {
+      items: setupCalendars,
+      redraw: () => redraw(false),
+      onAdd: (body) => calendarOp(() => cy.calendarAdd(body)),
+      onRename: (id, name) => calendarOp(() => cy.calendarRename(id, name)),
+      onToggle: (id, on) => calendarOp(() => cy.calendarToggle(id, on)),
+      onRemove: (id) => calendarOp(() => cy.calendarRemove(id), true),
     },
     onDisconnectExtra: async (_id, cap) => {
       let r;
@@ -881,15 +880,9 @@ function renderSetupView(resetScroll) {
           redraw(true);
           return;
         }
-        const url = (setupLink === 'gcal' || setupLink === 'outlook') ? readSlot(setupLink) : '';
-        let mark = null;
-        try { mark = await cy.sisaMark(setupLink, url); } catch { /* 표시만 남긴다 */ }
-        if (mark?.duplicate) {
-          // 같은 주소는 한 번만: 그 칸에 머물며 알린다(칸을 고치면 사라진다)
-          setupSlotError = { id: setupLink, value: url, text: mark.error || '이미 연결된 캘린더예요.' };
-          redraw(false);
-          return;
-        }
+        const calCard = setupLink === 'gcal' || setupLink === 'outlook';
+        // 캘린더는 「＋ 캘린더 추가」의 [연결]이 이미 저장했다. 완료는 저장된 캘린더가 있을 때만 표시를 남기고 목록으로
+        try { await cy.sisaMark(setupLink, ''); } catch { /* 표시만 남긴다 */ }
         setupSlotError = null;
         if ((afterConnect === 'claudecode' && setupLink === 'claude') || (afterConnect === 'codexcli' && setupLink === 'codex')) {
           afterConnect = '';
@@ -900,7 +893,7 @@ function renderSetupView(resetScroll) {
           const got = await cy.sisaGet();
           if (got && typeof got === 'object') sisa = { ...sisa, ...got, hasKey: !!got.hasKey, done: got.done || {} };
         } catch { /* 목록은 돌아간다 */ }
-        sisa.done = { ...(sisa.done || {}), [setupLink]: true };
+        if (!calCard) sisa.done = { ...(sisa.done || {}), [setupLink]: true };
         // 뇌 고르기에서 설치 안내로 들어왔으면 다음(더 연결하기)으로, 더 연결하기에서 왔으면 그 목록으로
         setupPhase = 'extras';
         setupCursor = 0;

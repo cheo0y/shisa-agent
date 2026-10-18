@@ -46,7 +46,7 @@ import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, daemonArgs, loginIt
 import { createDaemonHost, portFree } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } from './src/update-check.js';
 import { denied } from './src/denied.js';
-import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP } from './src/calendars.js';
+import { withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
@@ -110,8 +110,8 @@ function writeSisa(data) {
 }
 
 // 시사 데몬이 읽는 설정(~/.cy-agent/config.json)에 연결을 넣는다. 다른 칸은 건드리지 않는다.
-// 파일이 깨져 있으면 아무것도 쓰지 않는다. 캘린더는 덮어쓰지 않고 더한다(개수 상한 없음). 이미 있는 주소면 'dup'
-function writeConnector(id, url) {
+// 파일이 깨져 있으면 아무것도 쓰지 않는다. 캘린더(gcal·outlook)는 여기서 쓰지 않는다(데몬이 시험 가져오기 뒤에 저장, addCalendar)
+function writeConnector(id) {
   const home = process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent');
   const file = path.join(home, 'config.json');
   let cfg = {};
@@ -123,11 +123,7 @@ function writeConnector(id, url) {
     cfg = { ...NEW_DAEMON_CONFIG }; // 데몬보다 먼저 만든 설정 = 새 설치(마법사를 마칠 때까지 아무것도 읽지 않는다)
   }
   const conns = cfg.connectors && typeof cfg.connectors === 'object' ? { ...cfg.connectors } : {};
-  if (id === 'gcal' || id === 'outlook') {
-    const r = withCalendarAdded({ connectors: conns }, url);
-    if (!r.added) return 'dup';
-    conns.calendar = r.cfg.connectors.calendar;
-  } else if (id === 'jira') {
+  if (id === 'jira') {
     if (conns.issues && typeof conns.issues === 'object' && conns.issues.mode) return false;
     conns.issues = { mode: 'mcp', server: 'atlassian' };
   } else if (id === 'slack') {
@@ -206,31 +202,75 @@ function readDaemonConfig() {
     return {};
   }
 }
-const calendarList = () => calendarRows(readDaemonConfig(), calendarId);
+// 저장된 캘린더(데몬 설정 파일 기준, 화면 상태가 아니다) + 데몬이 켜져 있으면 캘린더마다 마지막 결과(일정 수·못 가져온 이유·꺼 둠)
+async function calendarList() {
+  const rows = calendarRows(readDaemonConfig(), calendarId);
+  if (!connected || !rows.length) return rows;
+  const r = await request('GET', '/connectors/calendar');
+  return r.ok ? withCalendarResults(rows, r.data) : rows;
+}
 
-// 캘린더 하나 빼기: 그 주소만 config.json 에서 지우고, 연결을 더할 때처럼 데몬에 다시 읽게 알린다.
-// 마지막 하나면 [연결 해제](캘린더 전체)와 같다
-async function removeCalendar(id) {
-  const url = calendarUrlById(readDaemonConfig(), id, calendarId);
-  if (!url) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: calendarList() };
-  const before = calendarUrls(readDaemonConfig());
-  if (before.length <= 1) {
-    const r = await disconnectConnector('calendar');
-    return { ...r, items: calendarList() };
+// 설치 표시(sisa-ai.json done)를 남은 주소에 맞추고 패널에 알린다
+function syncCalendarDone(cfg) {
+  const prev = normalizeSisa(readSisa());
+  const next = { ...prev, done: hubDoneFor(prev.done, calendarUrls(cfg || readDaemonConfig())) };
+  writeSisa(next);
+  sendPanel('sisa', sisaPublic(next));
+}
+
+// 캘린더 하나 더하기(별칭 + 주소): 데몬이 그 캘린더만 시험으로 읽어 보고 되면 저장 → 전체 동기화. 데몬이 꺼져 있으면 확인할 수 없어 안 한다
+async function addCalendar(body) {
+  if (!connected) return { ok: false, error: CAL_TEXT.offline(who()), items: await calendarList() };
+  const r = await post('/connectors/calendar', body, 40_000);
+  if (r.ok && r.data?.ok) {
+    const prev = normalizeSisa(readSisa());
+    const next = { ...prev, done: { ...prev.done, [cardOfKind(calendarKind(body.url))]: true } };
+    writeSisa(next);
+    sendPanel('sisa', sisaPublic(next));
+    sendPanel('dashboard', {}); // 연결 카드(가져오는 중 → 결과)를 바로
+    return { ok: true, id: String(r.data.id ?? ''), name: String(r.data.name ?? ''), events: Number(r.data.events) || 0, done: next.done, items: await calendarList() };
   }
-  const wrote = editDaemonConfig((cfg) => withCalendarRemoved(cfg, url));
-  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: calendarList() };
+  if (r.status === 409) return { ok: false, duplicate: true, error: CALENDAR_DUP, items: await calendarList() };
+  if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), items: await calendarList() };
+  return { ok: false, error: r.status ? `${CAL_TEXT.failed}(${r.status})` : CAL_TEXT.failed, items: await calendarList() };
+}
+
+// 별칭 고치기 · 켜기/끄기: config.json 을 고치고(데몬이 꺼져 있어도) 데몬에 다시 읽게 알린다 → 그 캘린더 일정을 바로 빼거나 다시 가져온다
+async function editCalendar(id, fn) {
+  if (!calendarUrlById(readDaemonConfig(), id, calendarId)) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: await calendarList() };
+  const wrote = editDaemonConfig((cfg) => fn(cfg));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: await calendarList() };
   let reload = null;
   if (wrote && connected) {
     const r = await post('/connectors/reload');
     reload = r.ok ? r.data : null;
   }
-  const prev = normalizeSisa(readSisa());
-  const next = { ...prev, done: hubDoneFor(prev.done, calendarUrls(wrote || readDaemonConfig())) };
-  writeSisa(next);
-  sendPanel('sisa', sisaPublic(next));
   sendPanel('dashboard', {});
-  return { ok: true, items: calendarList(), note: calendarReloadNote(reload, !connected) };
+  return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
+}
+const renameCalendar = (id, name) => editCalendar(id, (cfg) => withCalendarRenamed(cfg, id, name, calendarId));
+const toggleCalendar = (id, on) => editCalendar(id, (cfg) => withCalendarEnabled(cfg, id, on, calendarId));
+
+// 캘린더 하나 빼기: 그 주소만 config.json 에서 지우고, 연결을 더할 때처럼 데몬에 다시 읽게 알린다.
+// 마지막 하나면 [연결 해제](캘린더 전체)와 같다
+async function removeCalendar(id) {
+  const url = calendarUrlById(readDaemonConfig(), id, calendarId);
+  if (!url) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: await calendarList() };
+  const before = calendarUrls(readDaemonConfig());
+  if (before.length <= 1) {
+    const r = await disconnectConnector('calendar');
+    return { ...r, items: await calendarList() };
+  }
+  const wrote = editDaemonConfig((cfg) => withCalendarRemoved(cfg, url, calendarId));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: await calendarList() };
+  let reload = null;
+  if (wrote && connected) {
+    const r = await post('/connectors/reload');
+    reload = r.ok ? r.data : null;
+  }
+  syncCalendarDone(wrote);
+  sendPanel('dashboard', {});
+  return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
 }
 
 // [연결 해제] 커넥터(Slack·캘린더·메일·이슈): 그 기능만 off(토큰·ICS 주소도 지움) + 다시 읽기. 데몬이 꺼져 있으면 파일에 직접.
@@ -1205,7 +1245,10 @@ function setupIPC() {
     sisa: () => sisaPublic(readSisa()),
     disconnectBrain: (p) => disconnectBrain(p),
     disconnectConnector: (cap) => disconnectConnector(cap),
-    calendars: () => ({ ok: true, items: calendarList() }),
+    calendars: async () => ({ ok: true, items: await calendarList() }),
+    addCalendar: (body) => addCalendar(body),
+    renameCalendar: (id, name) => renameCalendar(id, name),
+    toggleCalendar: (id, on) => toggleCalendar(id, on),
     removeCalendar: (id) => removeCalendar(id),
     copyText: (text) => { clipboard.writeText(text); return { ok: true }; },
     appPrefs,
@@ -1311,12 +1354,17 @@ function setupIPC() {
   });
   ipcMain.handle('sisa-mark', async (e, id, url) => {
     if (!fromOurs(e) || !HUB_IDS.has(id)) return denied();
-    if ((id === 'gcal' || id === 'outlook') && !(typeof url === 'string' && /^https:\/\/\S+\.ics(\?\S*)?$/.test(url) && url.length <= 2000)) return denied();
     const prev = normalizeSisa(readSisa());
-    const wrote = writeConnector(id, url);
+    // 캘린더(gcal·outlook)는 「＋ 캘린더 추가」 [연결]이 저장한다(calendar-add). 여기선 저장된 캘린더가 있을 때만 표시를 남긴다
+    if (id === 'gcal' || id === 'outlook') {
+      const has = calendarRows(readDaemonConfig(), calendarId).some((r) => cardOfKind(r.kind) === id);
+      const done = has ? { ...prev.done, [id]: true } : { ...prev.done };
+      writeSisa({ ...prev, done });
+      return { ok: true, done, configured: false, reload: null };
+    }
+    const wrote = writeConnector(id);
     const done = { ...prev.done, [id]: true };
     writeSisa({ ...prev, done });
-    if (wrote === 'dup') return { ok: false, duplicate: true, error: CALENDAR_DUP, done };
     // 데몬에 다시 읽게 알린다: 캘린더만 바뀌었으면 데몬이 바로 반영해 곧장 가져오고(applied), 다른 연결이면 스스로 다시 켜진다
     let reload = null;
     if (wrote && connected) {
@@ -1356,7 +1404,15 @@ function setupIPC() {
     return { ok: false, error: r.status ? `빼지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
   });
   // 연결된 캘린더 목록(가린 이름만) · 하나 빼기(id)
-  ipcMain.handle('calendar-list', (e) => (fromOurs(e) ? { ok: true, items: calendarList() } : denied()));
+  // 캘린더: 목록(별칭·가린 주소·결과) · 더하기(별칭 + 주소, 데몬이 시험으로 읽고 저장) · 별칭 고치기 · 켜기/끄기 · 하나 빼기(id)
+  ipcMain.handle('calendar-list', async (e) => (fromOurs(e) ? { ok: true, items: await calendarList() } : denied()));
+  ipcMain.handle('calendar-add', (e, body) => {
+    const b = body && typeof body === 'object' ? body : null;
+    if (!fromOurs(e) || !b || !okCalendarUrl(b.url) || (b.name !== undefined && !okCalendarName(b.name))) return denied();
+    return addCalendar({ url: b.url.trim(), ...(typeof b.name === 'string' && b.name.trim() ? { name: b.name } : {}) });
+  });
+  ipcMain.handle('calendar-rename', (e, id, name) => (fromOurs(e) && okCalendarId(id) && okCalendarName(name) ? renameCalendar(id, name) : denied()));
+  ipcMain.handle('calendar-toggle', (e, id, on) => (fromOurs(e) && okCalendarId(id) && typeof on === 'boolean' ? toggleCalendar(id, on) : denied()));
   ipcMain.handle('calendar-remove', (e, id) => (fromOurs(e) && okCalendarId(id) ? removeCalendar(id) : denied()));
   // 연결된 AI의 쓸 수 있는 모델 목록. 키는 돌려주지 않는다.
   ipcMain.handle('sisa-models', async (e, provider) => {

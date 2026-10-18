@@ -17,7 +17,7 @@ import { who, setWho, onWho } from './who.js';
 // 안내 글 속 이름(<span class="who">)도 캐릭터 이름으로
 onWho(() => { for (const n of document.querySelectorAll('.who')) n.textContent = who(); });
 import { brainRows, brainDisconnectCopy, connectorAction, capOfRow, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
-import { calendarRemoveCopy } from '../src/calendars.js';
+import { createCalendarEditor } from '../src/calendar-editor.js';
 
 const cy = window.cy;
 const $ = (id) => document.getElementById(id);
@@ -1059,36 +1059,24 @@ function renderPhrases() {
 }
 
 // ---- 연결 상태 ----
-// 캘린더 줄 아래: 연결된 캘린더마다 가린 이름 + [빼기](그 주소만, 마지막이면 캘린더 연결 해제) · [하나 더 추가](패널 설치 탭)
+// 캘린더 줄 아래: 저장된 캘린더마다 별칭 · 가린 주소 · 결과 · 켜기/끄기 · 별칭 고치기 · [빼기], 그 아래 「＋ 캘린더 추가」(calendar-editor.js, 패널 설치 탭과 같다)
+const calEditor = createCalendarEditor();
+async function calendarOp(fn) {
+  let r;
+  try { r = await fn(); } catch { r = null; }
+  if (!r) return { ok: false, error: `${who()}에 연결되지 않았어요` };
+  if (Array.isArray(r.items)) calendars = r.items;
+  return r;
+}
 function calendarList() {
-  const box = el('div', 'cals');
-  if (calendars.length) {
-    const ul = el('ul', 'cal-list');
-    const last = calendars.length === 1;
-    for (const c of calendars) {
-      const li = el('li');
-      li.dataset.id = c.id;
-      li.append(el('span', 'cal-kind', c.title), el('code', null, c.label), disconnectControl(document, {
-        ...calendarRemoveCopy(c, last), ...confirmOpts(`calendar:${c.id}`),
-        onConfirm: async () => {
-          const res = await cy.removeCalendar(c.id).catch(() => null);
-          if (!res?.ok) return { ok: false, error: res?.error || `빼지 못했어요. ${who()}에 연결되지 않았어요` };
-          flash(['캘린더를 뺐어요.', res.note].filter(Boolean).join(' '));
-          if (Array.isArray(res.items)) calendars = res.items;
-          refreshRows();
-          return res;
-        },
-      }));
-      ul.append(li);
-    }
-    box.append(ul);
-  }
-  const add = el('button', 'small ghost', '캘린더 하나 더 추가');
-  add.type = 'button';
-  add.title = '패널의 설치 탭에서 같은 안내로 주소를 하나 더 붙여요';
-  add.addEventListener('click', () => cy.openPanel('setup'));
-  box.append(add);
-  return box;
+  return calEditor.view(document, {
+    items: calendars, kind: 'ics',
+    redraw: () => renderRows(),
+    onAdd: (body) => calendarOp(() => cy.addCalendar(body)),
+    onRename: (id, name) => calendarOp(() => cy.renameCalendar(id, name)),
+    onToggle: (id, on) => calendarOp(() => cy.toggleCalendar(id, on)),
+    onRemove: (id) => calendarOp(() => cy.removeCalendar(id)),
+  });
 }
 function loadCalendars() {
   return cy.getCalendars?.().then((r) => { if (r?.ok && Array.isArray(r.items)) { calendars = r.items; renderRows(); } }).catch(() => {});

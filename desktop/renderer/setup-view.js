@@ -5,7 +5,8 @@ import { AGENTS, FEATURES, agentSteps, buildWalk, featureTitle } from '../src/se
 import { sayFor, providerById, connectSteps, slotCheck, BRAIN_CHOICES, EXTRAS, SESSIONS_CONSENT, hubItem } from '../src/ai-onboard.js';
 import { setupSummary, okFolder } from '../src/setup-plan.js';
 import { HUB_CAP, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
-import { calendarRemoveCopy } from '../src/calendars.js';
+import { calendarCardSummary } from '../src/calendars.js';
+import { createCalendarEditor } from '../src/calendar-editor.js';
 import { MAIL_SERVICES, MAIL_CHECK, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, MAIL_ADD_MORE, mailService, guessService, mailFormCheck, mailConnectBody, mailAccountState, mailRemoveCopy } from '../src/mail-connect.js';
 
 const slotValues = new Map();
@@ -251,7 +252,7 @@ function pickView({ picked, agent, onToggle, onStart, onDone }) {
   });
 }
 
-function oneView(step, { phase, cursor, total, agent, login, slotError, onChoose, onCopy, onOpen, onList, onPrev, onBack, onSkip, onNext, nextLabel }) {
+function oneView(step, { phase, cursor, total, agent, login, slotError, calendar, onChoose, onCopy, onOpen, onList, onPrev, onBack, onSkip, onNext, nextLabel }) {
   rememberSlots(step);
   const { identity, rows } = identityAndRows(step);
   const choices = (step.choices ?? []).map((c) => h('button', {
@@ -277,6 +278,7 @@ function oneView(step, { phase, cursor, total, agent, login, slotError, onChoose
       ...blocks,
       slotFields(step),
       slotStatus(step, slotError),
+      step.calendars ? calendarBlock(calendar, step.calendars) : null,
       step.details?.length ? h('details.setup-fold', null,
         h('summary', { text: '막히면' }),
         h('ul', null, step.details.map((d) => h('li', null, ...richNodes(d))))) : null),
@@ -358,10 +360,13 @@ function sessionsConsent(on, onToggle) {
 
 // 연결된 항목은 그 아래 [연결 해제](그 자리에서 한 번 더 묻는다). 구글·Outlook 캘린더는 한 연결(캘린더)이라 같이 꺼진다
 let extraConfirming = '';
-function extraItem(item, done, onOpen, onDisconnect, onCopy, servers) {
-  const on = !!done[item.id];
+// 구글·Outlook 캘린더 카드: 저장된 캘린더(데몬 설정 파일 기준)가 있으면 「저장됨 · 캘린더 N개」(두 카드가 같은 목록을 연다)
+function extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars = []) {
+  const cal = item.id === 'gcal' || item.id === 'outlook';
+  const saved = cal ? calendarCardSummary(calendars) : '';
+  const on = cal ? !!saved : !!done[item.id];
   const cap = HUB_CAP[item.id];
-  const pick = pickButton(false, on ? `${item.title} · 연결됨` : item.title, item.blurb, () => onOpen(item.id), on);
+  const pick = pickButton(false, saved ? `${item.title} · ${saved}` : on ? `${item.title} · 연결됨` : item.title, item.blurb, () => onOpen(item.id), on);
   if (!on || !cap || !onDisconnect) return pick;
   const copy = connectorDisconnectCopy(cap, servers?.[cap]);
   return h('div.setup-extra', { dataset: { id: item.id } }, pick, disconnectControl(document, {
@@ -374,27 +379,12 @@ function extraItem(item, done, onOpen, onDisconnect, onCopy, servers) {
   }));
 }
 
-// 연결된 캘린더(구글·Outlook 합쳐서): 가린 이름 줄마다 [빼기](그 자리에서 한 번 더 묻는다) + 하나 더 추가. 개수 상한 없음
-let calConfirming = '';
-function calendarsBlock(calendars, onAdd, onRemove) {
-  if (!calendars?.length) return null;
-  const last = calendars.length === 1;
-  return h('div.setup-folder.setup-cals', null,
-    h('span.setup-pick-title', { text: `연결된 캘린더 · ${calendars.length}개` }),
-    h('p.setup-blurb', { text: '주소는 비밀이라 앞부분만 보여 줘요. 여러 캘린더의 일정을 함께 읽어요.' }),
-    h('ul.setup-repos', null, calendars.map((c) => h('li', { dataset: { id: c.id } },
-      h('span.cal-kind', { text: c.title }),
-      h('code', { text: c.label }),
-      onRemove ? disconnectControl(document, {
-        ...calendarRemoveCopy(c, last),
-        open: calConfirming === c.id,
-        onOpen: () => { calConfirming = c.id; },
-        onClose: () => { if (calConfirming === c.id) calConfirming = ''; },
-        onConfirm: () => onRemove(c.id),
-      }) : null))),
-    onAdd ? h('div.setup-fields.row', null,
-      h('button.ghost', { type: 'button', text: '구글 캘린더 하나 더 추가', onclick: () => onAdd('gcal') }),
-      h('button.ghost', { type: 'button', text: 'Outlook 캘린더 하나 더 추가', onclick: () => onAdd('outlook') })) : null);
+// 캘린더 카드 안(구글·Outlook 마지막 단계): 저장된 캘린더 목록 + 「＋ 캘린더 추가」(calendar-editor.js). 다시 들어와도 같은 저장 목록을 그린다
+const calEditor = createCalendarEditor();
+export const resetCalendarEditor = () => calEditor.reset();
+function calendarBlock(cal, kind) {
+  if (!cal) return null;
+  return calEditor.view(document, { kind, rich: richNodes, ...cal, redraw: cal.redraw ?? (() => redraw?.()) }); // 패널이 준 redraw 는 새 목록으로 다시 그린다
 }
 
 // 메일(앱 비밀번호), 계정 여러 개: 위에 연결된 계정 목록(서비스 · 주소 · 가져온 수 또는 못 가져온 이유 · [빼기]),
@@ -509,7 +499,7 @@ function redrawKeep(input) {
   redraw?.();
 }
 
-function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, onOpen, onDisconnect, onCopy, onAddCalendar, onRemoveCalendar, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
+function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, onOpen, onDisconnect, onCopy, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
   const items = EXTRAS.filter((id) => id !== 'repos').map(hubItem).filter(Boolean);
   const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '/Users/나/code', 'aria-label': '레포 폴더', value: repoDraft });
   input.addEventListener('input', () => { repoDraft = input.value; });
@@ -521,8 +511,7 @@ function extrasView({ done = {}, repos = [], coder = true, readSessions = false,
     title: '더 연결할까요?',
     identity: '하나를 누르면 그 안내로 들어가고, 끝나면 이 목록으로 돌아와요.',
     extra: h('div', null,
-      h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers))),
-      calendarsBlock(calendars, onAddCalendar, onRemoveCalendar),
+      h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars))),
       mail ? mailBlock(mail) : null,
       h('div.setup-folder', null,
         h('span.setup-pick-title', { text: repos.length ? `${repo.title} · ${repos.length}개` : repo.title }),
@@ -673,7 +662,7 @@ function drawSetup(root, state) {
   }
   if (phase === 'extras') {
     const keep = focusSlot;
-    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, onAddCalendar: state.onAddCalendar, onRemoveCalendar: state.onRemoveCalendar, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
+    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
     if (keep) {
       const el = root.querySelector(`[data-slot="${keep}"]`);
       if (el) { el.focus({ preventScroll: true }); const at = caret ?? el.value.length; el.setSelectionRange(at, at); }
@@ -724,6 +713,7 @@ function drawSetup(root, state) {
     onSkip,
     login,
     slotError: state.slotError,
+    calendar: state.calendar,
     onNext,
     nextLabel: phase === 'agentWalk' ? (last ? '기능 고르기' : '다음') : phase === 'connect' ? (last ? '완료' : '다음') : (last ? '개요로' : '다음'),
   }));

@@ -58,6 +58,8 @@ const RULES = [
   [/\buserToken\s*[:=]\s*[^\s"',}]+/gi, `userToken=${REDACT}`],
   [/"((?:apiKey|api_key|icsUrl|icsUrls|slackBotToken|slackAppToken|userToken|access_token|refresh_token|cookie|cookies|password|pass|mailPassword))"\s*:\s*(?:"[^"]*"|[^\s,}\]]+)/gi, `"$1":${REDACT}`],
   [/\b(password|pass)\s*=\s*[^\s"',}]+/gi, `$1=${REDACT}`],
+  [/"url"\s*:\s*"(?:webcal|https?):\/\/[^"]*"/gi, `"url":${REDACT}`], // 캘린더 목록(connectors.calendar.calendars[].url): .ics 로 안 끝나는 주소도
+
   [/"keys"\s*:\s*\{[^}]*\}/gi, `"keys":${REDACT}`],
   [/(?:webcal|https?):\/\/\S+?\.ics(?:\?\S*)?/gi, '[달력주소 숨김]'],
   [/(?:webcal|https?):\/\/\S*?\/calendar\/ical\/\S+/gi, '[달력주소 숨김]'],

@@ -190,12 +190,25 @@ function shapeSync(s) {
     ...(s.phase === 'failed' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 300) } : {}),
     // 메일: 일부 계정만 못 가져와도 이유(「주소: 이유」)가 온다 · 계정마다 결과
     ...(s.phase === 'ok' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 600) } : {}),
+    // 캘린더: ICS 캘린더마다 결과(별칭 · 일정 수 · 못 가져온 이유 · 꺼 둠)
+    ...(Array.isArray(s.calendars) ? { calendars: arr(s.calendars).filter((c) => c && /^[0-9a-f]{16}$/.test(str(c.id)) && ['ok', 'failed', 'off'].includes(c.phase)).map((c) => ({
+      id: c.id, name: str(c.name).trim().slice(0, 80) || '캘린더', phase: c.phase,
+      ...(Number.isInteger(c.meetings) && c.meetings >= 0 ? { meetings: c.meetings } : {}),
+      ...(c.phase === 'failed' && str(c.reason).trim() ? { reason: str(c.reason).trim().slice(0, 300) } : {}),
+    })) } : {}),
     ...(Array.isArray(s.accounts) ? { accounts: arr(s.accounts).filter((a) => a && MAIL_ID.test(str(a.id)) && ['pending', 'ok', 'failed'].includes(a.phase)).map((a) => ({
       id: a.id, phase: a.phase,
       ...(Number.isInteger(a.count) && a.count >= 0 ? { count: a.count } : {}),
       ...(a.phase === 'failed' && str(a.reason).trim() ? { reason: str(a.reason).trim().slice(0, 300) } : {}),
     })) } : {}),
   };
+}
+
+// 캘린더마다 한 줄(둘 이상이거나 꺼 둔 게 있을 때만). 없으면 ''
+export function calendarPartsHint(s) {
+  const list = Array.isArray(s?.calendars) ? s.calendars : [];
+  if (!list.length || (list.length === 1 && list[0].phase !== 'off')) return '';
+  return list.map((c) => `${c.name}: ${c.phase === 'off' ? '꺼 둠' : c.phase === 'failed' ? `못 가져옴${c.reason ? `(${c.reason})` : ''}` : `일정 ${c.meetings ?? 0}개`}`).join(' / ');
 }
 
 // 연결 카드 칩·안내 줄: 설정만 보고 「연결됨」이라 하지 않는다(캘린더는 실제로 가져왔는지까지)
@@ -219,7 +232,10 @@ export function connectorChipView(c) {
     if (s?.phase === 'ok' && Number.isInteger(s.count)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `최근 메일 ${s.count}통을 읽었어요. 읽기만 해요.` };
     return { tone: 'ok', text: `연결됨 · ${c.modeLabel}` };
   }
+  // 캘린더가 여럿이면 캘린더마다: 「회사: 일정 5개 / 개인: 못 가져옴(이유) / 가족: 꺼 둠」
+  const parts = calendarPartsHint(s);
   if (s?.phase === 'pending') return { tone: 'ok', text: `연결됨 · 일정 가져오는 중`, hint: '일정을 가져오고 있어요. 잠시만 기다려 주세요.' };
+  if (parts && (s?.phase === 'ok' || s?.phase === 'failed')) return { tone: s.phase === 'failed' ? 'warn' : 'ok', text: s.phase === 'failed' ? '연결됨 · 일부 일정을 못 가져옴' : `연결됨 · ${c.modeLabel}`, hint: parts };
   if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 일정을 못 가져옴', hint: s.reason || '일정을 가져오지 못했어요.' };
   if (s?.phase === 'ok' && Number.isInteger(s.meetings)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `오늘·내일 일정 ${s.meetings}개를 가져왔어요.` };
   return { tone: 'ok', text: `연결됨 · ${c.modeLabel}` };
