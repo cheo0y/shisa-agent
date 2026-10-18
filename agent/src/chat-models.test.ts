@@ -120,7 +120,7 @@ test("Chat: 고른 뇌·모델은 그 대화에 기억(스레드별), 새 대화
   // 답 표시: 기록·done 이벤트에 어떤 모델이 답했는지
   const msgs = s.store.threadMessages(a.threadId);
   assert.deepEqual(msgs.find((m) => m.role === "assistant")!.by, { provider: "codex", model: "gpt-5.6-terra", label: "Codex · gpt-5.6-terra", picked: true });
-  const done = s.events.filter((e) => e.status === "done") as any[];
+  const done = s.events.filter((e) => e.status === "done" && e.chatId === b.chatId) as any[]; // 다른 대화끼리는 끝나는 순서가 정해지지 않는다
   assert.equal(done.at(-1).by.label, "Claude Code · Sonnet 5.5");
   assert.equal(done.at(-1).by.picked, undefined);
   // null = 기본으로(기억도 지운다)

@@ -14,7 +14,8 @@ import type { ContentBlock } from "./attachments.ts";
 import { DEFAULT_GENERAL_MODEL, type BrainProvider, type Config } from "./config.ts";
 
 // redirect: 키를 싣는 요청은 "error"(리다이렉트를 따라가 다른 곳에 키를 보내지 않는다)
-export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; redirect?: "error" | "follow" | "manual" }) => Promise<Response>;
+// signal: 시간 초과·멈춤(timedFetch 가 붙인다) — 가짜 fetch 도 이걸 따라 끊어야 한다
+export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string; redirect?: "error" | "follow" | "manual"; signal?: AbortSignal }) => Promise<Response>;
 
 export type ExecFileLike = (
   file: string,
@@ -34,7 +35,44 @@ export type ProviderDeps = {
   execFile?: ExecFileLike;
   commandExists?: (name: string) => boolean;
   env?: NodeJS.ProcessEnv;
+  timeoutMs?: number; // 답 받기 요청 하나(헤더 + 본문). 없으면 AI_TIMEOUT_MS
+  listTimeoutMs?: number; // 모델 목록 요청 하나. 없으면 AI_LIST_TIMEOUT_MS
+  signal?: AbortSignal; // 멈춤(채팅 정지·전체 시간 초과) — 끊고 「멈췄어요」
 };
+
+// AI HTTP 요청 하나의 시간 한도(헤더 + 본문 다 읽기까지). 넘으면 끊는다.
+// 2026-10 데모: gemini-3.8-flash 가 붐빌 때 채팅 한 번이 3분 가까이 답이 없었다(그동안 「답하는 중」, 로그도 없음)
+export const AI_TIMEOUT_MS = 60_000;
+export const AI_LIST_TIMEOUT_MS = 15_000;
+export class BrainTimeoutError extends Error {}
+export const STOPPED_MSG = "멈췄어요";
+const nullBody = (status: number) => status === 101 || status === 204 || status === 205 || status === 304;
+
+// 요청 하나를 ms 안에: fetch 와 본문 읽기(res.text())를 같은 signal 로 끊는다(본문이 멈춰도 걸리지 않게).
+// fetch 가 signal 을 무시해도 기다리지 않는다(race). 돌려주는 Response 는 본문을 이미 다 읽은 사본.
+// 넘으면 BrainTimeoutError, signal 이 먼저 끊기면 「멈췄어요」, 그 밖의 연결 오류는 그대로 던진다
+export async function timedFetch(fetchImpl: FetchLike, url: string, init: NonNullable<Parameters<FetchLike>[1]>, ms: number, signal?: AbortSignal): Promise<Response> {
+  if (signal?.aborted) throw new Error(STOPPED_MSG);
+  const ctl = new AbortController();
+  let late = false;
+  const timer = setTimeout(() => { late = true; ctl.abort(new BrainTimeoutError(`${ms}ms`)); }, ms);
+  const onStop = () => ctl.abort(new Error(STOPPED_MSG));
+  signal?.addEventListener("abort", onStop, { once: true });
+  const cut = new Promise<never>((_, rej) => ctl.signal.addEventListener("abort", () => rej(ctl.signal.reason), { once: true }));
+  cut.catch(() => {});
+  try {
+    const res = await Promise.race([fetchImpl(url, { ...init, signal: ctl.signal }), cut]);
+    const text = await Promise.race([res.text(), cut]);
+    return new Response(nullBody(res.status) ? null : text, { status: res.status, statusText: res.statusText, headers: res.headers });
+  } catch (e) {
+    if (late) throw new BrainTimeoutError(`${ms}ms`);
+    if (signal?.aborted) throw new Error(STOPPED_MSG);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onStop);
+  }
+}
 
 // 출처: https://ai.google.dev/gemini-api/docs/changelog — 새 프로젝트는 3.8 Flash 권장(2.5 는 예전에 쓰던 계정만 열려 새 사용자는 404)
 // 기본 모델이 404 면 키로 목록을 받아 가장 새 flash 로 한 번 더 보낸다(geminiJson)
@@ -224,8 +262,13 @@ async function readError(res: Response, fail: string, auth?: { provider: KeyProv
 const geminiPicked = new Map<string, string>(); // 키 → 기본 대신 쓰는 모델(이 실행 동안만)
 const geminiLites = new Map<string, string | undefined>(); // 키 → 붐빌 때 넘어갈 flash-lite(이 실행 동안만)
 
-async function geminiLite(key: string, fetchImpl: FetchLike): Promise<string | undefined> {
-  if (!geminiLites.has(key)) geminiLites.set(key, await newestGeminiFlash(key, fetchImpl, true));
+type ListOpts = { ms?: number; signal?: AbortSignal };
+async function geminiLite(key: string, fetchImpl: FetchLike, o: ListOpts = {}): Promise<string | undefined> {
+  if (!geminiLites.has(key)) {
+    const ids = await geminiIds(key, fetchImpl, o);
+    if (!ids) return undefined; // 시간 초과·연결 오류는 기억하지 않는다(다음 말에 다시 본다)
+    geminiLites.set(key, bestGeminiFlash(ids, true));
+  }
   return geminiLites.get(key);
 }
 
@@ -245,19 +288,26 @@ export function bestGeminiFlash(ids: string[], lite = false): string | undefined
 }
 
 // 출처: https://ai.google.dev/api/models#method:-models.list — GET /v1beta/models, generateContent 되는 것만
-async function newestGeminiFlash(key: string, fetchImpl: FetchLike, lite = false): Promise<string | undefined> {
+// 목록을 못 받았으면(시간 초과·연결 오류) undefined, 받았는데 실패 응답이면 []
+async function geminiIds(key: string, fetchImpl: FetchLike, o: ListOpts = {}): Promise<string[] | undefined> {
+  const t0 = Date.now();
   try {
-    const res = await fetchImpl(`${GEMINI_URL}?pageSize=1000`, { method: "GET", headers: { "x-goog-api-key": key } });
-    if (!res.ok) return undefined;
+    const res = await timedFetch(fetchImpl, `${GEMINI_URL}?pageSize=1000`, { method: "GET", headers: { "x-goog-api-key": key } }, o.ms ?? AI_LIST_TIMEOUT_MS, o.signal);
+    if (!res.ok) return [];
     const data = asRecord(tryParse(await res.text()));
     const models = Array.isArray(data?.models) ? data.models as { name?: string; supportedGenerationMethods?: string[] }[] : [];
-    const ids = models
+    return models
       .filter((m) => m?.supportedGenerationMethods?.includes("generateContent"))
       .map((m) => String(m?.name ?? "").replace(/^models\//, ""));
-    return bestGeminiFlash(ids, lite);
-  } catch {
+  } catch (e) {
+    if (e instanceof BrainTimeoutError) console.warn(`[gemini] 시간 초과 (모델 목록) ${Date.now() - t0}ms`);
+    if (o.signal?.aborted) throw new Error(STOPPED_MSG);
     return undefined;
   }
+}
+async function newestGeminiFlash(key: string, fetchImpl: FetchLike, o: ListOpts = {}): Promise<string | undefined> {
+  const ids = await geminiIds(key, fetchImpl, o);
+  return ids && bestGeminiFlash(ids);
 }
 
 // Gemini 가 붐비면(503·500) 또는 너무 자주 보내면(429) 이만큼 쉬고 다시 보낸다
@@ -288,10 +338,13 @@ export function geminiQuota(body: string): { day: boolean; waitMs?: number; limi
   return { day, ...(waitMs !== undefined ? { waitMs } : {}), ...(limit !== undefined ? { limit } : {}) };
 }
 
-type GeminiFail = { fail: true; status: number; day?: boolean; limit?: number };
+// timeout: 요청이 AI_TIMEOUT_MS 안에 안 끝남 — 붐빈 것(503)과 같이 lite 로 넘어간다
+type GeminiFail = { fail: true; status: number; day?: boolean; limit?: number; timeout?: boolean };
 const isFail = (x: Response | GeminiFail): x is GeminiFail => (x as GeminiFail).fail === true;
 
-function geminiFailText(f: { status: number; day?: boolean; limit?: number }): string {
+export const GEMINI_TIMEOUT_TEXT = "Gemini가 붐벼서 답하지 못했어요(응답이 너무 오래 걸려 멈췄어요). 잠시 뒤 다시 보내 주세요";
+function geminiFailText(f: { status: number; day?: boolean; limit?: number; timeout?: boolean }): string {
+  if (f.timeout) return GEMINI_TIMEOUT_TEXT;
   if (f.day) return `오늘 쓸 수 있는 Gemini 무료 사용량을 다 썼어요(무료 키는 모델마다 하루 ${f.limit ? `${f.limit}번` : "횟수"}이 정해져 있어요). 내일 다시 쓰거나, 결제를 켠 키를 넣어 주세요`;
   if (f.status === 503 || f.status === 500) return "Gemini가 지금 붐벼서 답하지 못했어요. 잠시 뒤 다시 보내 주세요";
   if (f.status === 429) return "Gemini 사용량 한도에 걸렸어요(무료 키는 1분·하루 횟수가 정해져 있어요). 잠시 뒤 다시 보내 주세요";
@@ -304,10 +357,11 @@ export function resetGeminiState() { geminiSpent.clear(); geminiPicked.clear(); 
 
 export async function geminiJson(
   cfg: Pick<Config, "brain" | "models">, prompt: string, schema: unknown,
-  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; sleep?: (ms: number) => Promise<void>; env?: NodeJS.ProcessEnv; now?: () => number } = {},
+  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; sleep?: (ms: number) => Promise<void>; env?: NodeJS.ProcessEnv; now?: () => number; timeoutMs?: number; listTimeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const env = opts.env ?? process.env;
   const key = geminiKey(cfg, env);
+  const list: ListOpts = { ms: opts.listTimeoutMs, signal: opts.signal };
   if (!key) throw new Error(MISSING_GEMINI_KEY);
   const chosen = resolveHttpModel("gemini", cfg.models?.general, opts.model);
   const picked = chosen === GEMINI_DEFAULT_MODEL ? geminiPicked.get(key) : undefined;
@@ -319,14 +373,18 @@ export async function geminiJson(
     generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema },
   });
   // 키는 헤더에만. URL 쿼리에 넣지 않는다(로그·에러에 남기 쉬움).
-  const send = async (model: string) => {
+  // 시간 초과면 "timeout"(붐빈 것으로 본다). 멈춤은 그대로 던진다
+  const send = async (model: string): Promise<Response | "timeout"> => {
+    const t0 = Date.now();
     try {
-      return await fetchImpl(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent`, {
+      return await timedFetch(fetchImpl, `${GEMINI_URL}/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body,
-      });
-    } catch {
+      }, opts.timeoutMs ?? AI_TIMEOUT_MS, opts.signal);
+    } catch (e) {
+      if (e instanceof BrainTimeoutError) { console.warn(`[gemini] 시간 초과 ${model} ${Date.now() - t0}ms`); return "timeout"; }
+      if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
       throw new Error("Gemini 요청을 보내지 못했어요.");
     }
   };
@@ -339,6 +397,7 @@ export async function geminiJson(
   const tryModel = async (model: string, retry: boolean | (() => Promise<boolean>)): Promise<Response | GeminiFail> => {
     let r = await send(model);
     for (let i = 0; ; i++) {
+      if (r === "timeout") return { fail: true, status: 503, timeout: true }; // 한 번에 한도를 다 썼다 — 같은 모델에 또 보내지 않는다
       if (!BUSY.has(r.status)) return r;
       const text = await r.text().catch(() => "");
       const q = r.status === 429 ? geminiQuota(text) : { day: false };
@@ -358,7 +417,7 @@ export async function geminiJson(
   const first = picked ?? chosen;
   const liteOf = async () => {
     if (/-lite$/.test(first)) return undefined;
-    const lite = await geminiLite(key, fetchImpl);
+    const lite = await geminiLite(key, fetchImpl, list);
     return lite && lite !== first && !spent(lite) ? lite : undefined;
   };
   let out: Response | GeminiFail;
@@ -367,12 +426,14 @@ export async function geminiJson(
     const limit = geminiSpent.get(spentTag(first))?.limit;
     out = { fail: true, status: 429, day: true, ...(limit ? { limit } : {}) }; // 다 쓴 모델에 또 보내지 않는다(넘어갈 lite 도 없다)
   } else if (early) {
+    console.log(`[gemini] 하루 한도 → lite(${early})`);
     out = await tryModel(early, true);
     if (!isFail(out) && !out.ok) { await out.text().catch(() => ""); const limit = geminiSpent.get(spentTag(first))?.limit; out = { fail: true, status: 429, day: true, ...(limit ? { limit } : {}) }; } // lite 도 못 쓰면 원래 이유(하루 한도)
   } else {
     let lite: string | undefined;
     out = await tryModel(first, async () => !(lite = await liteOf()));
-    if (isFail(out) && (lite ??= out.day ? await liteOf() : undefined)) {
+    if (isFail(out) && (lite ??= out.day || out.timeout ? await liteOf() : undefined)) {
+      console.log(`[gemini] ${out.timeout ? "시간 초과" : out.status} → lite(${lite})`);
       const second = await tryModel(lite, true);
       if (!isFail(second) && second.ok) out = second;
       else if (!isFail(second)) {
@@ -384,14 +445,14 @@ export async function geminiJson(
   }
   // 기본 모델이 이 계정에 없으면(404) 목록에서 가장 새 flash 를 골라 한 번 더
   if (!isFail(out) && out.status === 404 && chosen === GEMINI_DEFAULT_MODEL && !picked) {
-    const best = await newestGeminiFlash(key, fetchImpl);
+    const best = await newestGeminiFlash(key, fetchImpl, list);
     if (best && best !== chosen) {
       await out.text().catch(() => "");
       out = await tryModel(best, true);
       if (!isFail(out) && out.ok) geminiPicked.set(key, best);
     }
   }
-  if (isFail(out)) throw new Error(`${geminiFailText(out)} (HTTP ${out.status}).`);
+  if (isFail(out)) throw new Error(out.timeout ? `${geminiFailText(out)}.` : `${geminiFailText(out)} (HTTP ${out.status}).`);
   const res = out;
   if (!res.ok) return readError(res, geminiFailText({ status: res.status }), { provider: "gemini", key }, geminiReason);
   markAuth("gemini", key, false);
@@ -474,7 +535,9 @@ type ChatSpec = {
   // 다시 보내도 소용없는 실패(예: OpenAI 크레딧 없음 insufficient_quota) — 그러면 쉬지 않고 바로 알린다
   noRetry?: (status: number, body: string) => boolean;
 };
-type ChatOpts = { system?: string; blocks?: ContentBlock[]; fetch?: FetchLike };
+type ChatOpts = { system?: string; blocks?: ContentBlock[]; fetch?: FetchLike; timeoutMs?: number; signal?: AbortSignal };
+// 다른 뇌가 시간 안에 답하지 않았을 때(lite 같은 넘어갈 곳이 없다)
+export const timeoutText = (label: string) => `${label} 응답이 너무 오래 걸려 멈췄어요. 잠시 뒤 다시 보내 주세요`;
 async function chatCompletionsText(spec: ChatSpec, prompt: string, schema: unknown, opts: ChatOpts): Promise<string> {
   const fetchImpl = opts.fetch ?? fetch;
   const messages = [
@@ -487,14 +550,20 @@ async function chatCompletionsText(spec: ChatSpec, prompt: string, schema: unkno
     response_format: { type: "json_schema", json_schema: { name: "cy_brain", strict: true, schema: openaiStrict(schema) } },
   });
   const send = async () => {
+    const t0 = Date.now();
     try {
-      return await fetchImpl(spec.url, {
+      return await timedFetch(fetchImpl, spec.url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${spec.key}` },
         body,
         redirect: "error",
-      });
-    } catch {
+      }, opts.timeoutMs ?? AI_TIMEOUT_MS, opts.signal);
+    } catch (e) {
+      if (e instanceof BrainTimeoutError) {
+        console.warn(`[${spec.provider}] 시간 초과 ${spec.model} ${Date.now() - t0}ms`);
+        throw new BrainTimeoutError(timeoutText(spec.label));
+      }
+      if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
       throw new Error(`${spec.label} 요청을 보내지 못했어요.`);
     }
   };
@@ -549,7 +618,7 @@ export function openaiFailText(status: number, body: string): string | undefined
 
 export async function openaiJson(
   cfg: Pick<Config, "brain" | "models">, prompt: string, schema: unknown,
-  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; env?: NodeJS.ProcessEnv; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; env?: NodeJS.ProcessEnv; sleep?: (ms: number) => Promise<void>; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const env = opts.env ?? process.env;
   const key = openaiKey(cfg, env);
@@ -572,16 +641,22 @@ export const GENSPARK_MODELS_TTL_MS = 10 * 60_000;
 const gensparkModelCache = new Map<string, { ids: string[]; at: number }>();
 export function resetGensparkModels() { gensparkModelCache.clear(); }
 
-export async function gensparkModels(key: string, opts: { fetch?: FetchLike; now?: () => number; fresh?: boolean } = {}): Promise<string[]> {
+export async function gensparkModels(key: string, opts: { fetch?: FetchLike; now?: () => number; fresh?: boolean; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<string[]> {
   const now = (opts.now ?? Date.now)();
   const fp = fingerprint(key);
   const hit = gensparkModelCache.get(fp);
   if (hit && !opts.fresh && now - hit.at < GENSPARK_MODELS_TTL_MS) return hit.ids;
   const fetchImpl = opts.fetch ?? fetch;
   let res: Response;
+  const t0 = Date.now();
   try {
-    res = await fetchImpl(`${GENSPARK_URL}/models`, { method: "GET", headers: { Authorization: `Bearer ${key}` }, redirect: "error" });
-  } catch {
+    res = await timedFetch(fetchImpl, `${GENSPARK_URL}/models`, { method: "GET", headers: { Authorization: `Bearer ${key}` }, redirect: "error" }, opts.timeoutMs ?? AI_LIST_TIMEOUT_MS, opts.signal);
+  } catch (e) {
+    if (e instanceof BrainTimeoutError) {
+      console.warn(`[genspark] 시간 초과 (모델 목록) ${Date.now() - t0}ms`);
+      throw new BrainTimeoutError("Genspark 모델 목록이 너무 오래 걸려 멈췄어요. 잠시 뒤 다시 보내 주세요");
+    }
+    if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
     throw new Error("Genspark 모델 목록을 받지 못했어요. 인터넷 연결을 확인해 주세요.");
   }
   if (!res.ok) return readError(res, "Genspark 모델 목록을 받지 못했어요", { provider: "genspark", key });
@@ -615,12 +690,12 @@ const redactKeys = (s: string) => s.replace(/\bgsk-[\w-]+/g, "***");
 
 export async function gensparkJson(
   cfg: Pick<Config, "brain" | "models">, prompt: string, schema: unknown,
-  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; sleep?: (ms: number) => Promise<void>; env?: NodeJS.ProcessEnv } = {},
+  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; sleep?: (ms: number) => Promise<void>; env?: NodeJS.ProcessEnv; timeoutMs?: number; listTimeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const env = opts.env ?? process.env;
   const key = gensparkKey(cfg, env);
   if (!key) throw new Error(MISSING_GENSPARK_KEY);
-  const ids = await gensparkModels(key, { fetch: opts.fetch });
+  const ids = await gensparkModels(key, { fetch: opts.fetch, ...(opts.listTimeoutMs ? { timeoutMs: opts.listTimeoutMs } : {}), ...(opts.signal ? { signal: opts.signal } : {}) });
   // 모델: 따로 준 것 > models.general. Claude Code 기본 이름(DEFAULT_GENERAL_MODEL)이면 고른 게 아니라 기본값으로 본다
   const chosen = (opts.model ?? "").trim() || (cfg.models?.general ?? "").trim();
   const asked = chosen && chosen !== DEFAULT_GENERAL_MODEL ? chosen : "";
@@ -641,7 +716,7 @@ export async function gensparkJson(
 
 export async function anthropicJson(
   cfg: Pick<Config, "brain" | "models">, prompt: string, schema: unknown,
-  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; env?: NodeJS.ProcessEnv } = {},
+  opts: { system?: string; model?: string; blocks?: ContentBlock[]; fetch?: FetchLike; env?: NodeJS.ProcessEnv; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const env = opts.env ?? process.env;
   const key = anthropicKey(cfg, env);
@@ -649,8 +724,9 @@ export async function anthropicJson(
   const model = resolveAnthropicModel(cfg.models?.general, opts.model);
   const fetchImpl = opts.fetch ?? fetch;
   let res: Response;
+  const t0 = Date.now();
   try {
-    res = await fetchImpl(ANTHROPIC_URL, {
+    res = await timedFetch(fetchImpl, ANTHROPIC_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION },
       body: JSON.stringify({
@@ -660,8 +736,13 @@ export async function anthropicJson(
         messages: [{ role: "user", content: opts.blocks?.length ? [{ type: "text", text: `${prompt}\n\nJSON만 답하라. 도구 호출이나 코드 수정은 하지 마라.` }, ...opts.blocks] : `${prompt}\n\nJSON만 답하라. 도구 호출이나 코드 수정은 하지 마라.` }],
         output_config: { format: { type: "json_schema", schema } },
       }),
-    });
-  } catch {
+    }, opts.timeoutMs ?? AI_TIMEOUT_MS, opts.signal);
+  } catch (e) {
+    if (e instanceof BrainTimeoutError) {
+      console.warn(`[anthropic] 시간 초과 ${model} ${Date.now() - t0}ms`);
+      throw new BrainTimeoutError(timeoutText("Claude API"));
+    }
+    if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
     throw new Error("Claude API 요청을 보내지 못했어요.");
   }
   if (!res.ok) return readError(res, "Claude API 요청이 실패했어요", { provider: "anthropic", key });
