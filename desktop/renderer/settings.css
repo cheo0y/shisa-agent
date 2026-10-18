@@ -87,6 +87,9 @@ select { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); ba
 
 /* 브리핑 출처 */
 .toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 한 묶음 안의 작은 갈래(이 앱 › 언어 등): 위와 선으로 나누고 띄운다 */
+.subsec { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.subsec > h3:first-child { margin-top: 0; }
 .toggle { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; user-select: none; }
 .toggle input { margin: 0; accent-color: var(--accent); }
 .toggle.off { color: var(--faint); text-decoration: line-through; }
