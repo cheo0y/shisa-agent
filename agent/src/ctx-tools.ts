@@ -54,7 +54,12 @@ export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작
 // 「- 사용자: 이름 (GitHub·Slack)」 한 줄. 도구 쓰는 뇌의 머리말과 도구 없는 뇌(Gemini·OpenAI 등)의 큰 맥락 블록이 같이 쓴다
 export function userLine(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & { user?: Config["user"] }): string {
   const who = [cfg.gitAuthor?.name ? `GitHub ${cfg.gitAuthor.name}` : "", cfg.slackUserId ? `Slack ${cfg.slackUserId}` : ""].filter(Boolean).join(", ");
-  return `- 사용자: ${displayUserName(cfg.user) || "(이름 모름 — 설정 user.name)"}${who ? ` (${who})` : ""}`;
+  // 「사용자: 이름 (GitHub cy-agent)」 꼴은 Gemini 가 계정 아이디로 읽고 「아직 학습된 사실 없음」(프로필)을 믿어 이름을 모른다고 했다 → 뜻을 못 박는다
+  const name = displayUserName(cfg.user);
+  const nameLine = name
+    ? `- 사용자 이름: ${name} (사용자가 설정에서 직접 정한 이름이다. 이름을 물으면 이 이름으로 답하고, 사용자를 이렇게 부른다)`
+    : "- 사용자 이름: (아직 정하지 않음 — 설정의 이름 칸에서 정할 수 있다)";
+  return who ? `${nameLine}\n- 사용자 계정: ${who}` : nameLine;
 }
 
 export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string; mail?: string } = {}): string {
