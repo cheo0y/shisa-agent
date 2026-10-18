@@ -202,9 +202,9 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
       .filter(([agent, provider]) => !connected.includes(provider) && detected[agent])
       .map(([agent, provider]) => h('div.ai-row', null,
         h('span.t', { text: PROVIDER_TITLE[provider] }),
-        h('span.ui-badge.ok', { text: '로그인 확인됨' }),
+        h('span.ui-badge.ok', { text: t('setup.models_login_ok') }),
         h('span.spacer'),
-        h('button.primary.size-s', { type: 'button', disabled: busy, text: '연결', 'aria-label': `${PROVIDER_TITLE[provider]} 연결해서 사용`, title: `${PROVIDER_TITLE[provider]}를 ${who()}에서 써요`, onclick: () => connectCli(agent) })));
+        h('button.primary.size-s', { type: 'button', disabled: busy, text: t('setup.models_connect'), 'aria-label': t('setup.models_render_text_3', { v0: PROVIDER_TITLE[provider] }), title: t('setup.models_use_in', { p: PROVIDER_TITLE[provider], who: who() }), onclick: () => connectCli(agent) })));
   }
 
   function render() {
@@ -212,21 +212,21 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     const connected = sisa.connected || [];
     const kids = [];
     const found = detectedRows(connected);
-    const addMore = h('button.ghost.size-s.ai-add', { type: 'button', text: '＋ 다른 AI 연결', onclick: gotoSetup });
+    const addMore = h('button.ghost.size-s.ai-add', { type: 'button', text: t('setup.models_add_other'), onclick: gotoSetup });
     if (!connected.length) {
       kids.push(h('div.card.models-card.ai-connect', null,
         ui.emptyState({
-          icon: '🤖', compact: true, text: '아직 연결된 AI가 없어요',
-          sub: found.length ? '이 컴퓨터에서 찾은 AI를 바로 쓸 수 있어요.' : '설치 화면에서 Claude Code·Codex 로그인이나 API 키를 연결해요.',
-          action: found.length ? null : h('button.primary', { type: 'button', text: '설치 열기', onclick: gotoSetup }),
+          icon: '🤖', compact: true, text: t('setup.models_none_yet'),
+          sub: found.length ? t('setup.models_found_sub') : t('setup.models_none_sub'),
+          action: found.length ? null : h('button.primary', { type: 'button', text: t('setup.models_render_text_5'), onclick: gotoSetup }),
         }),
         found.length ? h('div.ai-rows', null, found) : null,
         found.length ? addMore : null));
     } else {
       kids.push(pickHint());
       kids.push(h('div.card.models-card.ai-connect', null,
-        h('h2', { text: 'AI 연결' }),
-        found.length ? h('div.ai-rows', null, found) : h('p.muted.small', { text: `이 컴퓨터에서 더 찾은 AI는 없어요.` }),
+        h('h2', { text: t('setup.models_ai_connect') }),
+        found.length ? h('div.ai-rows', null, found) : h('p.muted.small', { text: t('setup.models_no_more') }),
         addMore));
     }
     kids.push(voiceCard(), cannedCard());

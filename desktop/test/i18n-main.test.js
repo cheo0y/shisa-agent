@@ -110,7 +110,7 @@ test('도움 보내기 창(debug.html·debug.js): 일본어에서 화면 글 한
 test('main.js 정적 검사: 화면용 한글 문자열 리터럴이 남지 않음(로그·console 만 허용)', () => {
   const src = fs.readFileSync(path.join(here, '..', 'main.js'), 'utf8');
   // 허용: console.* / log 의 개발자용 기록 글(사용자 화면에 안 나온다)
-  const ALLOW = [/^'\[(debug|connectors|local-ask)\]/, /^`\[daemon\]/, /^`모르는 id /, /^'캐릭터·패널 창이 아님'$/];
+  const ALLOW = [/^'\[(debug|connectors|local-ask|app)\]/, /^`\[daemon\]/, /^`모르는 id /, /^'캐릭터·패널 창이 아님'$/];
   // 언어가 바뀌면(onUiLanguage) 트레이·앱·독 메뉴와 창 제목을 다시 짓는다
   const body = src.slice(src.indexOf('function onUiLanguage'), src.indexOf('onLanguage(onUiLanguage)'));
   for (const call of ['rebuildTrayMenu()', 'createAppMenu()', 'setDockMenu()', "setTitle(t('main.title_session'))", "send('lang', l)"]) assert.ok(body.includes(call), call);
