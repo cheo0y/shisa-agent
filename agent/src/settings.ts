@@ -18,7 +18,7 @@ import { coderAvail, codingProvider, type CoderAvail } from "./coding.ts";
 import { CODEX_AUTH_MISSING } from "./codex-coder.ts";
 import { AUTO_MERGE_MAX, inAutoMerge, normSlug } from "./auto-merge.ts";
 import { STEP_HEAD } from "./briefing-sources.ts";
-import { PHRASES, defaultLines, phraseDef, phraseLines, setPhrases, unknownVars } from "./phrases.ts";
+import { PHRASES, defaultLines, phraseDef, phraseGroup, phraseLabel, phraseLines, setPhrases, unknownVars } from "./phrases.ts";
 import { characterOptions, isCharacterId, setCharacter, DEFAULT_CHARACTER, type CharacterId } from "./characters.ts";
 import { DEFAULT_LANGUAGE, LANGUAGES, LANGUAGE_LABEL, isLang, setLanguage, type Lang } from "./lang.ts";
 import { t as tr } from "./i18n.ts";
@@ -446,7 +446,7 @@ export class Settings {
       modelOptions: modelOptions(c),
       envLocked: MODEL_ROLES.filter((r) => !!this.env[MODEL_ENV[r]]),
       briefing: { exclude: (c.briefing?.exclude ?? []).filter((x): x is BriefingSource => SOURCE_IDS.has(x)), sources: BRIEFING_SOURCES.map((s) => ({ ...s })) },
-      phrases: PHRASES.map((p) => ({ key: p.key, group: p.group, label: p.label, vars: [...p.vars], default: [...defaultLines(p.key)], value: c.phrases?.[p.key]?.length ? [...c.phrases[p.key]] : null })),
+      phrases: PHRASES.map((p) => ({ key: p.key, group: phraseGroup(p.group), label: phraseLabel(p.key), vars: [...p.vars], default: [...defaultLines(p.key)], value: c.phrases?.[p.key]?.length ? [...c.phrases[p.key]] : null })),
       autoMerge: [...(c.autoMerge ?? [])],
       todayReminder: todayReminderOf(c.todayReminder),
       calendarAlert: calendarAlertOf(c.calendarAlert),

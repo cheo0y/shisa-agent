@@ -262,7 +262,7 @@ characterStore.onChange = ({ removedCurrent }) => {
   bus.characterChanged(); // 이름·대사가 바뀐 지금 캐릭터도 바로
 };
 const settings = new Settings(cfg, { onChange: (keys) => {
-  if (keys.some((k) => k === "brain" || k === "user" || k === "onboarded")) pushStatus();
+  if (keys.some((k) => k === "brain" || k === "user" || k === "onboarded" || k === "language")) pushStatus(); // language: 상태 줄 글도 새 언어로
   if (keys.includes("onboarded") && modelWorkAllowed(cfg)) setTimeout(() => onboardedNow(), 0); // 마법사를 막 마침 → 첫 정리
   else if (keys.includes("readSessions") && sessionsAllowed(cfg)) setTimeout(() => ingest(), 0);
   if (keys.includes("calendarAlert")) calendar.check(); // 알림 시각을 바로 다시 잡는다
