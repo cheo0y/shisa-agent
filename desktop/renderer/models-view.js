@@ -1,4 +1,4 @@
-// 모델 탭: 연결된 AI마다 쓸 수 있는 모델 목록을 보여 주고, 단순 채팅에 쓸 모델을 고른다(코드 작업 AI·모델은 설정 창 「세부 모델」).
+// 모델 탭: 연결된 AI마다 쓸 수 있는 모델 목록을 보여 준다. 쓸 AI·모델 고르기는 설정 창 「세부 모델」 한 곳에서(여기는 안내 글).
 // 말투(AI 연결 시)와 정해진 말(연결 안 됐을 때)도 여기서 고친다. 키는 이 화면에 오지 않는다.
 // 연결된 AI 마다 [연결 해제]: 키는 지우고, Claude Code·Codex 는 시사에서만 안 쓴다(CLI 로그인은 그대로). 지금 쓰던 AI 면 「AI 없이 쓰기」로.
 
@@ -98,23 +98,6 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     finally { busy = false; render(); }
   }
 
-  async function save(pick) {
-    if (busy) return;
-    busy = true;
-    note = '';
-    let r;
-    try { r = await cy.sisaSetModels(pick); } catch { r = { ok: false }; }
-    busy = false;
-    if (r?.ok) {
-      onSisa(r);
-      // 대화 AI 는 시사에 바로(brainSaved), 데몬이 꺼져 있으면 다시 켜질 때 읽는다
-      note = r.brainSaved ? '저장함. 대화·브리핑에 바로 적용돼요' : '저장함. 앱을 다시 켜면 적용돼요';
-    } else {
-      note = r?.error || '저장하지 못했어요.';
-    }
-    render();
-  }
-
   async function saveVoice(patch) {
     if (busy) return;
     busy = true;
@@ -133,36 +116,11 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     render();
   }
 
-  function select(rows, value, onchange, disabled) {
-    return h('select', { onchange: (e) => onchange(e.target.value), disabled: !!disabled },
-      rows.map((m) => h('option', { value: m.id, selected: m.id === value, text: ['claudecode', 'codexcli'].includes(m.id) ? m.label : m.label ? `${m.id} · ${m.label}` : m.id })));
-  }
-
-  function chatCard(sisa) {
-    const connected = sisa.connected;
-    const active = sisa.provider && sisa.provider !== 'none' && connected.includes(sisa.provider) ? sisa.provider : 'none';
-    const providerRows = [{ id: 'none', label: '안 씀' }, ...connected.map((p) => ({ id: p, label: '' }))];
-    const model = sisa.chatModels?.[active] || 'default';
-    return h('div.card.models-card', null,
-      h('h2', { text: '단순 채팅' }),
-      h('label.model-row', null, h('span', { text: 'AI' }),
-        h('select', {
-          onchange: (e) => {
-            const p = e.target.value;
-            if (p === 'none') save({ chat: 'none' });
-            else { loadList(p); save({ chat: { provider: p, model: sisa.chatModels?.[p] || 'default' } }); }
-          },
-        }, providerRows.map((r) => h('option', { value: r.id, selected: r.id === active, text: r.id === 'none' ? r.label : PROVIDER_TITLE[r.id] })))),
-      active === 'none' ? null : h('label.model-row', null, h('span', { text: '모델' }),
-        select(optionsFor(active, lists[active], model), model, (m) => save({ chat: { provider: active, model: m } }), busy)));
-  }
-
-  // 코드 작업 AI(Claude Code·Codex)와 그 모델은 설정 창 「세부 모델」의 코드 작업 칸 한 곳에서 고른다(데몬 설정 하나를 같이 본다)
-  function codeCard() {
-    return h('div.card.models-card', null,
-      h('h2', { text: '코드 작업' }),
+  // 대화·코드 작업에 쓸 AI·모델은 설정 창 「세부 모델」 한 곳에서 고른다(여기서 따로 고르면 두 곳이 어긋나 보였다). 여기는 안내 글만
+  function pickHint() {
+    return h('div.card.models-card.models-hint', null,
       h('p.muted.small', null,
-        h('span', { text: '코드 작업 AI(Claude Code 또는 Codex)와 모델은 설정 창 「세부 모델」의 코드 작업 칸에서 골라요. ' }),
+        h('span', { text: '대화와 코드 작업에 쓸 AI·모델은 설정 창 「세부 모델」에서 골라요(코드 작업 AI는 「세부 모델」의 코드 작업 칸). 패널 채팅은 입력줄 옆에서 대화마다 바꿀 수 있어요. ' }),
         cy.openSettings ? h('button.ghost.small', { type: 'button', text: '설정 열기', onclick: () => cy.openSettings() }) : null));
   }
 
@@ -264,7 +222,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
         found.length ? h('div.ai-rows', null, found) : null,
         found.length ? addMore : null));
     } else {
-      kids.push(chatCard(sisa), codeCard());
+      kids.push(pickHint());
       kids.push(h('div.card.models-card.ai-connect', null,
         h('h2', { text: 'AI 연결' }),
         found.length ? h('div.ai-rows', null, found) : h('p.muted.small', { text: `이 컴퓨터에서 더 찾은 AI는 없어요.` }),
