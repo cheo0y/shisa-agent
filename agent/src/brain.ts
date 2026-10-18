@@ -1,5 +1,5 @@
 // 브리핑·대화 두뇌. provider가 claude-code(기본)일 때만 Claude Agent SDK로 도구(커넥터 MCP·gh·맥락 도구)를 쓴다.
-// local·gemini·openai·codex는 브리핑·채팅 JSON만 받고 SDK를 부르지 않는다. 코드 자동 수정은 fixer.ts의 Claude 경로가 그대로 맡는다.
+// local·gemini·openai·codex는 브리핑·채팅 JSON만 받고 SDK를 부르지 않는다. 코드 수정 요청은 fixer.ts가 선택된 코딩 실행기로 처리한다.
 // api 모드(Slack 사용자 토큰·ICS)는 실시간 도구 없이 로컬 지식그래프·일정 캐시를 맥락으로 넣는다.
 // 정기 작업(브리핑 등)은 읽기 전용(guard.ts). 대화형(opts.interactive — 채팅·캐릭터 대화·할 일 팝오버·Slack DM 요청)은
 // 모든 도구를 쓰되 쓰기는 사용자 승인(permissions.ts: PreToolUse 훅 + canUseTool, 하드 차단 목록).

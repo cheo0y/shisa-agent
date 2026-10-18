@@ -1,8 +1,10 @@
-// 승인된 수정을 실행한다: 워크트리 → Claude Code가 수정 → 테스트 → 커밋·푸시 → PR.
+// 승인된 수정을 실행한다: 워크트리 → 선택한 코딩 실행기가 수정 → 테스트 → 커밋·푸시 → PR.
 // 커밋·푸시·머지는 에이전트가 아니라 이 코드가 한다(작성자·브랜치를 결정적으로 고정).
 // 수정 run 은 여러 개가 동시에 돈다(각자 워크트리). 같은 레포의 공유 참조를 바꾸는 git(fetch·worktree add/remove·branch -D·push)만
 // git-mutex.ts 로 짧게 줄 세우고, 테스트·네트워크 명령은 비동기라 데몬(다른 run·채팅)을 멈추지 않는다.
 // 수정 run 안의 서브에이전트는 isolation: "worktree" 로 각자 워크트리를 하나씩 팔 수 있다(agent-worktrees.ts)
+import { codexQuery } from "./codex-coder.ts";
+import { codingChoice } from "./models.ts";
 import { query, getSessionInfo, type HookCallback, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -555,8 +557,9 @@ export async function runFix(cfg: Config, p: Proposal, onStep: (s: string) => vo
 
   // 세션 창용 run: 돌고 있는 동안 메시지·중단·정지를 받는다
   // 원래 화면: 그 제안(채팅에서 나왔으면 그 대화). 이어서 한 run 은 앞선 run 의 것을 물려받는다(runs.startRun)
+  const coding = codingChoice(cfg);
   const origin = { type: "proposal" as const, proposalId: p.id, ...(p.threadId ? { threadId: p.threadId } : {}) };
-  const s = openSession(reg, { kind: "fix", title: p.title, model: cfg.models.code, cwd: wt, ref: p.id, repo, branch, origin }, step);
+  const s = openSession(reg, { kind: "fix", title: p.title, model: coding.model ?? "codex", cwd: wt, ref: p.id, repo, branch, origin }, step);
   deps.onRun?.(s.run.id);
   const iso = new WorktreeIsolation({ roots: [wt], author: cfg.gitAuthor, worktreesDir: wtDir, log: (ev) => s.run.log(ev) });
   const prompt = (deps.promptPrefix ? `${deps.promptPrefix.trim()}\n\n` : "") + fixPrompt(p);
@@ -565,7 +568,7 @@ export async function runFix(cfg: Config, p: Proposal, onStep: (s: string) => vo
 
   let pushed = false;
   try {
-    const out = await drive(s, deps.query ?? query, sdkOptions(cfg, wt, {}, deps.hooks?.(wt), iso), deps, step);
+    const out = await drive(s, deps.query ?? (coding.provider === "codex" ? codexQuery : query), sdkOptions(cfg, wt, { model: coding.model }, deps.hooks?.(wt), iso), deps, step);
     await iso.closeAll();
     if (!out) { s.run.end("stopped"); return { ok: false, summary: "사용자가 정지했어요 — 커밋 안 함.", branch, log, runId: s.run.id }; }
     const r = await ship(cfg, s, out, { wt, branch, base, trailer: `Requested-via: cy-agent (proposal ${p.id})`, planLine: `계획: ${p.plan}` }, reg, step, log, deps);
@@ -614,8 +617,9 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
   let onStep: (s: string) => void = () => {};
   const step = (s: string) => { log.push(s); onStep(s); };
   const parent = spec.parent;
+  const coding = codingChoice(cfg, parent);
   const s = openSession(reg, {
-    kind: "fix", title: continueTitle(parent.title), model: spec.model ?? cfg.models.code, parentId: parent.id,
+    kind: "fix", title: continueTitle(parent.title), model: spec.model ?? coding.model ?? "codex", parentId: parent.id,
     ...(spec.proposalId ? { ref: spec.proposalId } : {}), repo: spec.repo, branch: spec.branch,
     ...(spec.prUrl ? { prUrl: spec.prUrl } : {}),
   }, step);
@@ -665,13 +669,13 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
       // 이전 SDK 세션을 이어 쓸 수 있으면 resume(fork — 앞선 세션은 그대로), 아니면 요약을 넣고 새 세션
       const sid = parent.sdkSessionId;
       const exists = deps.sessionExists ?? defaultSessionExists;
-      const canResume = !!(reuse && sid && await exists(sid, wt).catch(() => false));
+      const canResume = coding.provider !== "codex" && !!(reuse && sid && await exists(sid, wt).catch(() => false));
       const prompt = canResume ? continuePrompt(spec.text, { note }) : continuePrompt(spec.text, { summary: spec.summary, note });
       run.log({ type: "system", text: canResume ? `↩︎ 이전 세션 이어서(resume ${sid!.slice(0, 8)}…)` : "📝 이전 세션을 열 수 없어 앞선 기록 요약을 넣고 새로 시작해요" });
       s.input.push(prompt, undefined, true); // 시작 전에 보낸 메시지보다 앞에
 
       iso = new WorktreeIsolation({ roots: [wt], author: cfg.gitAuthor, worktreesDir: wtDir, log: (ev) => run.log(ev) });
-      const out = await drive(s, deps.query ?? query, sdkOptions(cfg, wt, canResume ? { resume: sid, forkSession: true } : {}, [], iso), deps, step);
+      const out = await drive(s, deps.query ?? (coding.provider === "codex" ? codexQuery : query), sdkOptions(cfg, wt, { model: coding.model, ...(canResume ? { resume: sid, forkSession: true } : {}) }, [], iso), deps, step);
       await iso.closeAll();
       if (!out) { run.end("stopped"); return { ok: false, summary: "사용자가 정지했어요 — 커밋 안 함.", branch, log }; }
       const r = await ship(cfg, s, out, {

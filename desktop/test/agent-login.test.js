@@ -66,3 +66,8 @@ test('윈도우: ~/.local/bin · %APPDATA%\\npm · PATH(;) 에서 PATHEXT 확장
   assert.deepEqual(winExts(''), ['.com', '.exe', '.bat', '.cmd']);
   assert.deepEqual(winExts('.EXE;.CMD;.exe'), ['.exe', '.cmd']);
 });
+
+test('Finder의 짧은 PATH에서도 ChatGPT에 포함된 Codex를 찾는다', () => {
+  const bin = '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
+  assert.equal(findBin('codex', { platform: 'darwin', home: '/home/me', pathEnv: '/usr/bin:/bin', readdir: () => [], exists: (p) => p === bin }), bin);
+});

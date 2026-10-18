@@ -157,3 +157,32 @@ test('cannedOverrideOf: 기본값과 다른 칸만 남긴다', () => {
   assert.deepEqual(cannedOverrideOf({ tired }, {}), { tired });
   assert.deepEqual(cannedOverrideOf({ tired: [...CANNED_DEFAULTS.tired] }, {}), {});
 });
+
+test('Codex 모델 캐시: 보이는 모델을 우선순위로 나열하고 CODEX_HOME을 따른다', async () => {
+  const { readCodexModels } = await import('../src/llm-check.js');
+  let file;
+  const models = readCodexModels({ home: '/home/me', env: { CODEX_HOME: '/custom' }, readFile: (p) => {
+    file = p;
+    return JSON.stringify({ models: [
+      { slug: 'gpt-test-b', priority: 2, visibility: 'list' },
+      { slug: 'hidden', visibility: 'hide' },
+      { slug: 'gpt-test-a', priority: 1, display_name: 'A' },
+      { slug: '--invalid option' },
+    ] });
+  } });
+  assert.equal(file, '/custom/models_cache.json');
+  assert.deepEqual(models.map((m) => m.id), ['default', 'gpt-test-a', 'gpt-test-b']);
+  assert.deepEqual(readCodexModels({ readFile: () => { throw new Error('missing'); } }), CLI_MODELS.codexcli);
+});
+
+test('코딩 실행기·모델 선택: 대화 선택 유지, 연결·모델 회사 확인', () => {
+  const d = withCli(withCli({}, 'claudecode'), 'codexcli');
+  const next = withModels(d, { code: { provider: 'codexcli', model: 'gpt-test' } });
+  assert.equal(next.codeProvider, 'codexcli');
+  assert.equal(next.codeModel, 'gpt-test');
+  assert.equal(next.provider, d.provider);
+  assert.equal(publicView(next).codeProvider, 'codexcli');
+  assert.equal(withModels(d, { code: { provider: 'codexcli', model: 'opus' } }), null);
+  assert.equal(withModels(withCli({}, 'claudecode'), { code: { provider: 'codexcli', model: 'default' } }), null);
+  assert.equal(normalizeSisa({}).codeProvider, 'claudecode');
+});

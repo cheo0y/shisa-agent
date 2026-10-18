@@ -1,3 +1,4 @@
+import { hasCoder as canCodeWith } from '../src/caps.js';
 // 설정 창: 캐릭터 · AI·모델 · 브리핑 출처 · 오늘 할 일 알림 · 일정 알림 · 자동 머지 레포 · 문구 · 행동 지침 · 연결 상태. 데몬은 메인 프로세스를 거쳐서만(window.cy)
 // Claude Code 가 없는 컴퓨터(Gemini·GPT 키·로컬)에서는 Claude 세부 모델·자동 머지 칸을 안내로 바꾼다
 import {
@@ -905,7 +906,7 @@ function renderAutoMerge() {
   const box = $('am-list');
   box.replaceChildren();
   // 머지는 코드 고치기(Claude Code)가 있어야 쓸 일이 있다
-  const can = caps.claude !== false;
+  const can = canCodeWith(caps);
   $('am-hint').hidden = can;
   for (const id of ['am-list', 'am-err']) $(id).hidden = !can;
   document.querySelector('#am-card .gl-add').hidden = !can;

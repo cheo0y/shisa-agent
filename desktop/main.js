@@ -301,7 +301,7 @@ function writeBrainFile(patch) {
 }
 
 // 코딩 작업 모델은 시사 데몬이 읽는 설정(models.code)에 쓴다. 'default' 면 그 칸을 지운다.
-function writeCodeModel(model) {
+function writeCodeModel(model, provider = 'claudecode') {
   const home = process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent');
   const file = path.join(home, 'config.json');
   let cfg = {};
@@ -312,9 +312,11 @@ function writeCodeModel(model) {
     if (err?.code !== 'ENOENT') return false;
   }
   const models = cfg.models && typeof cfg.models === 'object' && !Array.isArray(cfg.models) ? { ...cfg.models } : {};
-  if (model === 'default') delete models.code;
-  else models.code = model;
-  const next = { ...cfg };
+  if (provider !== 'codexcli') {
+    if (model === 'default') delete models.code;
+    else models.code = model;
+  }
+  const next = { ...cfg, coding: { provider: provider === 'codexcli' ? 'codex' : 'claude-code', ...(model !== 'default' ? { model } : {}) } };
   if (Object.keys(models).length) next.models = models;
   else delete next.models;
   try {
@@ -1310,6 +1312,7 @@ function setupIPC() {
   ipcMain.handle('sisa-use-cli', async (e, agent) => {
     if (!fromOurs(e) || (agent !== 'claude' && agent !== 'codex')) return denied();
     const login = await agentLogin(agent);
+    if (!login?.installed) return { ok: false, error: '실행 파일을 찾지 못했어요. 설치 화면에서 CLI 설치를 확인해 주세요.' };
     if (!login?.loggedIn) return { ok: false, error: `${agent === 'codex' ? 'Codex' : 'Claude Code'} 에 로그인되어 있지 않습니다.` };
     const next = withCli(readSisa(), agent === 'codex' ? 'codexcli' : 'claudecode');
     writeSisa(next);
@@ -1390,7 +1393,7 @@ function setupIPC() {
     if (!next) return denied();
     let codeSaved = null;
     if ('code' in args) {
-      codeSaved = writeCodeModel(args.code);
+      codeSaved = writeCodeModel(next.codeModel, next.codeProvider);
       if (!codeSaved) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했습니다.` };
     }
     writeSisa(next);

@@ -12,7 +12,7 @@ test('normCaps: 로그인까지 돼 있어야 있음', () => {
 test('hasCoder: 모르면(확인 전) 있다고 본다, 확인해서 없으면 없다', () => {
   assert.equal(hasCoder(UNKNOWN_CAPS), true);
   assert.equal(hasCoder({ claude: true }), true);
-  assert.equal(hasCoder({ claude: false, codex: true }), false); // 코드 고치기는 Claude Code 로만
+  assert.equal(hasCoder({ claude: false, codex: true }), true); // Codex도 코딩 가능
   assert.equal(sameCaps({ claude: true, codex: false }, { claude: true, codex: false }), true);
   assert.equal(sameCaps(UNKNOWN_CAPS, { claude: true, codex: false }), false);
 });

@@ -278,7 +278,7 @@ test("설정: 지금 뇌에 맞는 세부 모델 칸 · 뇌별 저장(다른 뇌
     assert.equal(v.modelSlots.claude, false);
     const code = v.modelSlots.roles.find((r) => r.role === "code")!;
     assert.equal(code.enabled, false);
-    assert.match(code.why!, /Claude Code 일 때만/);
+    assert.match(code.why!, /패널의/);
     assert.ok(v.modelSlots.roles.filter((r) => r.role !== "code").every((r) => r.enabled && r.value === null), "Codex 칸은 Claude 이름을 보이지 않는다(기본)");
     const r = s.put({ brainModels: { provider: "codex", models: { general: "gpt-5.6-terra", light: "gpt-5.6-luna" } } });
     assert.ok(r.ok);

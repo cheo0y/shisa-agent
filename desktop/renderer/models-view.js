@@ -69,6 +69,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
   const lists = {};
   let note = '';
   let busy = false;
+  const detected = {};
   let personaDraft = null;
   let cannedDraft = null;
   let confirming = ''; // [연결 해제] 확인을 열어 둔 AI(다시 그려도 그대로)
@@ -95,6 +96,21 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     render();
   }
 
+  async function connectCli(agent) {
+    if (busy) return;
+    busy = true;
+    note = '';
+    render();
+    try {
+      const result = await cy.sisaUseCli(agent);
+      if (!result?.ok) throw new Error(result?.error || '연결하지 못했어요. 설치 화면에서 로그인을 확인해 주세요.');
+      onSisa(await cy.sisaGet());
+      await loadList(agent === 'codex' ? 'codexcli' : 'claudecode', true);
+      note = result.brainSaved ? '연결했어요. 대화·브리핑에 바로 적용돼요.' : '연결을 저장했어요. 앱을 다시 켜면 적용돼요.';
+    } catch (e) { note = e.message || '연결하지 못했어요.'; }
+    finally { busy = false; render(); }
+  }
+
   async function save(pick) {
     if (busy) return;
     busy = true;
@@ -105,7 +121,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     if (r?.ok) {
       onSisa(r);
       // 대화 AI·코딩 모델은 시사가 다시 켜질 때 읽는다
-      note = 'code' in pick || r.brainSaved ? `저장함. ${who()}를 다시 켜면 대화·브리핑에도 적용돼요` : '저장함';
+      note = 'code' in pick ? `저장함. ${who()}를 다시 켜면 적용돼요` : r.brainSaved ? '저장함. 대화·브리핑에 바로 적용돼요' : '저장함. 앱을 다시 켜면 적용돼요';
     } else {
       note = r?.error || '저장하지 못했어요.';
     }
@@ -132,7 +148,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
 
   function select(rows, value, onchange, disabled) {
     return h('select', { onchange: (e) => onchange(e.target.value), disabled: !!disabled },
-      rows.map((m) => h('option', { value: m.id, selected: m.id === value, text: m.label ? `${m.id} · ${m.label}` : m.id })));
+      rows.map((m) => h('option', { value: m.id, selected: m.id === value, text: ['claudecode', 'codexcli'].includes(m.id) ? m.label : m.label ? `${m.id} · ${m.label}` : m.id })));
   }
 
   function chatCard(sisa) {
@@ -155,15 +171,20 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
   }
 
   function codeCard(sisa) {
-    const canCode = sisa.connected.some((p) => p === 'claudecode' || p === 'claude');
+    const connected = sisa.connected.filter((p) => p === 'claudecode' || p === 'codexcli');
+    const provider = sisa.codeProvider || 'claudecode';
     const current = sisa.codeModel || 'default';
+    const providers = [...connected];
+    if (!providers.includes(provider)) providers.push(provider);
     return h('div.card.models-card', null,
-      h('h2', { text: '코딩 작업' }),
-      canCode
-        ? h('label.model-row', null, h('span', { text: '모델' }),
-          select(codeOptions(lists, sisa.connected, current), current, (m) => save({ code: m }), busy))
-        : h('p.muted', { text: 'Claude를 연결하면 고를 수 있습니다' }),
-      sisa.connected.includes('codexcli') ? h('p.muted.small', { text: '코딩은 Claude만 씁니다' }) : null);
+      h('h2', { text: '파일 수정·코딩 작업' }),
+      h('label.model-row', null, h('span', { text: '실행기' }),
+        select(providers.map((p) => ({ id: p, label: PROVIDER_TITLE[p] + (connected.includes(p) ? '' : ' · 연결 필요') })), provider,
+          (p) => save({ code: { provider: p, model: 'default' } }), busy)),
+      connected.includes(provider) ? h('label.model-row', null, h('span', { text: '모델' }),
+        select(optionsFor(provider, lists[provider], current), current, (m) => save({ code: { provider, model: m } }), busy))
+        : h('p.muted', { text: '선택한 실행기를 연결해 주세요. 대화용 API 키와 코딩 실행기는 별도예요.' }),
+      h('p.muted.small', { text: '등록한 Git 프로젝트에서 수정·테스트한 뒤 작업 브랜치와 PR로 결과를 남겨요. 실행기 변경은 앱을 다시 켜면 적용돼요.' }));
   }
 
   function disconnectFor(p) {
@@ -248,6 +269,12 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     } else {
       kids.push(chatCard(sisa), codeCard(sisa));
     }
+    for (const [agent, provider] of [['codex', 'codexcli'], ['claude', 'claudecode']]) {
+      if (!connected.includes(provider) && detected[agent]) kids.push(h('div.card.models-card', null,
+        h('p', { text: `${PROVIDER_TITLE[provider]} 로그인 확인됨 · 시사에서 사용할 수 있어요` }),
+        h('button.primary', { type: 'button', disabled: busy, text: `${PROVIDER_TITLE[provider]} 연결해서 사용`, onclick: () => connectCli(agent) })));
+    }
+    kids.push(h('button.ghost', { type: 'button', text: 'AI 연결 추가', onclick: gotoSetup }));
     kids.push(voiceCard(), cannedCard());
     if (note) kids.push(h('p.muted.small.models-note', { role: 'status', text: note }));
     if (connected.length) {
@@ -262,6 +289,12 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
       confirming = '';
       personaDraft = null;
       cannedDraft = null;
+      for (const agent of ['codex', 'claude']) {
+        Promise.resolve().then(() => cy.agentLogin(agent)).then((r) => {
+          detected[agent] = r?.loggedIn === true && r?.installed === true;
+          render();
+        }).catch(() => {});
+      }
       for (const p of getSisa().connected || []) loadList(p, false);
       render();
     },

@@ -32,6 +32,7 @@ export type Config = {
   // 일 종류별 모델: 코딩(수정 실행기)·일반(브리핑·채팅·개인화)·경량(도구만 순서대로 부르는 수집)
   // quick: 캐릭터 더블클릭 빠른 대화(스레드 kind hover) 전용 — 패널 모델 선택과 따로. 설정 창에서 바꾼다.
   // loadConfig 는 늘 채운다(기본 Sonnet). 손으로 만든 cfg(시험)에 없으면 hover 도 general
+  coding?: { provider: "claude-code" | "codex"; model?: string };
   models: { code: string; general: string; light: string; quick?: string };
   // Claude 가 아닌 뇌(Codex·Gemini·OpenAI·Genspark)의 세부 모델: 뇌 → 역할(general·quick·light) → 모델 이름.
   // 설정 창 「세부 모델」이 지금 뇌의 칸만 고친다(다른 뇌 값은 그대로). 없으면 그 뇌의 기본(models.ts roleModel)
@@ -305,6 +306,7 @@ export function loadConfig(env = process.env, file: FileConfig = readFileConfig(
       quick: env.CY_AGENT_MODEL_QUICK ?? (f.models as any)?.quick ?? "claude-sonnet-5-5",
     },
     brainModels: brainModelsOf(f.brainModels),
+    coding: codingOf(f.coding),
     briefing: { exclude: Array.isArray((f.briefing as any)?.exclude) ? ((f.briefing as any).exclude as unknown[]).filter((x): x is string => typeof x === "string") : [] },
     phrases: phrasesOf(f.phrases),
     autoMerge: autoMergeList(f.autoMerge),
@@ -357,4 +359,12 @@ export function brainModelsOf(raw: unknown): Config["brainModels"] {
 export function ensureHomeDir(dir = HOME_DIR) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   try { chmodSync(dir, 0o700); } catch { /* 내 폴더가 아니면 그대로 */ }
+}
+
+export function codingOf(raw: unknown): Config["coding"] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const c = raw as Record<string, unknown>;
+  if (c.provider !== 'codex' && c.provider !== 'claude-code') return undefined;
+  const model = typeof c.model === 'string' && /^[A-Za-z0-9._:/-]{1,100}$/.test(c.model) && c.model !== 'default' ? c.model : undefined;
+  return { provider: c.provider, ...(model ? { model } : {}) };
 }

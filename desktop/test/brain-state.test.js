@@ -93,7 +93,7 @@ test('사용법 둘러보기: 3~5 장면, 연결된 것에 맞춰 문구가 바�
   assert.equal(TOUR_VERSION >= 1, true);
 });
 
-test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 이어 하기는 Claude Code 가 있어야', async () => {
+test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 이어 하기는 코딩 실행기가 있어야', async () => {
   const { composerMode, gateComposer } = await import('../src/session.js');
   const follow = composerMode({ id: 'r1', kind: 'other', status: 'done', origin: null });
   assert.equal(gateComposer(follow, { ready: true }).enabled, true);
@@ -103,7 +103,7 @@ test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 �
   const cont = composerMode({ id: 'r2', kind: 'fix', status: 'done' });
   assert.equal(cont.mode, 'continue');
   assert.deepEqual([gateComposer(cont, { ready: true, coder: false }).locked], ['coder']);
-  assert.match(gateComposer(cont, { ready: true, coder: false }).placeholder, /Claude Code 를 설치하면/);
+  assert.match(gateComposer(cont, { ready: true, coder: false }).placeholder, /Claude Code 또는 Codex를 연결하면/);
   assert.equal(gateComposer(composerMode(null), { ready: false }).locked, undefined, '꺼진 입력은 그대로');
 });
 
