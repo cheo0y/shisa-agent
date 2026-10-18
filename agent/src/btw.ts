@@ -6,6 +6,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { HOME_DIR, type Config } from "./config.ts";
 import { promptInput, type ContentBlock } from "./attachments.ts";
+import { langRule } from "./lang.ts";
 import { redact, resultText, type Run, type RunEvent, type RunRegistry } from "./runs.ts";
 
 export const BTW_LIMITS = { events: 40, text: 400, input: 200, output: 300, context: 9000, answer: 8000 };
@@ -97,7 +98,8 @@ export async function askBtw(d: BtwDeps, runId: string, question: string, model?
   if (!q && !att) return { ok: false, status: 400, error: "text required" };
   const m = model || btwModel(d.cfg);
   const prompt = btwPrompt(q || "(글 없이 첨부만 — 첨부에 대해 답한다)", btwContext(g.run, g.events));
-  const call: BtwCall = { system: BTW_SYSTEM, prompt: att ? `${prompt}\n\n${att.note}` : prompt, model: m, options: btwOptions(m, BTW_SYSTEM), ...(att?.blocks.length ? { blocks: att.blocks } : {}) };
+  const system = [BTW_SYSTEM, langRule()].filter(Boolean).join("\n\n"); // 언어 설정(lang.ts) — 한국어가 아니면 그 언어로 답하게
+  const call: BtwCall = { system, prompt: att ? `${prompt}\n\n${att.note}` : prompt, model: m, options: btwOptions(m, system), ...(att?.blocks.length ? { blocks: att.blocks } : {}) };
   try {
     const answer = resultText(await (d.complete ?? sdkComplete)(call)).trim();
     if (!answer) return { ok: false, status: 502, error: "빈 답이 왔어요" };

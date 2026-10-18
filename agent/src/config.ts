@@ -1,5 +1,6 @@
 // 설정: 환경변수 > ~/.cy-agent/config.json > 기본값. 비밀값(토큰)은 레포 밖에만 둔다.
 // 설정 창(PUT /settings, settings.ts)이 models·briefing·phrases·autoMerge·todayReminder·calendarAlert 를 config.json 에 합쳐 쓰고 메모리의 cfg 도 바로 바꾼다.
+import { isLang, type Lang } from "./lang.ts";
 import { readFileSync, mkdirSync, chmodSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolveConnectors, type Connectors } from "./connectors.ts";
@@ -65,6 +66,8 @@ export type Config = {
   weather?: WeatherConfig;
   // 캐릭터(characters.ts id). 없거나 모르는 값이면 시사
   character?: string;
+  // 언어(lang.ts: "ko" 기본 | "ja"). 캐릭터 이름·대사·AI 답 언어가 바뀐다. 없거나 모르는 값이면 한국어
+  language?: Lang;
   // 지식그래프 2단계(엔티티·관계 추출) 모델. 1단계(업무 판정)는 늘 경량. 기본은 경량(대량 작업이라 비용 우선)
   kgModel: string;
   // 대화 에이전트의 로컬 도구(Bash·Edit/Write·파일 읽기)를 승인 카드 없이 허용(permissions.ts 2-1). 하드 차단은 그대로. 기본 켜짐
@@ -321,6 +324,7 @@ export function loadConfig(env = process.env, file: FileConfig = readFileConfig(
     weather: weatherOf(f.weather),
     ...workHoursOf(f), // lunchAlert·workStart·lunchTime·workEnd·workDays·startAlert·leaveAlert
     ...(typeof f.character === "string" && f.character ? { character: f.character } : {}),
+    ...(isLang(f.language) ? { language: f.language } : {}),
     kgModel: env.CY_AGENT_KG_MODEL ?? (f.kgModel as string) ?? (env.CY_AGENT_MODEL_LIGHT ?? (f.models as any)?.light ?? "claude-haiku-5-5"),
     localAutoAllow: env.CY_AGENT_LOCAL_ASK === "1" ? false : f.localAutoAllow !== false,
     repoRoots: repoRootsOf(f.repoRoots, notes) ?? (isNewStyle(f) ? [] : [join(homedir(), "code")]),

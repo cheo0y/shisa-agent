@@ -2,7 +2,7 @@
 // 고친 건 ~/.cy-agent/config.json phrases: { 키: [줄…] } — 비우면 기본값. 여러 줄이면 그중 하나를 무작위로.
 // {title} 같은 자리표시는 그 문구가 받는 것만 쓸 수 있다(모르는 건 저장 때 거절). 오류 글·프로토콜 글은 여기 없다.
 // 기본값은 캐릭터(characters.ts)마다 다르다 — 고친 문구 > 캐릭터 기본 > 아래 default(시사).
-import { character } from "./characters.ts";
+import { character, fallbackShisa } from "./characters.ts";
 import { voice, type Mood, type VoiceKind } from "./voice.ts";
 
 export type PhraseDef = { key: string; group: string; label: string; vars: readonly string[]; default: readonly string[] };
@@ -60,7 +60,8 @@ export type PhraseKey = (typeof PHRASES)[number]["key"];
 const DEFS = new Map<string, PhraseDef>(PHRASES.map((p) => [p.key, p]));
 export const phraseDef = (key: string): PhraseDef | undefined => DEFS.get(key);
 // 지금 캐릭터의 기본 줄들(설정 창이 「기본값」으로 보여 주는 것)
-export const defaultLines = (key: string): readonly string[] => character().phrases[key] ?? DEFS.get(key)?.default ?? [key];
+// 한국어가 아니면 빈 칸은 그 언어 시사 대사(characters.ts fallbackShisa)가 받는다
+export const defaultLines = (key: string): readonly string[] => character().phrases[key] ?? fallbackShisa()?.phrases[key] ?? DEFS.get(key)?.default ?? [key];
 
 // 사용자가 고친 것(키 → 줄들). 설정 창이 바꾸면 바로 바뀐다(Settings 가 setPhrases)
 let overrides: Record<string, string[]> = {};

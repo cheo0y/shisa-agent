@@ -269,6 +269,8 @@ const settings = new Settings(cfg, { onChange: (keys) => {
   if (calendar.enabled && keys.some((k) => k === "brain" || k === "onboarded")) calendar.sync().catch(() => {});
   if (keys.includes("character")) bus.characterChanged(); // 앱 그림·영상을 바로 바꾼다
   if (keys.includes("weather")) { weather.reset(); if (weather.place) void weather.forecast(); } // 새 지역은 바로 한 번 가져온다
+  // 언어를 바꿈 → 캐릭터 이름·대사가 그 언어로(characters.ts 가 이미 다시 만들었다). 앱은 GET /characters 를 다시 읽고 state.language 로 화면 글을 바꾼다
+  if (keys.includes("language")) { bus.charactersChanged(); bus.characterChanged(); }
 } });
 let kgStatus: (() => { phase: string; reason?: string; step?: string }) | undefined;
 const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state(), mail: () => mailSync.state(), weather: () => weather.state() });

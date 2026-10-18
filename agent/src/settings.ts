@@ -20,6 +20,7 @@ import { AUTO_MERGE_MAX, inAutoMerge, normSlug } from "./auto-merge.ts";
 import { STEP_HEAD } from "./briefing-sources.ts";
 import { PHRASES, defaultLines, phraseDef, phraseLines, setPhrases, unknownVars } from "./phrases.ts";
 import { characterOptions, isCharacterId, setCharacter, DEFAULT_CHARACTER, type CharacterId } from "./characters.ts";
+import { DEFAULT_LANGUAGE, LANGUAGES, LANGUAGE_LABEL, isLang, setLanguage, type Lang } from "./lang.ts";
 
 export const MODEL_ROLES = ["quick", "general", "code", "light"] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
@@ -73,6 +74,9 @@ export type SettingsView = {
   // 캐릭터(characters.ts): 그림·영상·말투·고정 문구 기본값이 바뀐다
   character: CharacterId;
   characters: { id: CharacterId; name: string; custom?: boolean }[];
+  // 언어(lang.ts): 캐릭터 이름·대사·AI 답 언어. languages = 고를 수 있는 것(label 은 그 언어 글자)
+  language: Lang;
+  languages: { id: Lang; label: string }[];
   user: { name?: string };
   repoRoots: string[];
   // 설치 마법사를 마쳤나 · 이 맥의 Claude Code·Codex 작업 기록을 읽나(onboarding.ts)
@@ -104,6 +108,7 @@ export type SettingsPatch = {
   workStart?: string; lunchTime?: string; workEnd?: string; workDays?: number[]; startAlert?: boolean; leaveAlert?: boolean;
   weather?: WeatherPatch; // 날씨: 준 칸만 바꾼다(place: null = 지역 지우기 → 날씨 꺼짐)
   character?: CharacterId;
+  language?: Lang;
   // Claude 가 아닌 뇌의 세부 모델: { provider, models: { 역할: 이름 | null(그 뇌 기본으로) } } — 그 뇌 칸만 바꾼다
   // code 는 Codex 만(Codex 로 코드 작업할 때 모델)
   brainModels?: { provider: BrainProvider; models: Partial<Record<ChatRole | "code", string | null>> };
@@ -121,7 +126,7 @@ export class ConfigFileError extends Error {}
 export function validatePatch(body: unknown, cfg: Pick<Config, "models">): SettingsPatch {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new SettingsError("json object required");
   const b = body as Record<string, unknown>;
-  for (const k of Object.keys(b)) if (!["models", "brainModels", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "weather", "character", "coding"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
+  for (const k of Object.keys(b)) if (!["models", "brainModels", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "weather", "character", "coding", "language"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
   const out: SettingsPatch = {};
   if (b.models !== undefined) {
     if (!b.models || typeof b.models !== "object" || Array.isArray(b.models)) throw new SettingsError("models must be an object");
@@ -182,6 +187,10 @@ export function validatePatch(body: unknown, cfg: Pick<Config, "models">): Setti
   if (b.character !== undefined) {
     if (!isCharacterId(b.character)) throw new SettingsError(`character must be one of ${characterOptions().map((c) => c.id).join(", ")}`);
     out.character = b.character;
+  }
+  if (b.language !== undefined) {
+    if (!isLang(b.language)) throw new SettingsError(`language must be one of ${LANGUAGES.join(", ")}`);
+    out.language = b.language;
   }
   if (b.user !== undefined) {
     const u = b.user as Record<string, unknown>;
@@ -370,6 +379,7 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
     next.weather = { ...(w.place ? { place: w.place } : {}), morning: w.morning, leave: w.leave, times: w.times };
   }
   if (patch.character) next.character = patch.character;
+  if (patch.language) next.language = patch.language;
   mkdirSync(dirname(path), { recursive: true });
   writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
 }
@@ -423,6 +433,7 @@ export class Settings {
     this.path = opts.path ?? join(HOME_DIR, "config.json");
     this.env = opts.env ?? process.env;
     setPhrases(cfg.phrases); // config.json 의 고친 문구를 바로 쓴다
+    setLanguage(cfg.language); // 언어 먼저(캐릭터 이름·대사가 그 언어로)
     setCharacter(cfg.character); // 캐릭터 말투·문구 기본값
   }
 
@@ -448,6 +459,8 @@ export class Settings {
       },
       character: isCharacterId(c.character) ? c.character : DEFAULT_CHARACTER,
       characters: characterOptions(),
+      language: isLang(c.language) ? c.language : DEFAULT_LANGUAGE,
+      languages: LANGUAGES.map((id) => ({ id, label: LANGUAGE_LABEL[id] })),
       user: c.user?.name ? { name: c.user.name } : {},
       repoRoots: [...(c.repoRoots ?? [])],
       onboarded: c.onboarded !== false,
@@ -505,6 +518,7 @@ export class Settings {
     if (patch.workDays) this.cfg.workDays = [...patch.workDays];
     if (patch.weather) this.cfg.weather = mergeWeather(weatherOf(this.cfg.weather), patch.weather); // main 이 1분마다 cfg 를 읽으니 바로
     if (patch.calendarAlert) this.cfg.calendarAlert = { minutesBefore: [...patch.calendarAlert.minutesBefore] }; // CalendarSync 가 확인할 때마다 cfg 를 읽으니 바로
+    if (patch.language) { this.cfg.language = patch.language; setLanguage(patch.language); } // 이름·대사·AI 답 언어가 바로(main 이 SSE characters·state 로 앱에 알린다)
     if (patch.character) { this.cfg.character = patch.character; setCharacter(patch.character); } // 다음 말풍선·답부터(앱은 SSE state 로 그림을 바꾼다)
     this.onChange?.(Object.keys(patch));
     const locked = Object.keys(patch.models ?? {}).filter((r) => !!this.env[MODEL_ENV[r as ModelRole]]);

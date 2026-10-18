@@ -2,7 +2,8 @@
 // 말투는 TONE(존댓말)을 따르고, 가끔 ~요·감정 표시는 voice()만 붙인다. 할 일을 새로 짓지 않는다.
 import { localDate, localHhmm } from "./calendar.ts";
 import { TONE, seedHash, voice, type Mood } from "./voice.ts";
-import { character, type LocalLineKey } from "./characters.ts";
+import { character, fallbackShisa, type LocalLineKey } from "./characters.ts";
+import { language } from "./lang.ts";
 import { phrase } from "./phrases.ts";
 
 export type LocalTodo = { title: string; priority?: number };
@@ -50,7 +51,7 @@ export const WEATHER_LINES = {
   weatherFail: "날씨를 지금 못 가져왔어요. 잠시 뒤에 다시 물어봐 주세요.",
 } as const;
 export function localLine(key: LocalLineKey): string {
-  const own = character().lines[key];
+  const own = character().lines[key] ?? fallbackShisa()?.lines[key];
   if (own) return own;
   if (key in LINES) return LINES[key as keyof typeof LINES];
   if (key in SHISA_EXTRA) return SHISA_EXTRA[key as keyof typeof SHISA_EXTRA];
@@ -108,7 +109,7 @@ export function planReply(open: LocalTodo[]): string {
   const p3 = titles(open, 3);
   if (!p1.length && !p3.length) return localLine("empty");
   const block = (heading: string, items: string[]) => [heading, ...(items.length ? items.map((t) => `- ${t}`) : [`- ${localLine("emptyHead")}`])];
-  return [...block("## 우선순위 1", p1), "", ...block("## 우선순위 3", p3)].join("\n");
+  return [...block(frag().p1, p1), "", ...block(frag().p3, p3)].join("\n");
 }
 
 function praiseReply(done: LocalTodo[], seed: string): string {
@@ -183,6 +184,18 @@ export const QUICK_LINES = {
 
 // 화면에 보이는 우선순위 이름(데스크톱 todos.js PRIORITIES 와 같다)
 export const PRIO_LABEL: Record<number, string> = { 1: "오늘 꼭", 2: "이번 주", 3: "천천히", 4: "언젠가" };
+// 정해진 답 안에 코드가 끼우는 조각(언어마다). 대사 파일이 아니라 숫자·시각을 잇는 글
+const FRAGS = {
+  ko: {
+    prio: PRIO_LABEL, p1: "## 우선순위 1", p3: "## 우선순위 3", more: (n: number) => ` 외 ${n}개`, others: (n: number) => `그 밖에 ${n}개`, untitled: "제목 없음",
+    inMins: (m: number, hm: string) => `${m}분 뒤(${hm})`, today: (hm: string) => `오늘 ${hm}`, tomorrow: (hm: string) => `내일 ${hm}`, date: (m: number, d: number, hm: string) => `${m}월 ${d}일 ${hm}`,
+  },
+  ja: {
+    prio: { 1: "今日かならず", 2: "今週", 3: "ゆっくり", 4: "いつか" } as Record<number, string>, p1: "## 優先度 1", p3: "## 優先度 3", more: (n: number) => ` ほか${n}件`, others: (n: number) => `ほかに${n}件`, untitled: "タイトルなし",
+    inMins: (m: number, hm: string) => `${m}分後(${hm})`, today: (hm: string) => `今日 ${hm}`, tomorrow: (hm: string) => `明日 ${hm}`, date: (m: number, d: number, hm: string) => `${m}月${d}日 ${hm}`,
+  },
+};
+const frag = () => FRAGS[language()] ?? FRAGS.ko;
 const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (all, k: string) => (k in v ? String(v[k]) : all));
 const quote = (t: string) => `'${cleanTitle(t).slice(0, 30)}'`;
 
@@ -195,13 +208,14 @@ function whenText(iso: string, now: Date): string {
   const at = new Date(iso);
   const mins = Math.round((at.getTime() - now.getTime()) / 60e3);
   const hm = hhmmKst(iso);
-  if (mins >= 0 && mins < 60) return `${Math.max(1, mins)}분 뒤(${hm})`;
+  const f = frag();
+  if (mins >= 0 && mins < 60) return f.inMins(Math.max(1, mins), hm);
   const day = seoulDay(at);
   const today = seoulDay(now);
-  if (day === today) return `오늘 ${hm}`;
-  if (day === seoulDay(new Date(now.getTime() + 864e5))) return `내일 ${hm}`;
+  if (day === today) return f.today(hm);
+  if (day === seoulDay(new Date(now.getTime() + 864e5))) return f.tomorrow(hm);
   const [, m, d] = day.split("-").map(Number);
-  return `${m}월 ${d}일 ${hm}`;
+  return f.date(m, d, hm);
 }
 
 function answerToday(f: QuickFacts, seed: string): QuickAnswer {
@@ -215,7 +229,7 @@ function answerToday(f: QuickFacts, seed: string): QuickAnswer {
   if (done === total) return { id: "today", kind: "done", text: spoken(fill(localLine("todayAll"), { total }), seed, "happy"), open: { section: "today" } };
   const left = items.filter((x) => !x.done);
   if (!done) return { id: "today", kind: "info", text: spoken(fill(localLine("todayNone"), { total }), seed, "busy"), detail: left.slice(0, 5).map((x) => `- ${cleanTitle(x.title)}`).join("\n"), open: { section: "today" } };
-  const rest = left.slice(0, 2).map((x) => quote(x.title)).join(", ") + (left.length > 2 ? ` 외 ${left.length - 2}개` : "");
+  const rest = left.slice(0, 2).map((x) => quote(x.title)).join(", ") + (left.length > 2 ? frag().more(left.length - 2) : "");
   return { id: "today", kind: "info", text: spoken(fill(localLine("todaySome"), { total, done, rest }), seed, "happy"), open: { section: "today" } };
 }
 
@@ -228,7 +242,7 @@ function answerTodo(f: QuickFacts, seed: string): QuickAnswer {
     id: "next_todo",
     kind: "info",
     text: spoken(fill(localLine("todoTop"), { title: cleanTitle(top[0].title).slice(0, 30) }), seed, "busy"),
-    detail: top.map((t) => `- ${PRIO_LABEL[t.priority ?? 2] ?? PRIO_LABEL[2]} ${cleanTitle(t.title)}`).join("\n") + (sorted.length > 3 ? `\n- 그 밖에 ${sorted.length - 3}개` : ""),
+    detail: top.map((t) => `- ${frag().prio[t.priority ?? 2] ?? frag().prio[2]} ${cleanTitle(t.title)}`).join("\n") + (sorted.length > 3 ? `\n- ${frag().others(sorted.length - 3)}` : ""),
     open: { section: "todos" },
   };
 }
@@ -248,7 +262,7 @@ function answerEvent(f: QuickFacts, seed: string): QuickAnswer {
   }
   const m = list[0];
   const where = m.location ? ` · 📍 ${cleanTitle(m.location).slice(0, 30)}` : "";
-  const title = cleanTitle(m.subject).slice(0, 40) || "제목 없음";
+  const title = cleanTitle(m.subject).slice(0, 40) || frag().untitled;
   if (Date.parse(m.start) <= now) {
     const next = list.find((x) => Date.parse(x.start) > now);
     return {
@@ -266,7 +280,7 @@ export function quickAnswer(id: QuickAskId, f: QuickFacts, seed = `quick:${seoul
   if (id === "next_todo") return answerTodo(f, s);
   if (id === "next_event") return answerEvent(f, s);
   if (id === "dance") return { id: "dance", kind: "done", text: phrase("dance", {}, (seedHash(s) % 1000) / 1000) }; // 춤 한마디(문구 dance) — 영상은 데몬이 튼다
-  const lines = character().cheer ?? QUICK_LINES.cheer;
+  const lines = character().cheer ?? fallbackShisa()?.cheer ?? QUICK_LINES.cheer;
   return { id: "cheer", kind: "done", text: spoken(lines[seedHash(s) % lines.length], s, "happy") };
 }
 

@@ -4,7 +4,8 @@
 //     눈 뜬·감은 그림은 칸에 하나(media), 응원·춤·집중·일정 알림·점심시간은 여러 개(clips — 그때마다 하나가 랜덤으로, say = 그 영상의 한마디)
 //     예전 모양(media 에 칸마다 파일 하나, frames 에 칸마다 테두리)도 그대로 읽는다(읽을 때 clips 로 옮긴다)
 //   ~/.cy-agent/characters/<id>/<칸>-<무작위>.<확장자>  올린 그림·영상(이름은 여기서 새로 짓는다)
-//   ~/.cy-agent/characters/overrides/<기본 id>.json  기본 캐릭터(시사·하치와레·랏코·모몽가·우사기·카니·치이카와·쿠리만쥬)에서 고친 칸만
+//   ~/.cy-agent/characters/overrides/<기본 id>.json  기본 캐릭터(시사·하치와레·랏코·모몽가·우사기·카니·치이카와·쿠리만쥬)에서 고친 칸만(한국어)
+//   ~/.cy-agent/characters/overrides/<기본 id>.<언어>.json  다른 언어(lang.ts — 예: hachi.ja.json)에서 고친 칸만. 언어마다 따로 고친다
 // 대사 모양은 assets/characters/lines.json 의 캐릭터 하나와 같다(characters.ts LinesEntry). 칸 이름은 점으로 잇는다(phrases.dance, flair.lead.happy).
 // 자리표시({title} 등)는 그 칸에 원래 있던 것만 쓸 수 있다(모르는 건 저장 거절 — phrases.ts unknownVars 와 같은 검사).
 // 바뀌면 installCharacters 로 데몬 목록(characters.ts)을 바로 바꾸고 onChange 로 알린다(main 이 SSE characters 를 보낸다).
@@ -14,9 +15,10 @@ import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
-  CHARACTER_IDS, CHARACTERS, LEGACY_SHISA_INTRO, LINES_JSON, SHISA_INTRO, introFor, SHISA_TONE, characterId, installCharacters, isBuiltinId, mergeLines,
+  CHARACTER_IDS, CHARACTERS, LEGACY_SHISA_INTRO, LINES_BY_LANG, LINES_JSON, SHISA_INTRO, introFor, SHISA_TONE, characterById, characterId, installCharacters, isBuiltinId, mergeLines,
   type BuiltinId, type LinesEntry, type LinesPatch, type Mood,
 } from "./characters.ts";
+import { LANGUAGES, language, type Lang } from "./lang.ts";
 import { PHRASES, unknownVars } from "./phrases.ts";
 import { LINES, QUICK_LINES, SHISA_EXTRA, WEATHER_LINES } from "./local-mode.ts";
 import { SAY_VARS, type ClipKind, type ClipTable } from "./clips.ts";
@@ -145,7 +147,11 @@ export function shisaDefaults(): LinesEntry {
     cheer: [...QUICK_LINES.cheer],
   };
 }
-export const builtinDefaults = (id: BuiltinId): LinesEntry => (id === "shisa" ? shisaDefaults() : structuredClone(LINES_JSON[id] as LinesEntry));
+// 그 언어의 기본 대사(한국어가 아니면 시사도 대사 파일에서 — canned·setup·overlay·tour·persona 까지 다 있다)
+export const builtinDefaults = (id: BuiltinId, l: Lang = language()): LinesEntry =>
+  (l !== "ko" ? structuredClone(LINES_BY_LANG[l][id] as LinesEntry) : id === "shisa" ? shisaDefaults() : structuredClone(LINES_JSON[id] as LinesEntry));
+// 덮어쓰기 파일 이름: 한국어는 예전 그대로 <id>.json, 다른 언어는 <id>.<언어>.json
+export const overrideFile = (id: BuiltinId, l: Lang = language()) => (l === "ko" ? `${id}.json` : `${id}.${l}.json`);
 
 let schemaCache: FieldDef[] | null = null;
 // 칸 목록: 시사 기본 + lines.json 세 캐릭터에 있는 칸 전부. 자리표시는 그 칸에 원래 있던 것(문구는 phrases.ts 가 정한 것)
@@ -160,7 +166,9 @@ export function linesSchema(): FieldDef[] {
   add("name", "");
   add("prompt.intro", ""); add("prompt.tone", ""); add("prompt.persona", "");
   for (const side of ["lead", "tail"]) for (const m of MOODS) add(`flair.${side}.${m}`, []);
-  const entries = [shisaDefaults(), ...CHARACTER_IDS.filter((id) => id !== "shisa").map((id) => LINES_JSON[id] as LinesEntry)];
+  // 다른 언어 대사 파일(시사 포함)도 같은 칸·같은 자리표시다(테스트가 확인) — 모아도 늘지 않지만 칸이 빠지지 않게 같이 본다
+  const entries = [shisaDefaults(), ...CHARACTER_IDS.filter((id) => id !== "shisa").map((id) => LINES_JSON[id] as LinesEntry),
+    ...LANGUAGES.filter((l) => l !== "ko").flatMap((l) => CHARACTER_IDS.map((id) => LINES_BY_LANG[l][id] as LinesEntry))];
   for (const e of entries) for (const [p, v] of Object.entries(flattenLines(e))) if (!p.startsWith("flair.") && !p.startsWith("prompt.") && p !== "name") add(p, v);
   for (const p of PHRASES) {
     const d = defs.get(`phrases.${p.key}`)!;
@@ -299,7 +307,9 @@ function applyFrames(c: UserCharacter, f: Partial<Record<MediaSlot, boolean>>) {
 export class CharacterStore {
   readonly dir: string;
   private users = new Map<string, UserCharacter>();
-  private overrides: Partial<Record<BuiltinId, LinesPatch>> = {};
+  // 언어마다 고친 칸(lang.ts). 지금 언어 것만 데몬 목록에 들어간다(characters.ts 가 언어가 바뀌면 알맞은 것으로 다시 만든다)
+  private langOverrides: Record<Lang, Partial<Record<BuiltinId, LinesPatch>>> = Object.fromEntries(LANGUAGES.map((l) => [l, {}])) as Record<Lang, Partial<Record<BuiltinId, LinesPatch>>>;
+  private get overrides(): Partial<Record<BuiltinId, LinesPatch>> { return this.langOverrides[language()]; }
   private now: () => Date;
   // removed: 지금 쓰던 캐릭터가 사라져 시사로 돌아갔다(main 이 config.json 도 시사로 맞춘다)
   onChange?: (e: { removedCurrent: boolean }) => void;
@@ -311,14 +321,14 @@ export class CharacterStore {
   // 시작할 때 한 번: 폴더를 읽어 데몬 목록에 넣는다. 깨진 파일은 건너뛴다(경고만)
   load(): void {
     this.users.clear();
-    this.overrides = {};
+    for (const l of LANGUAGES) this.langOverrides[l] = {};
     const odir = join(this.dir, "overrides");
-    if (existsSync(odir)) for (const id of CHARACTER_IDS) {
-      const raw = readJson(join(odir, `${id}.json`));
+    if (existsSync(odir)) for (const l of LANGUAGES) for (const id of CHARACTER_IDS) {
+      const raw = readJson(join(odir, overrideFile(id, l)));
       if (raw === undefined) continue;
       const v = validateLines(raw);
-      if (v.ok && !isEmptyPatch(v.lines)) this.overrides[id] = v.lines;
-      else if (!v.ok) console.warn(`[characters] ${id} 덮어쓰기 파일을 건너뜀: ${v.error}`);
+      if (v.ok && !isEmptyPatch(v.lines)) this.langOverrides[l][id] = v.lines;
+      else if (!v.ok) console.warn(`[characters] ${overrideFile(id, l)} 덮어쓰기 파일을 건너뜀: ${v.error}`);
     }
     if (existsSync(this.dir)) for (const name of readdirSync(this.dir).sort()) {
       if (!isUserId(name)) continue;
@@ -391,7 +401,7 @@ export class CharacterStore {
   // 데몬 목록(characters.ts)에 반영. 지금 캐릭터가 없어졌으면 true
   private install(): boolean {
     const users = [...this.users.values()].sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
-    return installCharacters({ overrides: this.overrides, users: users.map((u) => ({ id: u.id, lines: u.lines as Partial<LinesEntry>, clips: clipTable(u) })) });
+    return installCharacters({ langOverrides: this.langOverrides, users: users.map((u) => ({ id: u.id, lines: u.lines as Partial<LinesEntry>, clips: clipTable(u) })) });
   }
   private changed(): void {
     const removedCurrent = this.install();
@@ -414,7 +424,7 @@ export class CharacterStore {
   view() {
     const list = [
       ...CHARACTER_IDS.map((id) => ({
-        id, name: (this.overrides[id]?.name as string | undefined) || CHARACTERS[id].name, builtin: true,
+        id, name: (this.overrides[id]?.name as string | undefined) || characterById(id)?.name || CHARACTERS[id].name, builtin: true,
         lines: this.linesOf(id), defaults: builtinDefaults(id), override: this.overrides[id] ?? null,
       })),
       ...[...this.users.values()].sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id)).map((u) => ({
@@ -422,7 +432,7 @@ export class CharacterStore {
       })),
     ];
     return {
-      current: characterId(), characters: list,
+      current: characterId(), language: language(), characters: list,
       slots: MEDIA_SLOTS.map((s) => ({ ...s })), types: Object.keys(MEDIA_TYPES),
       help: (LINES_JSON as { _help?: unknown })._help ?? {}, schema: linesSchema(),
     };
@@ -474,7 +484,7 @@ export class CharacterStore {
       const v = validateLines(body.lines ?? {});
       if (!v.ok) return fail(400, v.error);
       const patch = diffLines(builtinDefaults(id), v.lines);
-      const file = join(this.dir, "overrides", `${id}.json`);
+      const file = join(this.dir, "overrides", overrideFile(id));
       try {
         if (isEmptyPatch(patch)) rmSync(file, { force: true });
         else { mkdirSync(join(this.dir, "overrides"), { recursive: true, mode: 0o700 }); writeJson(file, patch); }
@@ -536,7 +546,7 @@ export class CharacterStore {
   // DELETE /characters/:id/lines — 기본 캐릭터 대사를 기본값으로(덮어쓰기 파일을 지운다)
   reset(id: string): Result {
     if (!isBuiltinId(id)) return fail(this.users.has(id) ? 400 : 404, this.users.has(id) ? "직접 만든 캐릭터는 기본값이 없어요" : "no such character");
-    try { rmSync(join(this.dir, "overrides", `${id}.json`), { force: true }); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    try { rmSync(join(this.dir, "overrides", overrideFile(id)), { force: true }); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
     delete this.overrides[id];
     this.changed();
     return { status: 200, body: { character: this.view().characters.find((x) => x.id === id) } };

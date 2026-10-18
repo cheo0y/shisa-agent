@@ -4,6 +4,7 @@
 //
 // api(ICS): ics.ts 가 코드로 읽는다(모델 없음). mcp: 경량 모델이 매핑된 일정 도구를 한 번 부르고 구조화 출력으로 돌려준다.
 // 장소: location 이름(여러 곳이면 ", "). 장소 칸에 링크(Zoom 등)를 적은 일정은 온라인 링크로 본다.
+import { language } from "./lang.ts";
 import { query as sdkQuery, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { NEEDS_CLAUDE_MCP, skipQuietly } from "./feature-brain.ts";
 import { mkdirSync } from "node:fs";
@@ -171,7 +172,8 @@ const LOCATION_MAX = 30;
 // 온라인 링크 이름: Teams 면 "온라인(Teams)", 그 밖(Zoom 등)은 "온라인". 링크 없으면 없음
 export function onlineLabel(link?: string): string | undefined {
   if (!link) return undefined;
-  try { return /(^|\.)teams\.(microsoft|live)\.com$/.test(new URL(link).hostname) ? "온라인(Teams)" : "온라인"; } catch { return undefined; }
+  const online = language() === "ja" ? "オンライン" : "온라인"; // 언어 설정(lang.ts)
+  try { return /(^|\.)teams\.(microsoft|live)\.com$/.test(new URL(link).hostname) ? `${online}(Teams)` : online; } catch { return undefined; }
 }
 
 // 말풍선 한 줄: "일정 10분 전이에요! 〈제목〉 13:00 · 🗓 회사 · 📍 회의실 · 온라인(Teams)". 캘린더 별칭·장소·링크가 없으면 그 부분만 뺀다(문구는 설정 창 meeting_alert).

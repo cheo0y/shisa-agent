@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { builtinClips, clipList, type ClipKind, type ClipTable } from "./clips.ts";
+import { LANGUAGES, language, langRule, onLanguage, type Lang } from "./lang.ts";
 
 // 고를 수 있는 캐릭터: 시사(기본)·하치와레·랏코·모몽가·우사기·카니·치이카와·쿠리만쥬 + 사용자가 만든 캐릭터(character-store.ts, ~/.cy-agent/characters/).
 // 캐릭터마다 이름·말투(모델 프롬프트)·말투 양념(voice.ts)·고정 문구 기본값(phrases.ts)·AI 없이 하는 정해진 말(local-mode.ts)이 다르다.
@@ -86,6 +87,11 @@ export type LinesEntry = {
 // 일부만 있는 대사(덮어쓰기 파일 · 사용자 캐릭터에서 빠진 칸)
 export type LinesPatch = { [K in keyof LinesEntry]?: LinesEntry[K] extends string | string[] ? LinesEntry[K] : Partial<LinesEntry[K]> };
 export const LINES_JSON = JSON.parse(readFileSync(LINES_FILE, "utf8")) as Record<string, unknown>;
+// 다른 언어의 대사(lines.<언어>.json — lines.json 과 같은 모양에 시사까지 들어 있다. 한국어 시사만 코드 기본값)
+export const linesFileOf = (l: Lang) => (l === "ko" ? LINES_FILE : fileURLToPath(new URL(`../../assets/characters/lines.${l}.json`, import.meta.url)));
+export const LINES_BY_LANG = Object.fromEntries(LANGUAGES.map((l) => [l, l === "ko" ? LINES_JSON : JSON.parse(readFileSync(linesFileOf(l), "utf8"))])) as Record<Lang, Record<string, unknown>>;
+// 지금 언어의 그 기본 캐릭터 대사 파일 칸(한국어 시사는 없다 — character-store.ts shisaDefaults)
+export const linesJsonOf = (l: Lang = language()) => LINES_BY_LANG[l];
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 // 대사 합치기: 칸(묶음) 안은 키마다 뒤의 것이 이긴다(flair 는 lead·tail 안의 기분마다). 배열·글은 통째로 바뀐다
@@ -115,7 +121,7 @@ function fromLines(id: CharacterId, e: Partial<LinesEntry>, extra: Partial<Chara
   };
 }
 
-// 고치지 않은 기본 캐릭터(시사 상수는 voice.ts TONE·MOODS 가 이걸 본다)
+// 고치지 않은 기본 캐릭터(한국어 — 시사 상수는 voice.ts TONE·MOODS 가 이걸 본다)
 export const CHARACTERS: Record<BuiltinId, Character> = {
   shisa: SHISA,
   hachi: fromLines("hachi", LINES_JSON.hachi as LinesEntry, { clips: builtinClips("hachi") }),
@@ -126,6 +132,15 @@ export const CHARACTERS: Record<BuiltinId, Character> = {
   chiikawa: fromLines("chiikawa", LINES_JSON.chiikawa as LinesEntry, { clips: builtinClips("chiikawa") }),
   kuri: fromLines("kuri", LINES_JSON.kuri as LinesEntry, { clips: builtinClips("kuri") }),
 };
+
+// 언어마다 고치지 않은 기본 캐릭터. 한국어가 아닌 언어는 시사도 대사 파일에서(말끝 늘이기는 한국어만)
+const builtinsOf = (l: Lang): Record<BuiltinId, Character> => {
+  if (l === "ko") return CHARACTERS;
+  const j = LINES_BY_LANG[l];
+  return Object.fromEntries(CHARACTER_IDS.map((id) => [id, fromLines(id, j[id] as LinesEntry, { clips: builtinClips(id) })])) as Record<BuiltinId, Character>;
+};
+const BUILTINS: Record<Lang, Record<BuiltinId, Character>> = Object.fromEntries(LANGUAGES.map((l) => [l, builtinsOf(l)])) as Record<Lang, Record<BuiltinId, Character>>;
+export const builtinCharacters = (l: Lang = language()) => BUILTINS[l];
 
 // 시사를 고친 것: 고친 칸만 바뀌고 나머지는 시사 기본(문구·정해진 말은 phrases.ts·local-mode.ts 기본값이 받는다)
 function shisaWith(o: LinesPatch): Character {
@@ -147,12 +162,19 @@ let table: Record<string, Character> = { ...CHARACTERS };
 let order: string[] = [...CHARACTER_IDS];
 export const isCharacterId = (v: unknown): v is CharacterId => typeof v === "string" && Object.hasOwn(table, v);
 
-// character-store.ts 가 시작할 때·바뀔 때 부른다. 지금 캐릭터가 사라졌으면 시사로(돌려준 값이 true)
-export function installCharacters(o: { overrides?: Record<string, LinesPatch>; users?: { id: string; lines: Partial<LinesEntry>; clips?: ClipTable }[] }): boolean {
+// overrides: 지금 언어의 덮어쓰기 · langOverrides: 언어마다(character-store.ts — 있으면 이쪽, 언어가 바뀌어도 알맞은 것을 쓴다)
+export type InstallInput = { overrides?: Record<string, LinesPatch>; langOverrides?: Partial<Record<Lang, Record<string, LinesPatch>>>; users?: { id: string; lines: Partial<LinesEntry>; clips?: ClipTable }[] };
+let lastInstall: InstallInput = {};
+// character-store.ts 가 시작할 때·바뀔 때 부른다. 지금 캐릭터가 사라졌으면 시사로(돌려준 값이 true). 언어가 바뀌면 마지막 것으로 다시 만든다
+export function installCharacters(o: InstallInput): boolean {
+  lastInstall = o;
+  const lang = language();
+  const base = BUILTINS[lang];
+  const overrides = o.langOverrides ? o.langOverrides[lang] : o.overrides;
   const next: Record<string, Character> = {};
   for (const id of CHARACTER_IDS) {
-    const ov = o.overrides?.[id];
-    next[id] = !ov ? CHARACTERS[id] : id === "shisa" ? shisaWith(ov) : fromLines(id, mergeLines(LINES_JSON[id] as LinesEntry, ov), { clips: builtinClips(id) });
+    const ov = overrides?.[id];
+    next[id] = !ov ? base[id] : id === "shisa" && lang === "ko" ? shisaWith(ov) : fromLines(id, mergeLines(LINES_BY_LANG[lang][id] as LinesEntry, ov), { clips: builtinClips(id) });
   }
   const users = (o.users ?? []).filter((u) => !isBuiltinId(u.id) && !Object.hasOwn(next, u.id));
   for (const u of users) next[u.id] = fromLines(u.id, u.lines, { custom: true, clips: u.clips ?? {} });
@@ -164,13 +186,17 @@ export function installCharacters(o: { overrides?: Record<string, LinesPatch>; u
 }
 
 let current: CharacterId = DEFAULT_CHARACTER;
+// 언어를 바꾸면(Settings → setLanguage) 기본 캐릭터 이름·대사를 그 언어로 다시 만든다. 지금 캐릭터는 그대로
+onLanguage(() => { const keep = current; installCharacters(lastInstall); if (isCharacterId(keep)) current = keep; });
 // config.json character(모르는 값이면 시사). 설정 창이 바꾸면 Settings 가 다시 부른다 — 다음 말풍선·답부터 바로
 export function setCharacter(id: unknown): CharacterId {
   current = isCharacterId(id) ? id : DEFAULT_CHARACTER;
   return current;
 }
 export const characterId = (): CharacterId => current;
-export const character = (): Character => table[current] ?? SHISA;
+export const character = (): Character => table[current] ?? table.shisa ?? SHISA;
+// 빈 칸을 받는 시사(지금 언어 · 덮어쓰기 반영). 한국어는 코드 기본값(phrases.ts·local-mode.ts)이 받으니 undefined
+export const fallbackShisa = (): Character | undefined => (language() === "ko" ? undefined : table.shisa);
 export const characterById = (id: string): Character | undefined => (isCharacterId(id) ? table[id] : undefined);
 // 지금 캐릭터의 그 칸 영상 목록(clips.ts clipList). 길이가 변형 수, say 가 영상마다 한마디
 export const characterClips = (kind: ClipKind, id: string = current) => clipList((isCharacterId(id) ? table[id] : SHISA).clips, kind);
@@ -180,10 +206,13 @@ export const characterOptions = () => order.map((id) => ({ id, name: table[id].n
 // 바꾸는 건 이 두 자리뿐이다: 사용자가 쓴 말투라도 그 밖의 규칙·안전 지시는 건드리지 못한다(한 번에 바꿔서 새 글 안의 글자를 다시 바꾸지 않는다)
 export function withCharacter(system: string): string;
 export function withCharacter(system: string | undefined): string | undefined;
+// 한국어가 아니면 맨 끝에 언어 지시(lang.ts LANG_RULE)를 붙인다 — 시스템 프롬프트가 없던 호출에도(그땐 지시만)
 export function withCharacter(system: string | undefined): string | undefined {
-  if (!system) return system;
+  const rule = langRule();
+  if (!system) return rule || system;
   const c = character();
-  if (c.intro === SHISA_INTRO && c.tone === SHISA_TONE) return system;
-  return system.split(`${SHISA_INTRO} ${SHISA_TONE}`).map((part) => part.split(SHISA_TONE).join(c.tone)).join(`${c.intro} ${c.tone}`);
+  const swapped = c.intro === SHISA_INTRO && c.tone === SHISA_TONE ? system
+    : system.split(`${SHISA_INTRO} ${SHISA_TONE}`).map((part) => part.split(SHISA_TONE).join(c.tone)).join(`${c.intro} ${c.tone}`);
+  return rule ? `${swapped}\n\n${rule}` : swapped;
 }
 export const SHISA_PERSONA = `${SHISA_INTRO} ${SHISA_TONE}`;

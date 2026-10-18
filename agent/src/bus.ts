@@ -7,6 +7,7 @@ import type { TodoPatch } from "./store.ts";
 import { parseRulePatch } from "./todo-rules.ts";
 import { ActivityTracker } from "./activity.ts";
 import { characterId, characterClips } from "./characters.ts";
+import { language } from "./lang.ts";
 import { RUN_STATUSES, type RunRegistry, type RunStatus } from "./runs.ts";
 import { ACTION_STATUSES, type ActionStatus, type ConfirmOut } from "./actions.ts";
 import type { GuidelinesApi } from "./guidelines.ts";
@@ -264,9 +265,9 @@ export class Bus {
     this.mood = mood;
     this.send("state", this.state());
   }
-  // SSE state: { mood, activity, runs, danceId?, danceClip?, danceVariant?, character } — character 는 앱이 그림·영상을 고르는 캐릭터 id(characters.ts)
+  // SSE state: { mood, activity, runs, danceId?, danceClip?, danceVariant?, character, language } — character 는 앱이 그림·영상을 고르는 캐릭터 id(characters.ts), language 는 언어(lang.ts)
   state() {
-    return { mood: this.mood, ...this.activity.snapshot(), character: characterId() };
+    return { mood: this.mood, ...this.activity.snapshot(), character: characterId(), language: language() };
   }
   // 캐릭터를 바꿨다(설정 창) → 앱이 그림을 바로 바꾸게 state 를 다시 보낸다
   characterChanged() {
