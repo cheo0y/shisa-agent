@@ -666,12 +666,14 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  console.log("[cy-agent] 끄는 중 — 집중 기록·캔버스를 정리하고 끝낼게요");
   bus.stopping = true; // GET /status stopping: true — 새로 뜬 앱이 이 데몬이 곧 사라질 걸 안다
   stopCalendar();
   stopMail();
   try { focus.checkpoint(); } catch { /* 꺼지는 중 */ }
   await canvas.flush().catch(() => {});
   bus.close();
+  console.log("[cy-agent] 정리 끝 — 종료");
   process.exit(0);
 }
 for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => void shutdown());

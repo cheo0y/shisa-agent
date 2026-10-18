@@ -50,6 +50,7 @@ import { denied } from './src/denied.js';
 import { okCalendarColor, okEventsQuery } from './src/calendar-tab.js';
 import { withCalendarColor, withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
+import { closeAction, offlineResult } from './src/quit.js';
 import { panelOnActivation } from './src/panel-activation.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
@@ -557,7 +558,20 @@ function createWindow() {
     for (const [c, p] of early.splice(0)) send(c, p);
   });
 
+  // 윈도우: 캐릭터 창 닫기(taskkill /PID 의 WM_CLOSE·작업 관리자 「작업 끝내기」·Alt+F4)는 앱 끄기 — 신호가 안 오니
+  // 여기서 before-quit(집중 기록·데몬 끄기)를 거치게 한다. 맥은 그대로(src/quit.js)
+  win.on('close', (e) => {
+    if (closeAction({ platform: process.platform, quitting, window: 'overlay' }) !== 'quit') return;
+    e.preventDefault();
+    quitFromClose();
+  });
   win.on('closed', () => { win = null; winLoaded = false; });
+}
+
+// 창 닫기에서 끄기: 막 취소한 그 close 이벤트 안에서 app.quit() 가 창 닫기를 다시 부르지 않게 한 박자 뒤에
+function quitFromClose() {
+  console.log('[app] 창 닫기 요청 — 끕니다');
+  setImmediate(() => app.quit());
 }
 
 // 오버레이가 아직 안 떴으면 말풍선·상태는 잠깐 모아 둔다(최근 50개)
@@ -642,11 +656,14 @@ function createPanel() {
   };
   panel.on('resize', remember);
   panel.on('move', remember);
-  // 닫기는 숨기기 — 편집 중인 내용 유지. 종료 때만 진짜 닫힘
+  // 닫기는 숨기기 — 편집 중인 내용 유지. 종료 때만 진짜 닫힘.
+  // 윈도우: 숨겨 둔 패널에 온 닫기는 밖에서 끄라는 요청(taskkill·작업 관리자·설치 프로그램의 WM_CLOSE) → 앱 끄기(src/quit.js)
   panel.on('close', (e) => {
-    if (quitting) return;
+    const act = closeAction({ platform: process.platform, quitting, window: 'panel', visible: panel.isVisible() });
+    if (act === 'close') return;
     e.preventDefault();
-    panel.hide();
+    if (act === 'quit') quitFromClose();
+    else panel.hide();
   });
   panel.on('show', sendOverlayPrefs);
   panel.on('hide', sendOverlayPrefs);
@@ -868,7 +885,11 @@ function onSSE({ event, data }) {
 
 // 데몬 호출. POST 는 X-CY-Agent 헤더 + JSON 본문. 결과는 { ok, status, data } | { ok: false, error }
 // timeoutMs: 모델을 부르는 호출은 길게
+// 시사 데몬임을 확인하기 전(connected=false)이면 보내지 않고 바로 { ok:false, status:0 } — 그 포트의 다른 프로그램에 닿지 않게.
+// 데몬 확인(/status·/events)은 request() 를 안 쓴다(daemonAlive·connectLoop·probeDaemon 이 fetch 로 직접)
 async function request(method, pathname, body, timeoutMs) {
+  const off = offlineResult(connected);
+  if (off) return off;
   const headers = { Accept: 'application/json' };
   const init = { method, headers, signal: AbortSignal.timeout(timeoutMs ?? (method === 'GET' ? 8000 : 15000)) };
   if (method === 'POST' || method === 'PUT') {
@@ -899,6 +920,8 @@ async function uploadAttachment(name, mime, bytes) {
 }
 // 파일 바이트 그대로 올리기(채팅 첨부 · 캐릭터 그림). 이름은 x-file-name(데몬이 다시 짓는다)
 async function uploadBytes(method, pathname, name, mime, bytes) {
+  const off = offlineResult(connected);
+  if (off) return off;
   try {
     const res = await fetch(`${BASE}${pathname}`, {
       method, body: bytes, signal: AbortSignal.timeout(120000),
@@ -1958,6 +1981,7 @@ function registerAttachProtocol() {
   protocol.handle(ATTACH_SCHEME, async (req) => {
     const a = req.method === 'GET' ? resolveAttachUrl(req.url) : null;
     if (!a) return new Response('not found', { status: 404 });
+    if (!connected) return new Response('unavailable', { status: 503 }); // 시사 데몬 확인 전엔 그 포트에 보내지 않는다
     try {
       const res = await fetch(`${BASE}/chat/attachments/${a.threadId}/${encodeURIComponent(a.file)}`, { headers: { 'X-CY-Agent': '1' }, signal: AbortSignal.timeout(30000) });
       if (!res.ok) return new Response('not found', { status: 404 });
@@ -1996,6 +2020,9 @@ function registerAssetProtocol() {
 // 이미 그 포트에 데몬이 있거나(터미널로 띄움) launchd 가 맡고 있으면(ops/install.sh) 띄우지 않는다. 로그: ~/.cy-agent/logs/(daemon.log · com.cy-agent.daemon.log)
 let daemonHost = null;
 let daemonStopping = false;
+// 끄는 중 기다리는 일(집중 그만하기·데몬 끄기). 그동안 다시 온 끄기 요청(창 닫기가 여럿 등)은 미룬다 — 끝나면 그쪽이 다시 끈다
+let focusStopWait = false;
+let daemonStopWait = false;
 // 윈도우엔 launchd 가 없다(터미널 설치도 없음)
 const launchdPlist = () => process.platform !== 'win32' && fs.existsSync(path.join(os.homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_DAEMON}.plist`));
 
@@ -2050,7 +2077,7 @@ async function startDaemonHost() {
   });
   // 앱이 갑자기 끝나도(앱 종료 처리를 못 거쳐도) 데몬을 남기지 않는다
   process.on('exit', () => { const pid = daemonHost?.pid; if (pid) try { process.kill(pid, 'SIGTERM'); } catch { /* 이미 꺼짐 */ } });
-  // kill·로그아웃으로 앱이 신호를 받으면 보통 종료처럼(데몬도 끄고)
+  // kill·로그아웃으로 앱이 신호를 받으면 보통 종료처럼(데몬도 끄고). 윈도우엔 신호가 안 온다 — 창 닫기(WM_CLOSE)가 그 길(src/quit.js)
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit());
   await daemonHost.start();
 }
@@ -2233,11 +2260,14 @@ if (SQUIRREL) {
   });
 
   app.on('before-quit', (e) => {
+    // 앞의 끄기가 집중 기록·데몬 끄기를 기다리는 중 — 여기서 그냥 끄면 데몬이 정리 없이 죽는다(process exit 의 kill)
+    if (focusStopWait || daemonStopWait) { e.preventDefault(); return; }
     // 집중 중에 앱을 끄면 그때까지를 기록하고 끝낸다(데몬만 남아 혼자 세지 않게). 잠깐만 기다린다
     if (lastFocus?.active && connected && !focusStopped) {
       focusStopped = true;
+      focusStopWait = true;
       e.preventDefault();
-      post('/focus/stop', {}, 1500).finally(() => app.quit());
+      post('/focus/stop', {}, 1500).finally(() => { focusStopWait = false; app.quit(); });
       return;
     }
     quitting = true;
@@ -2246,11 +2276,12 @@ if (SQUIRREL) {
     // 앱이 띄운 데몬은 같이 끈다(남의 데몬·launchd 데몬은 그대로)
     if (daemonHost?.pid && !daemonStopping) {
       daemonStopping = true;
+      daemonStopWait = true;
       e.preventDefault();
-      daemonHost.stop().finally(() => app.quit());
+      daemonHost.stop().finally(() => { daemonStopWait = false; app.quit(); });
     }
   });
   app.on('will-quit', () => globalShortcut.unregisterAll());
-  // 창 닫혀도 계속 — 종료는 ⌘Q·Dock·트레이 메뉴에서만
+  // 창 닫혀도 계속 — 종료는 ⌘Q·Dock·트레이 메뉴에서만(윈도우는 캐릭터 창·숨긴 패널 닫기도 끄기 — 위 close 처리)
   app.on('window-all-closed', () => {});
 }
