@@ -81,6 +81,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .model-row label { font-weight: 600; }
 .model-row .desc { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; margin-top: -2px; }
 .model-row .lock { color: var(--warn); }
+.model-row .code-ai { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.model-row .code-ai select { width: 100%; }
 select { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); height: calc(1.5em + 10px); } /* 입력칸·단추와 같은 높이 */
 
 /* 브리핑 출처 */

@@ -34,6 +34,7 @@ import { attachmentInput, attachmentRef, type Attachment, type AttachmentStore }
 import { autoMergeConsent, textMergeConsent } from "./auto-merge.ts";
 import { parsePrRef } from "./merge-request.ts";
 import { sessionsAllowed } from "./onboarding.ts";
+import { codingReady } from "./coding.ts";
 
 export type { PanelSection };
 export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[] };
@@ -227,7 +228,7 @@ const CHAT_CONTEXT_INLINE = "- 위 맥락(세션·할 일·대시보드 요약)�
 const CHAT_CONTEXT_TOOLS = `${CTX_GUIDE}
 - 할 일을 바꾸라는데(todo_ops) 대상 할 일이 머리말에 없으면 todos_list(query) 로 찾아 그 id 를 쓴다.
 - 메일·일정·Slack 원문 등 바깥 정보가 필요하거나 사용자가 무언가를 해 달라고(올려줘·보내줘·답해줘·고쳐줘) 하면 업무 도구(연결된 MCP 등)를 쓴다.`;
-const CHAT_CONTEXT_NOTOOLS = "- 파일 수정·코딩 요청은 작은 수정도 proposals로 전달한다. 직접 파일 도구를 사용할 수 없어도 설정된 코딩 실행기(Claude Code 또는 Codex)가 작업한다. 레포 경로가 불명확하면 먼저 확인한다. 직접 코드를 확인하지 못했다면 확인했다고 말하지 말고 계획에 확인 절차를 포함한다.\n- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일 목록은 「최근 받은 메일」 블록(있을 때)에 보낸 사람·제목·본문 앞부분으로 있고, 사용자가 보낸 사람·제목을 말하거나 전체 본문을 달라고 하면 그 메일들의 본문 전체가 「사용자가 가리킨 메일 전체 본문」 블록에 들어온다. 그 블록이 있으면 본문 전체를 보고 답한다(앞부분만 보인다고 하지 않는다). 블록에 없는 메일의 전체 본문이 필요하면 보낸 사람이나 제목을 말해 달라고 한다. Slack 원문은 볼 수 없다고 짧게 말한다.";
+const CHAT_CONTEXT_NOTOOLS = "- 위 맥락(세션·할 일·일정·메일·대시보드 요약)으로 답한다. 메일 목록은 「최근 받은 메일」 블록(있을 때)에 보낸 사람·제목·본문 앞부분으로 있고, 사용자가 보낸 사람·제목을 말하거나 전체 본문을 달라고 하면 그 메일들의 본문 전체가 「사용자가 가리킨 메일 전체 본문」 블록에 들어온다. 그 블록이 있으면 본문 전체를 보고 답한다(앞부분만 보인다고 하지 않는다). 블록에 없는 메일의 전체 본문이 필요하면 보낸 사람이나 제목을 말해 달라고 한다. Slack 원문은 볼 수 없다고 짧게 말한다.";
 const chatSystem = (context: string, base = INTERACTIVE_SYSTEM, writeGuide = WRITE_GUIDE) => `${base}
 - 지금은 데스크톱 캐릭터에 붙은 입력창으로 대화 중이다. 이전 대화 흐름을 이어서 답한다.
 ${context}
@@ -271,9 +272,12 @@ export function runBackgroundAgent(cfg: Config, store: Store, job: { threadId: s
 }
 export const CHAT_SYSTEM_INLINE = chatSystem(CHAT_CONTEXT_INLINE); // 되돌리기(contextMode inline)
 export const CHAT_SYSTEM_NOTOOLS = chatSystem(CHAT_CONTEXT_NOTOOLS, NO_TOOLS_SYSTEM, ""); // Claude Code 가 아닌 뇌(업무 도구 없음)
-// 채팅 시스템 프롬프트 고르기: Claude Code 가 아니면 도구 없는 것, Claude Code 면 contextMode 에 따라
-export const chatSystemFor = (cfg: Pick<Config, "contextMode"> & { brain?: Pick<Config["brain"], "provider"> }) =>
-  (cfg.brain?.provider ?? "claude-code") !== "claude-code" ? CHAT_SYSTEM_NOTOOLS : inlineContext(cfg) ? CHAT_SYSTEM_INLINE : CHAT_SYSTEM;
+// 도구 없는 뇌라도 코드 작업 AI(Claude Code·Codex)가 준비됐으면: 코드 고치기 요청을 제안(proposals)으로 넘기게
+const CHAT_CONTEXT_NOTOOLS_CODER = "- 파일 수정·코딩 요청은 작은 수정도 proposals 로 넘긴다. 직접 파일 도구는 없어도 승인하면 코드 작업 AI(Claude Code 또는 Codex)가 작업한다. 레포 경로가 불명확하면 먼저 확인한다. 직접 코드를 확인하지 못했다면 확인했다고 말하지 말고 계획에 확인 절차를 넣는다.\n" + CHAT_CONTEXT_NOTOOLS;
+export const CHAT_SYSTEM_NOTOOLS_CODER = chatSystem(CHAT_CONTEXT_NOTOOLS_CODER, NO_TOOLS_SYSTEM, "");
+// 채팅 시스템 프롬프트 고르기: Claude Code 가 아니면 도구 없는 것(코드 작업 AI 가 준비됐을 때만 코드 요청 안내를 더한다), Claude Code 면 contextMode 에 따라
+export const chatSystemFor = (cfg: Pick<Config, "contextMode"> & { brain?: Pick<Config["brain"], "provider"> }, coder: boolean | null = false) =>
+  (cfg.brain?.provider ?? "claude-code") !== "claude-code" ? (coder === true ? CHAT_SYSTEM_NOTOOLS_CODER : CHAT_SYSTEM_NOTOOLS) : inlineContext(cfg) ? CHAT_SYSTEM_INLINE : CHAT_SYSTEM;
 
 
 // 패널에서 할 일 하나를 집어 들고 말할 때 프롬프트에 붙는 블록
@@ -382,7 +386,7 @@ export async function suggestTitle(cfg: Config, text: string, reply: string, thr
 // 대화형: 모든 도구, 쓰기는 이 대화에 승인 카드(via chat|hover)
 export function chatAskOpts(cfg: Config, text: string, repo?: RelatedRepo, threadId?: string, via: ActionVia = "chat", model?: string) {
   return {
-    system: chatSystemFor(cfg), model: model ?? roleModel(cfg, "general"),
+    system: chatSystemFor(cfg, codingReady(cfg)), model: model ?? roleModel(cfg, "general"),
     code: { roots: cfg.repoRoots, ...(repo ? { cwd: repo.path } : {}) },
     interactive: { origin: { via, ...(threadId ? { threadId } : {}) } },
     run: { kind: "chat" as const, title: `채팅: ${text.split("\n")[0].slice(0, 60)}`, ...(threadId ? { ref: threadId } : {}) },

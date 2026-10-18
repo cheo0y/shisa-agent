@@ -72,7 +72,8 @@ async function save(patch) {
 // ---- 모델 ----
 // 지금 뇌(brain.provider)에 맞는 세부 모델 칸(데몬 settings.modelSlots). Claude 뇌는 Claude 모델 목록에서(models 로 저장),
 // 그 밖의 뇌(Codex·Gemini·OpenAI·Genspark)는 그 뇌 목록(GET /chat/models — 채팅 드롭다운과 같은 출처)에서 고르고 brainModels 로 저장.
-// 그 뇌에서 안 쓰는 칸(코드 작업은 Claude Code 일 때만)은 막고 이유를 보인다
+// 그 뇌에서 안 쓰는 칸은 막고 이유를 보인다. 코드 작업 칸은 대화 AI 와 따로: 코드 작업 AI(Claude Code·Codex)를 고르고 그 AI 의 모델을 고른다
+// (Claude Code → models.code, Codex → brainModels.codex.code — 패널 모델 탭도 이 칸을 가리킨다). 코드 작업 AI 가 준비됐을 때만 연다
 let brainLists = null; // GET /chat/models 의 brains(뇌 → 모델 목록)
 async function loadBrainLists() {
   const r = await cy.chatModels?.().catch(() => null);
@@ -87,16 +88,19 @@ function renderModels() {
   const claudeSlots = slots ? slots.claude : true;
   // Claude 칸은 Claude Code 가 있을 때만(예전처럼). 다른 뇌는 그 뇌 칸
   const show = slots ? slots.provider !== 'local' && (!claudeSlots || (caps.claude !== false && (settings.modelOptions ?? []).length > 0)) : caps.claude !== false && (settings.modelOptions ?? []).length > 0;
-  $('models-note').hidden = !show;
+  const codeSlot = slots?.roles?.find((r) => r.role === 'code' && r.coder);
+  $('models-note').hidden = !show && !codeSlot;
   $('models-hint').hidden = show;
   $('models-hint').textContent = show ? '' : slots?.provider === 'local' ? 'AI 를 연결하면 일마다 쓸 모델을 고를 수 있어요.' : 'Claude Code 를 쓰면 일마다 다른 Claude 모델을 고를 수 있어요. 지금은 패널의 [모델] 탭에서 고른 AI 하나로 다 해요.';
-  if (!show) return;
-  $('models-title').textContent = slots?.title ?? 'Claude Code 세부 모델';
+  if (!show && !codeSlot) return;
+  $('models-title').textContent = show ? slots?.title ?? 'Claude Code 세부 모델' : '코드 작업 모델';
   $('config-path').textContent = settings.configPathLabel || settings.configPath ? `(${settings.configPathLabel || settings.configPath} 에 저장)` : '';
-  const roles = slots?.roles ?? (settings.modelRoles ?? []).map((r) => ({ ...r, value: settings.models?.[r.role], enabled: true }));
+  const roles = show ? slots?.roles ?? (settings.modelRoles ?? []).map((r) => ({ ...r, value: settings.models?.[r.role], enabled: true })) : [codeSlot];
   const list = claudeSlots ? null : (brainLists ?? []).find((b) => b.provider === slots.provider);
-  if (!claudeSlots && brainLists === null) loadBrainLists();
-  for (const { role, label, value, enabled, why } of roles) {
+  if ((!claudeSlots || codeSlot?.coder?.provider === 'codex') && brainLists === null) loadBrainLists();
+  for (const slot of roles) {
+    if (slot.role === 'code' && slot.coder) { box.append(codeRow(slot)); continue; }
+    const { role, label, value, enabled, why } = slot;
     const row = el('div', 'model-row');
     const id = `model-${role}`;
     const lab = el('label', null, label);
@@ -128,6 +132,56 @@ function renderModels() {
     row.append(lab, sel, desc);
     box.append(row);
   }
+}
+
+// 코드 작업 칸: 「코드 작업 AI」(Claude Code·Codex) + 그 AI 의 모델. 저장은 coding.provider · models.code · brainModels.codex.code
+function codeRow({ label, value, enabled, why, coder }) {
+  const row = el('div', 'model-row');
+  const lab = el('label', null, label);
+  lab.htmlFor = 'model-code';
+  const ai = el('select');
+  ai.id = 'model-code-ai';
+  ai.setAttribute('aria-label', '코드 작업 AI');
+  for (const c of coder.choices) {
+    const o = el('option', null, c.ready === false ? `코드 작업 AI: ${c.label} (준비 안 됨)` : `코드 작업 AI: ${c.label}`);
+    o.value = c.id;
+    o.selected = c.id === coder.provider;
+    ai.append(o);
+  }
+  ai.addEventListener('change', async () => {
+    ai.disabled = true;
+    const ok = await save({ coding: { provider: ai.value } });
+    ai.disabled = false;
+    if (!ok) ai.value = coder.provider;
+    renderModels();
+  });
+  const sel = el('select');
+  sel.id = 'model-code';
+  const add = (v, text) => { const o = el('option', null, text); o.value = v; o.selected = v === (value ?? ''); sel.append(o); };
+  const codex = coder.provider === 'codex';
+  if (!enabled) add(value ?? '', '쓰지 않아요');
+  else if (!codex) for (const o of settings.modelOptions ?? []) add(o.id, o.label);
+  else {
+    const list = (brainLists ?? []).find((b) => b.provider === 'codex');
+    add('', 'Codex 기본');
+    for (const m of list?.models ?? []) if (m.id !== '') add(m.id, m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id);
+    if (value && !(list?.models ?? []).some((m) => m.id === value)) add(value, value);
+  }
+  sel.disabled = !enabled;
+  sel.addEventListener('change', async () => {
+    sel.disabled = true;
+    const ok = await save(codex ? { brainModels: { provider: 'codex', models: { code: sel.value || null } } } : { models: { code: sel.value } });
+    sel.disabled = false;
+    if (!ok) sel.value = value ?? '';
+    renderModels();
+  });
+  const picked = coder.choices.find((c) => c.id === coder.provider);
+  const desc = el('div', 'desc', enabled ? ROLE_DESC.code : (picked?.why ?? why ?? ''));
+  if (enabled && !codex && settings.envLocked?.includes('code')) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
+  const pick = el('div', 'code-ai');
+  pick.append(ai, sel);
+  row.append(lab, pick, desc);
+  return row;
 }
 
 // ---- 연결된 AI ----

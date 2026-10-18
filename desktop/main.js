@@ -29,7 +29,7 @@ import { setupSettings } from './src/settings-window.js';
 import { disconnectBrainBody, withBrainBody, withConnectorOff, withoutHubDone, reloadNote, okBrainId, okCap } from './src/disconnect.js';
 import { ATTACH_SCHEME, resolveAttachUrl, cleanAttachIds, cleanUpload, okStoredName } from './src/attachments.js';
 import { agentLogin } from './src/agent-login.js';
-import { createCapsProbe, hasCoder, sameCaps, coderHint } from './src/caps.js';
+import { createCapsProbe, sameCaps, coderHint } from './src/caps.js';
 import { checkLlm, listModels, gskLoginKey, KEY_REQ } from './src/llm-check.js';
 import { okPickModel, okPickProvider, chatPickBody } from './src/chat-pick.js';
 import { KEY_PROVIDERS, normalizeSisa, publicView, withKey, withCli, withGsk, withSkip, withoutProvider, activeProvider, withModels, withVoice, connectedProviders, daemonBrainPatch, withDaemonBrain, settingsBrainBody } from './src/sisa-store.js';
@@ -300,34 +300,6 @@ function writeBrainFile(patch) {
   }
 }
 
-// 코딩 작업 모델은 시사 데몬이 읽는 설정(models.code)에 쓴다. 'default' 면 그 칸을 지운다.
-function writeCodeModel(model, provider = 'claudecode') {
-  const home = process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent');
-  const file = path.join(home, 'config.json');
-  let cfg = {};
-  try {
-    cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false;
-  } catch (err) {
-    if (err?.code !== 'ENOENT') return false;
-  }
-  const models = cfg.models && typeof cfg.models === 'object' && !Array.isArray(cfg.models) ? { ...cfg.models } : {};
-  if (provider !== 'codexcli') {
-    if (model === 'default') delete models.code;
-    else models.code = model;
-  }
-  const next = { ...cfg, coding: { provider: provider === 'codexcli' ? 'codex' : 'claude-code', ...(model !== 'default' ? { model } : {}) } };
-  if (Object.keys(models).length) next.models = models;
-  else delete next.models;
-  try {
-    fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(next, null, 2), { mode: 0o600 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 let win = null;
 let panel = null;
 let panelReady = false;
@@ -364,7 +336,8 @@ async function refreshCaps(force = false) {
   }
   return now;
 }
-const coder = () => hasCoder(capsProbe.get());
+// 코드 작업 AI(데몬 GET /status features.code — Claude Code·Codex)가 준비됐나. 데몬과 끊겼으면 이 컴퓨터의 CLI 로 짐작
+const coder = () => brainNow().coder;
 function coderBubble(feature) {
   send('bubble', { id: `local-coder-${feature}`, text: coderHint(feature), kind: 'info', ttlMs: 12000 });
 }
@@ -378,7 +351,9 @@ function brainNow() {
 function pushBrain() {
   const v = brainNow();
   if (sameView(v, lastBrain)) return;
+  const coderChanged = lastBrain && lastBrain.coder !== v.coder;
   lastBrain = v;
+  if (coderChanged) { rebuildTrayMenu(); createAppMenu(); } // 「작업 세션 열기」 메뉴(코드 작업 AI 가 준비됐을 때만)
   send('brain', v);
   sendPanel('brain', v);
   sendSession('brain', v);
@@ -1391,22 +1366,16 @@ function setupIPC() {
     const key = data.keys[provider] || (provider === 'genspark' && data.gsk ? gskLoginKey() : '');
     return listModels(provider, key, keyNetFetch);
   });
-  // { chat: {provider, model} | 'none', code: 모델 } 중 온 것만 바꾼다
+  // { chat: {provider, model} | 'none' }. 코드 작업 AI·모델은 설정 창(데몬 PUT /settings)에서만 바꾼다
   ipcMain.handle('sisa-set-models', async (e, pick) => {
     if (!fromOurs(e) || !pick || typeof pick !== 'object') return denied();
     const args = {};
     if ('chat' in pick) args.chat = pick.chat;
-    if ('code' in pick) args.code = pick.code;
     const next = withModels(readSisa(), args);
     if (!next) return denied();
-    let codeSaved = null;
-    if ('code' in args) {
-      codeSaved = writeCodeModel(next.codeModel, next.codeProvider);
-      if (!codeSaved) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했습니다.` };
-    }
     writeSisa(next);
     const brainSaved = 'chat' in args ? await writeBrain(next) : false;
-    return { ok: true, ...sisaPublic(next), codeSaved, brainSaved };
+    return { ok: true, ...sisaPublic(next), brainSaved };
   });
   ipcMain.handle('sisa-set-voice', (e, patch) => {
     if (!fromOurs(e) || !patch || typeof patch !== 'object') return denied();

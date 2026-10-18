@@ -1,4 +1,4 @@
-// 모델 탭: 연결된 AI마다 쓸 수 있는 모델 목록을 보여 주고, 단순 채팅·코딩 작업에 쓸 모델을 고른다.
+// 모델 탭: 연결된 AI마다 쓸 수 있는 모델 목록을 보여 주고, 단순 채팅에 쓸 모델을 고른다(코드 작업 AI·모델은 설정 창 「세부 모델」).
 // 말투(AI 연결 시)와 정해진 말(연결 안 됐을 때)도 여기서 고친다. 키는 이 화면에 오지 않는다.
 // 연결된 AI 마다 [연결 해제]: 키는 지우고, Claude Code·Codex 는 시사에서만 안 쓴다(CLI 로그인은 그대로). 지금 쓰던 AI 면 「AI 없이 쓰기」로.
 
@@ -32,21 +32,6 @@ export function optionsFor(provider, list, current) {
   const base = list?.status === 'ok' ? list.models : [];
   const rows = [DEFAULT_OPTION, ...base.filter((m) => m.id !== 'default')];
   if (current && current !== 'default' && !rows.some((m) => m.id === current)) rows.push({ id: current, label: '지금 쓰는 값' });
-  return rows;
-}
-
-export function codeOptions(lists, connected, current) {
-  const rows = [{ id: 'default', label: '기본값' }];
-  const seen = new Set(['default']);
-  for (const p of ['claudecode', 'claude']) {
-    if (!connected.includes(p)) continue;
-    for (const m of lists[p]?.status === 'ok' ? lists[p].models : []) {
-      if (seen.has(m.id)) continue;
-      seen.add(m.id);
-      rows.push(m);
-    }
-  }
-  if (current && !seen.has(current)) rows.push({ id: current, label: '지금 쓰는 값' });
   return rows;
 }
 
@@ -120,8 +105,8 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     busy = false;
     if (r?.ok) {
       onSisa(r);
-      // 대화 AI·코딩 모델은 시사가 다시 켜질 때 읽는다
-      note = 'code' in pick ? `저장함. ${who()}를 다시 켜면 적용돼요` : r.brainSaved ? '저장함. 대화·브리핑에 바로 적용돼요' : '저장함. 앱을 다시 켜면 적용돼요';
+      // 대화 AI 는 시사에 바로(brainSaved), 데몬이 꺼져 있으면 다시 켜질 때 읽는다
+      note = r.brainSaved ? '저장함. 대화·브리핑에 바로 적용돼요' : '저장함. 앱을 다시 켜면 적용돼요';
     } else {
       note = r?.error || '저장하지 못했어요.';
     }
@@ -170,21 +155,13 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
         select(optionsFor(active, lists[active], model), model, (m) => save({ chat: { provider: active, model: m } }), busy)));
   }
 
-  function codeCard(sisa) {
-    const connected = sisa.connected.filter((p) => p === 'claudecode' || p === 'codexcli');
-    const provider = sisa.codeProvider || 'claudecode';
-    const current = sisa.codeModel || 'default';
-    const providers = [...connected];
-    if (!providers.includes(provider)) providers.push(provider);
+  // 코드 작업 AI(Claude Code·Codex)와 그 모델은 설정 창 「세부 모델」의 코드 작업 칸 한 곳에서 고른다(데몬 설정 하나를 같이 본다)
+  function codeCard() {
     return h('div.card.models-card', null,
-      h('h2', { text: '파일 수정·코딩 작업' }),
-      h('label.model-row', null, h('span', { text: '실행기' }),
-        select(providers.map((p) => ({ id: p, label: PROVIDER_TITLE[p] + (connected.includes(p) ? '' : ' · 연결 필요') })), provider,
-          (p) => save({ code: { provider: p, model: 'default' } }), busy)),
-      connected.includes(provider) ? h('label.model-row', null, h('span', { text: '모델' }),
-        select(optionsFor(provider, lists[provider], current), current, (m) => save({ code: { provider, model: m } }), busy))
-        : h('p.muted', { text: '선택한 실행기를 연결해 주세요. 대화용 API 키와 코딩 실행기는 별도예요.' }),
-      h('p.muted.small', { text: '등록한 Git 프로젝트에서 수정·테스트한 뒤 작업 브랜치와 PR로 결과를 남겨요. 실행기 변경은 앱을 다시 켜면 적용돼요.' }));
+      h('h2', { text: '코드 작업' }),
+      h('p.muted.small', null,
+        h('span', { text: '코드 작업 AI(Claude Code 또는 Codex)와 모델은 설정 창 「세부 모델」의 코드 작업 칸에서 골라요. ' }),
+        cy.openSettings ? h('button.ghost.small', { type: 'button', text: '설정 열기', onclick: () => cy.openSettings() }) : null));
   }
 
   function disconnectFor(p) {
@@ -267,7 +244,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
         h('p', { text: '연결된 AI 없음' }),
         h('button.primary', { type: 'button', text: '설치 열기', onclick: gotoSetup })));
     } else {
-      kids.push(chatCard(sisa), codeCard(sisa));
+      kids.push(chatCard(sisa), codeCard());
     }
     for (const [agent, provider] of [['codex', 'codexcli'], ['claude', 'claudecode']]) {
       if (!connected.includes(provider) && detected[agent]) kids.push(h('div.card.models-card', null,

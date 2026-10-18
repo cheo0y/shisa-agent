@@ -6,7 +6,7 @@
 import { BRAIN_PROVIDERS, DEFAULT_GENERAL_MODEL, type BrainProvider, type Config } from "./config.ts";
 
 export type ModelChoice = { id: string; label: string; role: "code" | "general" | "light" };
-// 채팅·가벼운 일의 역할. 코드 실행기 선택은 별도 codingChoice에서 처리한다.
+// 채팅·가벼운 일의 역할(코드 작업 AI·모델은 coding.ts)
 export type ChatRole = "general" | "quick" | "light";
 export const CHAT_ROLES: readonly ChatRole[] = ["quick", "general", "light"];
 export const MODEL_ID = /^[A-Za-z0-9._:/-]{1,100}$/;
@@ -63,22 +63,16 @@ export function roleModel(cfg: Pick<Config, "models" | "brain"> & { brainModels?
 
 // 큰 것부터(코딩 → 일반 → 경량). 같은 모델이 두 역할이면 한 번만.
 // 고르는 칸은 Claude 모델로 답하는 뇌(Claude Code·Claude API)일 때만. Gemini·OpenAI·Codex·로컬이면 빈 목록(칸을 숨긴다)
-export function modelChoices(cfg: Config): ModelChoice[] {
-  const coder = codingChoice(cfg);
-  if (coder.provider === 'codex') return coder.model ? [{ id: coder.model, label: `Codex · ${coder.model}`, role: 'code' }] : [];
-  const provider = cfg.brain?.provider ?? "claude-code";
-  if (provider !== "claude-code" && provider !== "anthropic") return [];
+// 코드 작업 AI 가 Codex 면 코드 작업 칸은 Codex 모델(brainModels.codex.code, 정하지 않았으면 없음 = Codex 기본)
+export function modelChoices(cfg: Config, coder: "claude-code" | "codex" = "claude-code"): ModelChoice[] {
   const out: ModelChoice[] = [];
-  for (const role of ["code", "general", "light"] as const) {
+  const cx = cfg.brainModels?.codex?.code;
+  if (coder === "codex" && cx && modelFits("codex", cx)) out.push({ id: cx, label: `Codex · ${cx}`, role: "code" });
+  const provider = cfg.brain?.provider ?? "claude-code";
+  if (provider !== "claude-code" && provider !== "anthropic") return out;
+  for (const role of coder === "codex" ? ["general", "light"] as const : ["code", "general", "light"] as const) {
     const id = cfg.models[role];
     if (id && !out.some((c) => c.id === id)) out.push({ id, label: modelLabel(id), role });
   }
   return out;
-}
-
-// 대화 AI와 별도로 선택하는 코딩 실행기. 이전 설정은 Claude 경로를 유지한다.
-export function codingChoice(cfg: Pick<Config, "coding" | "models" | "brainModels">, parent?: { sdkSessionId?: string; model?: string }) {
-  const provider = parent?.sdkSessionId?.startsWith('codex:') ? 'codex' : cfg.coding?.provider ?? 'claude-code';
-  const want = parent?.model || cfg.coding?.model || (provider === 'codex' ? cfg.brainModels?.codex?.general : cfg.models.code);
-  return { provider, model: want && want !== 'codex' && modelFits(provider, want) ? want : provider === 'codex' ? undefined : cfg.models.code };
 }

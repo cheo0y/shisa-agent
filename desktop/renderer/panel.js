@@ -1,5 +1,5 @@
-import { hasCoder as canCodeWith } from '../src/caps.js';
 // 패널 렌더러 — 대시보드(개요·프로젝트·할 일·오늘 할 일)와 채팅. 네트워크는 전부 메인을 거친다.
+import { hasCoder as canCodeWith } from '../src/caps.js';
 import DOMPurify from './vendor/purify.js';
 import { Marked } from './vendor/marked.js';
 import { createMarkdown } from '../src/markdown.js';
@@ -121,7 +121,8 @@ let error = null;
 let connected = false;
 // 이 컴퓨터의 Claude Code·Codex(모르면 있다고 본다)
 let caps = { claude: null, codex: null };
-const hasCoder = () => canCodeWith(caps);
+// 코드 작업을 맡길 수 있나: 데몬이 본 코드 작업 AI(Claude Code·Codex)가 준비됐나(brain.coder). 아직 모르면 이 컴퓨터의 CLI 로 짐작
+const hasCoder = () => (typeof brain.coder === 'boolean' ? brain.coder : canCodeWith(caps));
 let section = 'overview';
 try { section = normalizeSection(localStorage.getItem('section')) ?? 'overview'; } catch { /* 저장소 없음 */ }
 let setupPhase = 'name'; // name·brain·ai-key·extras·connect·done (setup-plan.js — 키·토큰은 저장하지 않는다)
@@ -145,7 +146,7 @@ let setupCalendars = []; // 연결된 캘린더(main calendar-list: 가린 이�
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
 let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
-let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {}, codeProvider: 'claudecode', codeModel: 'default' };
+let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {} };
 // 예전 화면 위치(ai-offer·agent·pick·walk)는 불러오지 않는다
 try {
   setupPhase = restorePhase(localStorage.getItem('setupPhase'));
@@ -2834,6 +2835,7 @@ function applyBrain(v) {
   if (!v || typeof v !== 'object') return;
   const was = brain.ready;
   brain = v;
+  applyCoderButtons();
   if (was !== brain.ready) {
     renderChatLock();
     if (section === 'chat') renderChat();
@@ -2874,8 +2876,6 @@ async function loadSisa() {
         done: got.done || {},
         connected: Array.isArray(got.connected) ? got.connected : [],
         chatModels: got.chatModels && typeof got.chatModels === 'object' ? got.chatModels : {},
-        codeProvider: got.codeProvider === 'codexcli' ? 'codexcli' : 'claudecode',
-        codeModel: typeof got.codeModel === 'string' ? got.codeModel : 'default',
       };
     }
   } catch { /* 키 없으면 채팅을 막는다 */ }
@@ -3232,10 +3232,13 @@ cy.onConnection(({ connected: c }) => {
 // ↻ 새로고침: 화면 다시 그리기 + 데몬이 슬랙·메일을 지금 다시 읽어 새 할 일을 넣는다(결과는 캐릭터 말풍선)
 $('refresh').addEventListener('click', () => { cy.refreshSources?.(); load(); loadThreads(); if (selectedId) { loadMessages(); loadAgents(); } });
 $('open-session')?.addEventListener('click', () => cy.openSession?.());
-// 이 컴퓨터에 Claude Code 가 없으면(Gemini·GPT 키·로컬) 코드 관련 버튼(작업 세션)은 숨긴다
+// 코드 작업 AI(Claude Code·Codex)가 준비되지 않았으면(Gemini·GPT 키·로컬) 코드 관련 버튼(작업 세션)은 숨긴다
+function applyCoderButtons() {
+  for (const id of ['open-session']) { const b = $(id); if (b) b.hidden = !hasCoder(); }
+}
 function applyCaps(c) {
   if (c && typeof c === 'object' && 'claude' in c) caps = { claude: c.claude, codex: c.codex };
-  for (const id of ['open-session']) { const b = $(id); if (b) b.hidden = !hasCoder(); }
+  applyCoderButtons();
   if (section === 'chat') renderChat();
 }
 cy.caps?.().then(applyCaps).catch(() => {});
@@ -3276,8 +3279,6 @@ function applySisa(v) {
     canned: v.canned && typeof v.canned === 'object' ? v.canned : sisa.canned,
     connected: Array.isArray(v.connected) ? v.connected : sisa.connected,
     chatModels: v.chatModels && typeof v.chatModels === 'object' ? v.chatModels : sisa.chatModels,
-    codeProvider: v.codeProvider ?? sisa.codeProvider,
-    codeModel: typeof v.codeModel === 'string' ? v.codeModel : sisa.codeModel,
   };
   renderChatLock();
 }

@@ -7,7 +7,8 @@ import { LEAVE_BEFORE_MIN, WorkAlerts, minsToLeave, workHoursOf } from "./work-h
 import { Store } from "./store.ts";
 import { Bus, EXIT_PORT_TAKEN } from "./bus.ts";
 import { runs } from "./runs.ts";
-import { modelChoices, codingChoice } from "./models.ts";
+import { modelChoices } from "./models.ts";
+import { codingChoice, setClaudeProbe } from "./coding.ts";
 import { chatModels } from "./chat-models.ts";
 import { Agent, LOCAL_GREET_ID } from "./core.ts";
 import { suggestTitle } from "./chat.ts";
@@ -224,6 +225,7 @@ let kgStatus: (() => { phase: string; reason?: string; step?: string }) | undefi
 const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state(), mail: () => mailSync.state() });
 // GET /status: 뇌가 claude-code 인데 로그인 확인 전이면 한 번 확인을 걸고(비동기) 끝나면 SSE status 로 알린다
 const status = () => statusOf(cfg, { claude: () => connections.claudeLoggedIn() });
+setClaudeProbe(() => connections.claudeLoggedIn()); // 코드 작업 AI 고르기·준비(coding.ts)
 let claudeProbe: Promise<void> | undefined;
 const probeClaude = () => (claudeProbe ??= connections.check("claude").then(() => pushStatus()));
 function pushStatus() {
@@ -306,7 +308,7 @@ await bus.listen(cfg.port, {
     bg: agent.bgAgents.list(id), subs: worktreeRecords.forThread(id),
     tokensOf: (runId, parent) => runs.tokensOf(runId, parent), askedAt: (pid) => store.proposal(pid)?.created,
   }) : undefined),
-  models: () => ({ choices: modelChoices(cfg), defaults: { fix: codingChoice(cfg).model ?? "codex", chat: cfg.models.general } }),
+  models: () => { const c = codingChoice(cfg); return { choices: modelChoices(cfg, c.provider), defaults: { fix: c.model ?? "", chat: cfg.models.general } }; },
   chatModels: (fresh) => chatModels(cfg, { fresh }),
   commands: () => commands.list(),
   repos: () => agent.repos(),

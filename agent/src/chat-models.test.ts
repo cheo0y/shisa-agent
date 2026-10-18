@@ -272,13 +272,14 @@ test("설정: 지금 뇌에 맞는 세부 모델 칸 · 뇌별 저장(다른 뇌
     const path = join(dir, "config.json");
     writeFileSync(path, JSON.stringify({ models: { general: "claude-opus-5-5" } }));
     const cfg = cfgOf("codex");
-    const s = new Settings(cfg, { path, env: {} });
+    const avail: { claude: boolean; codex: boolean } = { claude: false, codex: false };
+    const s = new Settings(cfg, { path, env: {}, coders: () => avail });
     const v = s.view();
     assert.equal(v.modelSlots.title, "Codex 세부 모델");
     assert.equal(v.modelSlots.claude, false);
     const code = v.modelSlots.roles.find((r) => r.role === "code")!;
-    assert.equal(code.enabled, false);
-    assert.match(code.why!, /패널의/);
+    assert.equal(code.enabled, false, "코드 작업 AI(Claude Code·Codex)가 둘 다 없으면 막는다");
+    assert.match(code.why!, /Claude Code 나 Codex 를 연결하면/);
     assert.ok(v.modelSlots.roles.filter((r) => r.role !== "code").every((r) => r.enabled && r.value === null), "Codex 칸은 Claude 이름을 보이지 않는다(기본)");
     const r = s.put({ brainModels: { provider: "codex", models: { general: "gpt-5.6-terra", light: "gpt-5.6-luna" } } });
     assert.ok(r.ok);
@@ -291,7 +292,7 @@ test("설정: 지금 뇌에 맞는 세부 모델 칸 · 뇌별 저장(다른 뇌
     assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).brainModels, { codex: { general: "gpt-5.6-terra" } });
     assert.equal(s.put({ brainModels: { provider: "codex", models: { general: "claude-opus-5-5" } } }).ok, false);
     assert.equal(s.put({ brainModels: { provider: "claude-code", models: { general: "x" } } }).ok, false);
-    assert.equal(s.put({ brainModels: { provider: "codex", models: { code: "gpt-x" } } }).ok, false);
+    assert.equal(s.put({ brainModels: { provider: "gemini", models: { code: "gemini-3.5-pro" } } }).ok, false, "code 칸은 Codex 만");
     // 설치 마법사가 Gemini 를 고르며 모델을 넘기면 그 뇌 칸에(Claude Code 의 models.general 은 그대로)
     assert.ok(s.put({ brain: { provider: "gemini", model: "gemini-3.5-pro" } }).ok);
     assert.equal(roleModel(cfg, "general", "gemini"), "gemini-3.5-pro");
@@ -299,6 +300,7 @@ test("설정: 지금 뇌에 맞는 세부 모델 칸 · 뇌별 저장(다른 뇌
     assert.equal(s.view().modelSlots.title, "Gemini 세부 모델");
     assert.equal(s.view().brain.model, "gemini-3.5-pro");
     // Claude Code 로 돌아오면 그 칸(코드 작업 포함)이 다시 보인다
+    avail.claude = true;
     assert.ok(s.put({ brain: { provider: "claude-code" } }).ok);
     const cc = s.view().modelSlots;
     assert.equal(cc.title, "Claude Code 세부 모델");

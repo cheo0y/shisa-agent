@@ -41,13 +41,15 @@ test('createCapsProbe: 잠깐 기억하고(force 면 새로), 동시에 물으�
   assert.deepEqual(await probe.refresh(), { claude: false, codex: false }, '깨지면 예전 값');
 });
 
-test('Claude Code 가 없으면: 메뉴에서 작업 세션을 빼고, 패널은 버튼을 숨기고, 단축키는 안내', () => {
+test('코드 작업 AI 가 없으면: 메뉴에서 작업 세션을 빼고, 패널은 버튼을 숨기고, 단축키는 안내', () => {
   const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
   assert.match(m, /\.\.\.\(coder\(\) \? \[\{ label: '작업 세션 열기', click: openSessionMenu \}\] : \[\]\)/);
+  assert.match(m, /const coder = \(\) => brainNow\(\)\.coder;/, '데몬이 본 코드 작업 AI 기준');
   assert.doesNotMatch(m, /suggest|건의/i, '건의함은 개인판에서 뺐다');
   assert.match(m, /ipcMain\.handle\('caps-get'/);
   const p = readFileSync(new URL('../renderer/panel.js', import.meta.url), 'utf8');
   assert.match(p, /for \(const id of \['open-session'\]\) \{ const b = \$\(id\); if \(b\) b\.hidden = !hasCoder\(\); \}/);
   const s = readFileSync(new URL('../renderer/session.js', import.meta.url), 'utf8');
-  assert.match(s, /\$\('btn-new'\)\.hidden = true;/);
+  assert.match(s, /const off = brain\.coder === false;\n  \$\('btn-new'\)\.hidden = off;/);
+  assert.match(p, /typeof brain\.coder === 'boolean' \? brain\.coder : canCodeWith\(caps\)/);
 });

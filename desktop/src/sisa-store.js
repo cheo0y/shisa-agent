@@ -38,8 +38,6 @@ export function normalizeSisa(raw) {
     gsk: d.gsk === true,
     provider: ALL_PROVIDERS.includes(d.provider) || d.provider === 'none' ? d.provider : '',
     chatModels,
-    codeProvider: d.codeProvider === 'codexcli' ? 'codexcli' : 'claudecode',
-    codeModel: isModelId(d.codeModel) ? d.codeModel : 'default',
     persona: typeof d.persona === 'string' && !isStockPersona(d.persona) ? d.persona : '',
     canned: sanitizeCanned(d.canned),
     done: obj(d.done),
@@ -77,8 +75,6 @@ export function publicView(data, defaultPersona = '') {
     done: d.done,
     connected: connectedProviders(d),
     chatModels: d.chatModels,
-    codeModel: d.codeModel,
-    codeProvider: d.codeProvider,
   };
 }
 
@@ -120,8 +116,9 @@ export function withSkip(data) {
   return { ...normalizeSisa(data), provider: 'none' };
 }
 
-// { chat: { provider, model }, code: model } → 새 데이터. 값이 잘못되면 null.
-export function withModels(data, { chat, code } = {}) {
+// { chat: { provider, model } } → 새 데이터. 값이 잘못되면 null.
+// 코드 작업 AI·모델은 여기 두지 않는다(데몬 설정 하나 — 설정 창 「세부 모델」의 코드 작업 칸)
+export function withModels(data, { chat } = {}) {
   const d = normalizeSisa(data);
   let next = d;
   if (chat !== undefined) {
@@ -133,14 +130,6 @@ export function withModels(data, { chat, code } = {}) {
       if (!connectedProviders(d).includes(p) || !isModelId(m)) return null;
       next = { ...next, provider: p, chatModels: { ...next.chatModels, [p]: m } };
     }
-  }
-  if (code !== undefined) {
-    const provider = typeof code === 'object' ? code?.provider : d.codeProvider;
-    const model = typeof code === 'object' ? code?.model : code;
-    if (!['claudecode', 'codexcli'].includes(provider) || !isModelId(model)) return null;
-    if (typeof code === 'object' && !connectedProviders(d).includes(provider)) return null;
-    if (model !== 'default' && (provider === 'codexcli' ? /^(claude-|opus$|sonnet$|haiku$)/.test(model) : /^(gpt-|codex|o\d)/.test(model))) return null;
-    next = { ...next, codeProvider: provider, codeModel: model };
   }
   return next;
 }

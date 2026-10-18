@@ -1,4 +1,3 @@
-import { hasCoder as canCodeWith } from '../src/caps.js';
 // 작업 세션 창 — 왼쪽 run 목록, 오른쪽 Claude Code 같은 기록 + 입력창. 네트워크는 전부 메인을 거친다.
 import { who, setWho } from './who.js';
 import { applyCharacters } from '../src/character-registry.js';
@@ -688,18 +687,22 @@ async function openInClaude(r = current()) {
 }
 $('btn-claude').addEventListener('click', () => openInClaude());
 // 뇌(말 거는 AI) 연결 상태 — 바뀌면 입력창을 다시 그린다
-const applyBrain = (v) => { if (v && typeof v === 'object') { brain = v; renderHead(); } };
+// 코드 작업 AI(Claude Code·Codex)가 준비되지 않았으면(brain.coder === false) 새 작업(코드 고치기)은 숨기고, 세션 목록 위에 쉬운 안내
+let coderNote = null;
+function applyCoder() {
+  const off = brain.coder === false;
+  $('btn-new').hidden = off;
+  if (off && !coderNote) {
+    coderNote = document.createElement('div');
+    coderNote.className = 'empty';
+    coderNote.textContent = '코드 고치기·새 작업은 Claude Code 또는 Codex가 있어야 해요. 여기서는 브리핑·대화 기록만 볼 수 있어요.';
+    $('btn-new').after(coderNote);
+  }
+  if (coderNote) coderNote.hidden = !off;
+}
+const applyBrain = (v) => { if (v && typeof v === 'object') { brain = v; renderHead(); applyCoder(); } };
 cy.brain?.().then(applyBrain).catch(() => {});
 cy.onBrain?.(applyBrain);
-// Claude Code 가 없는 컴퓨터: 새 작업(코드 고치기)은 숨기고, 세션 목록 위에 쉬운 안내
-cy.caps?.().then((c) => {
-  if (canCodeWith(c)) return;
-  $('btn-new').hidden = true;
-  const note = document.createElement('div');
-  note.className = 'empty';
-  note.textContent = '코드 고치기·새 작업은 Claude Code 또는 Codex가 있어야 해요. 여기서는 브리핑·대화 기록만 볼 수 있어요.';
-  $('btn-new').after(note);
-}).catch(() => {});
 
 // ---- ↻ 새로고침: 터미널에서 이어 간 것 불러오기(POST /runs/:id/sync) ----
 let syncing = false;

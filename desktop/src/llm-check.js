@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { findBin, codexHome } from './agent-login.js';
+import { findBin } from './agent-login.js';
 import { execBin } from './win-exec.js';
 
 // gemini 는 모델이 자주 바뀌어(옛 모델은 새 사용자에게 막힌다) 키로 목록을 받아 가장 새 flash 를 쓴다.
@@ -360,19 +360,7 @@ export function pickModels(provider, json) {
   return [];
 }
 
-export function readCodexModels({ home = os.homedir(), env = process.env, readFile = fs.readFileSync } = {}) {
-  try {
-    const data = JSON.parse(readFile(path.join(codexHome(home, env), 'models_cache.json'), 'utf8'));
-    const rows = (Array.isArray(data?.models) ? data.models : [])
-      .filter((m) => typeof m?.slug === 'string' && /^[A-Za-z0-9._:/-]{1,100}$/.test(m.slug) && (m.visibility ?? 'list') === 'list')
-      .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0))
-      .map((m) => ({ id: m.slug, label: typeof m.display_name === 'string' ? m.display_name : '' }));
-    return [...CLI_MODELS.codexcli, ...rows];
-  } catch { return [...CLI_MODELS.codexcli]; }
-}
-
 export async function listModels(provider, apiKey, rawFetch = globalThis.fetch) {
-  if (provider === 'codexcli') return { ok: true, models: readCodexModels() };
   if (CLI_MODELS[provider]) return { ok: true, models: CLI_MODELS[provider] };
   const fetchImpl = keyFetch(rawFetch);
   const key = String(apiKey ?? '').trim();

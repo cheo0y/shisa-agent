@@ -6,7 +6,7 @@ import {
 } from '../src/sisa-store.js';
 import { SISA_BASE } from '../src/persona.js';
 import { CANNED_DEFAULTS } from '../src/canned.js';
-import { optionsFor, codeOptions, cannedOverrideOf } from '../renderer/models-view.js';
+import { optionsFor, cannedOverrideOf } from '../renderer/models-view.js';
 import { pickModels, listModels, completeCli, completeCodex, completeLlm, CLI_MODELS } from '../src/llm-check.js';
 
 const KEY = 'AIzaSyExampleExampleExample';
@@ -32,7 +32,6 @@ test('연결 안 된 AI나 이상한 모델 이름은 거절한다', () => {
   const d = withKey({}, 'gemini', KEY);
   assert.equal(withModels(d, { chat: { provider: 'openai', model: 'gpt-4o' } }), null);
   assert.equal(withModels(d, { chat: { provider: 'gemini', model: 'x; rm -rf /' } }), null);
-  assert.equal(withModels(d, { code: '--dangerous flag' }), null);
   assert.equal(isModelId('claude-opus-5-5'), true);
   assert.equal(isModelId('models/gemini-2.5-flash'), true);
 });
@@ -50,10 +49,16 @@ test('밖으로 나가는 값에는 키가 없다', () => {
   assert.match(view, /기본 말투/);
 });
 
-test('코딩 모델은 default 로 되돌릴 수 있다', () => {
+test('코드 작업 AI·모델은 앱 저장(sisa)에 두지 않는다 — 데몬 설정 하나(설정 창 「세부 모델」의 코드 작업 칸)', () => {
   const d = withModels(withCli({}, 'claudecode'), { code: 'opus' });
-  assert.equal(d.codeModel, 'opus');
-  assert.equal(withModels(d, { code: 'default' }).codeModel, 'default');
+  assert.equal('codeModel' in d, false);
+  assert.equal('codeModel' in publicView(normalizeSisa({ codeModel: 'opus', codeProvider: 'codexcli' })), false, '예전 값은 읽지 않는다');
+  assert.equal('codeProvider' in publicView(normalizeSisa({ codeProvider: 'codexcli' })), false);
+  const m = fs.readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(m, /writeCodeModel/, '앱이 데몬 config.json 의 코드 모델을 따로 쓰지 않는다');
+  const v = fs.readFileSync(new URL('../renderer/models-view.js', import.meta.url), 'utf8');
+  assert.match(v, /세부 모델」의 코드 작업 칸/);
+  assert.doesNotMatch(v, /save\(\{ code:/);
 });
 
 test('Gemini·GPT 목록은 대화용만 추린다', () => {
@@ -97,15 +102,9 @@ test('고른 모델이 요청에 실린다', async () => {
   assert.equal(args[args.indexOf('-m') + 1], 'gpt-5');
 });
 
-test('모델 탭 선택지: 지금 값이 목록에 없어도 남고, 코딩은 Claude만', () => {
+test('모델 탭 선택지: 지금 값이 목록에 없어도 남는다', () => {
   const rows = optionsFor('gemini', { status: 'ok', models: [{ id: 'a', label: '' }] }, 'zzz');
   assert.deepEqual(rows.map((m) => m.id), ['default', 'a', 'zzz']);
-  const code = codeOptions(
-    { claudecode: { status: 'ok', models: CLI_MODELS.claudecode }, gemini: { status: 'ok', models: [{ id: 'g', label: '' }] } },
-    ['claudecode', 'gemini', 'codexcli'],
-    'default',
-  );
-  assert.deepEqual(code.map((m) => m.id), ['default', 'sonnet', 'opus', 'haiku']);
 });
 
 test('Gemini 기본 모델은 목록에서 가장 새 flash 를 고른다', async () => {
@@ -156,33 +155,4 @@ test('cannedOverrideOf: 기본값과 다른 칸만 남긴다', () => {
   const tired = ['안녕 **시사**예요.\n오늘은 쉬어요.'];
   assert.deepEqual(cannedOverrideOf({ tired }, {}), { tired });
   assert.deepEqual(cannedOverrideOf({ tired: [...CANNED_DEFAULTS.tired] }, {}), {});
-});
-
-test('Codex 모델 캐시: 보이는 모델을 우선순위로 나열하고 CODEX_HOME을 따른다', async () => {
-  const { readCodexModels } = await import('../src/llm-check.js');
-  let file;
-  const models = readCodexModels({ home: '/home/me', env: { CODEX_HOME: '/custom' }, readFile: (p) => {
-    file = p;
-    return JSON.stringify({ models: [
-      { slug: 'gpt-test-b', priority: 2, visibility: 'list' },
-      { slug: 'hidden', visibility: 'hide' },
-      { slug: 'gpt-test-a', priority: 1, display_name: 'A' },
-      { slug: '--invalid option' },
-    ] });
-  } });
-  assert.equal(file, '/custom/models_cache.json');
-  assert.deepEqual(models.map((m) => m.id), ['default', 'gpt-test-a', 'gpt-test-b']);
-  assert.deepEqual(readCodexModels({ readFile: () => { throw new Error('missing'); } }), CLI_MODELS.codexcli);
-});
-
-test('코딩 실행기·모델 선택: 대화 선택 유지, 연결·모델 회사 확인', () => {
-  const d = withCli(withCli({}, 'claudecode'), 'codexcli');
-  const next = withModels(d, { code: { provider: 'codexcli', model: 'gpt-test' } });
-  assert.equal(next.codeProvider, 'codexcli');
-  assert.equal(next.codeModel, 'gpt-test');
-  assert.equal(next.provider, d.provider);
-  assert.equal(publicView(next).codeProvider, 'codexcli');
-  assert.equal(withModels(d, { code: { provider: 'codexcli', model: 'opus' } }), null);
-  assert.equal(withModels(withCli({}, 'claudecode'), { code: { provider: 'codexcli', model: 'default' } }), null);
-  assert.equal(normalizeSisa({}).codeProvider, 'claudecode');
 });
