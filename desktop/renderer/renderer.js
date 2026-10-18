@@ -1,5 +1,5 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
-import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
+import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons, carryButtons } from '../src/bubbles.js';
 import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
@@ -398,6 +398,14 @@ function fillEl(item, b) {
         if (t.cmd === 'stop' || b.tour.step >= b.tour.total) dismiss(b.id);
       }));
     }
+  } else if (carryButtons(b).length) {
+    // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: 그대로 둘게요 · 이번 주로 내려요(데몬에 보낸다) · 하나씩 볼게요(패널 오늘 할 일 탭)
+    for (const c of carryButtons(b)) {
+      const btn = button(c.label, c.primary ? 'primary' : '', () => (c.cmd === 'open' ? (cy.openItem('today', null), dismiss(b.id)) : carryDecide(b, c.cmd)));
+      btn.title = c.title;
+      btn.disabled = !!b.pending;
+      meta.append(btn);
+    }
   } else if (b.quick) {
     // AI 없이 고르는 질문 칩: 누르면 데몬이 정해진 말로 답한다(칩 말풍선은 남겨 두고 답은 새 말풍선으로)
     meta.classList.add('quick-bar');
@@ -424,7 +432,7 @@ function fillEl(item, b) {
     x.title = '닫기';
     bub.append(x);
   }
-  if (b.open) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
+  if (b.open && !carryButtons(b).length) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
   else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
   if (!(b.actions === 'merge' && !b.decided)) closeMergeAsk(b.id, false);
@@ -464,6 +472,20 @@ function button(label, cls, onClick) {
   if (cls) btn.className = cls;
   btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return btn;
+}
+
+// 아침 질문 답: 보내는 동안 단추를 끄고, 되면 짧은 확인 말로 바꾼다(데몬도 같은 말풍선을 걷는다)
+async function carryDecide(b, decision) {
+  queue.update(b.id, { pending: true });
+  render();
+  let r;
+  try { r = await cy.todayCarry(decision); } catch { r = { ok: false }; }
+  const moved = Number(r?.data?.moved) || 0;
+  const text = !r?.ok ? '지금은 못 바꿨어요. 패널 오늘 할 일 탭에서 골라 주세요'
+    : decision === 'demote' ? (moved ? `${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '좋아요, 오늘도 같이 해요';
+  const it = queue.update(b.id, { pending: false, decided: true, carry: undefined, kind: r?.ok ? 'done' : 'error', text, ttlMs: 5000 });
+  if (it) schedule(it);
+  render();
 }
 
 async function decide(b, action) {

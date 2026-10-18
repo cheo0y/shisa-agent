@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('cy', {
   todoDone: (id) => ipcRenderer.invoke('todo-done', String(id)),
   todoAdd: (body) => ipcRenderer.invoke('todo-add', body),
   todoEdit: (id, patch) => ipcRenderer.invoke('todo-edit', String(id), patch),
+  // 오늘 할 일 탭 위 「어제 남은 N개, 오늘도 할까요?」: decision = 'keep' | 'demote'
+  todayCarry: (decision) => ipcRenderer.invoke('today-carry', String(decision)),
   todoDelete: (id) => ipcRenderer.invoke('todo-delete', String(id)), // 휴지통으로
   todoRestore: (id) => ipcRenderer.invoke('todo-restore', String(id)),
   todoPurge: (id) => ipcRenderer.invoke('todo-purge', String(id)),

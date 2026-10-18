@@ -18,7 +18,8 @@ import { brainView, connectCard, chatLock } from '../src/brain-state.js';
 import { initialChat, chatReducer, isBusy, isRunning, busyLabel, busyThreads, sendButton, stopTargets, localState, queuedChats, queuedLabel, sentLabel } from '../src/chat.js';
 import { stamp, withDayDividers } from '../src/chat-time.js';
 import { KIND_ICONS, KIND_LABELS, normThread, normThreads, upsertThread, groupThreads, filterThreads, initSeen, isUnread, markSeen, pruneSeen, unreadCount, pickInitial, neighborThread, afterRemoval, mergeMessages, appendLocal, tagLocal, dropLocal, dropFailed, markSent, isDoubleSend, todoChip, okThreadId, editTarget, dropFrom } from '../src/threads.js';
-import { PRIORITIES, mergeRecentDone, newTodoBody, overlayTodos, descriptionPatch, isDoing, patchToday, isToday } from '../src/todos.js';
+import { PRIORITIES, mergeRecentDone, newTodoBody, overlayTodos, descriptionPatch, isDoing, patchToday, isToday, todayPatch, TODAY_PRIORITY } from '../src/todos.js';
+import { CARRY_CHOICES } from '../src/bubbles.js';
 import { createClickSorter, toggleOpen, dropTarget, autoScrollDelta, reorderLocal, isNoopMove, keyMove, detailView, LONG_PRESS, MOVE_SLOP } from '../src/todo-rows.js';
 import { openEdit, fillDescription, editKey, editPatch } from '../src/todo-edit.js';
 import { originPlan, todoPlan } from '../src/origin.js';
@@ -1059,7 +1060,7 @@ let todoMsg = null; // { ok, text }
 let todosStale = false;
 let addPriority = 2;
 let addDraft = '';
-let todayPriority = 2; // 오늘 할 일 탭의 추가 칸
+let carryBusy = false; // 오늘 할 일 탭 위 「어제 남은 N개」 답을 보내는 중
 let todayDraft = '';
 
 const why = (r) => (typeof r?.data?.error === 'string' ? r.data.error : r?.status ? `HTTP ${r.status}` : `${who()} 연결 확인`);
@@ -1096,17 +1097,16 @@ function moveTodo(id, priority, beforeId) {
     () => setRawTodos(reorderLocal(rawTodos(), id, priority, beforeId)));
 }
 
-// scope 'today': 오늘 할 일 탭에서 추가. 같은 할 일로 만들고 오늘로 고른다
+// scope 'today': 오늘 할 일 탭에서 추가 = 우선순위 1(오늘 꼭) 할 일로 만든다
 function addTodo(scope = 'todos') {
   const today = scope === 'today';
-  const date = vm.today?.date || '';
-  const body = newTodoBody(today ? todayDraft : addDraft, today ? todayPriority : addPriority);
+  const body = newTodoBody(today ? todayDraft : addDraft, today ? TODAY_PRIORITY : addPriority);
   if (!body) return;
   if (today) todayDraft = ''; else addDraft = '';
   const input = $(today ? 'today-add-input' : 'todo-add-input');
   if (input) input.value = '';
-  const shown = today && date ? { ...body, today: date } : body; // 응답 전에도 오늘 묶음에 보이게
-  mutate({ kind: 'add', tempId: `tmp:${opSeq + 1}`, body: shown }, () => cy.todoAdd(today ? { ...body, today: true } : body), '추가 실패', (r) => {
+  const shown = body; // P1 이면 응답 전에도 오늘 할 일에 보인다
+  mutate({ kind: 'add', tempId: `tmp:${opSeq + 1}`, body: shown }, () => cy.todoAdd(body), '추가 실패', (r) => {
     if (typeof r.data?.id !== 'string') return;
     setRawTodos([{ id: r.data.id, source: 'user', userEdited: false, ...shown }, ...rawTodos()]);
     if (today) raw = { ...raw, today: patchToday(raw.today, r.data.id, { title: body.title, priority: body.priority, source: 'user', done: false }) };
@@ -1117,20 +1117,35 @@ function addTodo(scope = 'todos') {
   });
 }
 
-// 줄의 '오늘' 토글: 할 일을 오늘 할 일로 고르거나 뺀다(할 일은 그대로)
+// 줄의 '오늘' 토글: 오늘 할 일에 넣기 = 우선순위 1(오늘 꼭)로, 빼기 = 2(이번 주)로(할 일은 그대로)
 function toggleToday(t) {
-  const date = vm.today?.date;
-  if (!date) return;
-  const on = isToday(t, date);
-  mutate({ kind: 'edit', id: t.id, patch: { today: on ? null : date }, rule: true }, () => cy.todoEdit(t.id, { today: !on }), '오늘 할 일 바꾸기 실패', () => {
-    setRawTodos(rawTodos().map((x) => {
-      if (x.id !== t.id) return x;
-      const { today: _drop, ...rest } = x;
-      return on ? rest : { ...x, today: date };
-    }));
-    raw = { ...raw, today: patchToday(raw.today, t.id, on ? null : { title: t.title, priority: t.priority, source: t.source, done: false }) };
+  const on = isToday(t);
+  const patch = todayPatch(!on);
+  mutate({ kind: 'edit', id: t.id, patch }, () => cy.todoEdit(t.id, patch), '오늘 할 일 바꾸기 실패', () => {
+    setRawTodos(rawTodos().map((x) => (x.id === t.id ? { ...x, ...patch, userEdited: true } : x)));
+    raw = { ...raw, today: patchToday(raw.today, t.id, on ? null : { title: t.title, priority: TODAY_PRIORITY, source: t.source, done: false }) };
   });
 }
+
+// 오늘 할 일 탭 위 「어제 남은 N개, 오늘도 할까요?」: keep 그대로 · demote 이번 주로 · open 은 이 탭 그대로(하나씩 「오늘」을 눌러 뺀다)
+async function carryDecide(cmd) {
+  if (cmd === 'open') { carryHidden = vm.today?.date || ''; renderTodos(); return; }
+  carryBusy = true;
+  renderTodos();
+  let r;
+  try { r = await cy.todayCarry(cmd); } catch { r = { ok: false }; }
+  carryBusy = false;
+  if (r?.ok) {
+    const moved = Number(r.data?.moved) || 0;
+    todoMsg = { ok: true, text: cmd === 'demote' ? (moved ? `어제 남은 ${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '어제 남은 일을 오늘도 그대로 둘게요' };
+    if (raw?.today) { const { carry: _c, ...rest } = raw.today; raw = { ...raw, today: rest }; }
+    loadSoon();
+  } else {
+    todoMsg = { ok: false, text: `고르지 못했어요 — ${why(r)}` };
+  }
+  renderAll();
+}
+let carryHidden = ''; // 「하나씩 볼게요」를 누른 날: 안내 단추는 접고 한 줄만 남긴다
 
 function completeTodo(t) {
   const item = { id: t.id, title: t.title, source: t.source, priority: t.priority, link: t.linkRaw || undefined, note: t.note || undefined, userEdited: t.userEdited };
@@ -1280,14 +1295,13 @@ function doingButton(t) {
   });
 }
 
-// '오늘' 토글: 켜져 있으면 오늘 할 일(오늘 할 일 탭에도 같은 줄), 누르면 고르기·빼기
+// '오늘' 토글: 켜져 있으면 오늘 할 일(우선순위 오늘 꼭), 누르면 넣기(오늘 꼭으로)·빼기(이번 주로)
 function todayButton(t) {
-  const date = vm.today?.date;
-  if (!date) return null;
-  const on = isToday(t, date);
+  if (!vm.today?.date) return null;
+  const on = isToday(t);
   return h(`button.ghost.row-today${on ? '.on' : ''}`, {
     type: 'button', text: '오늘', disabled: t.pending, 'aria-pressed': String(on),
-    title: on ? '오늘 할 일에서 빼기(할 일은 남아요)' : '오늘 할 일로 고르기', 'aria-label': `${on ? '오늘 할 일에서 빼기' : '오늘 할 일로'}: ${t.title}`,
+    title: on ? '오늘 할 일에서 빼기(이번 주로 내려요)' : '오늘 할 일에 넣기(오늘 꼭으로 올려요)', 'aria-label': `${on ? '오늘 할 일에서 빼기' : '오늘 할 일에 넣기'}: ${t.title}`,
     onclick: () => toggleToday(t),
   });
 }
@@ -1374,7 +1388,7 @@ const todaySec = $('sec-today');
 const isListSection = () => section === 'todos' || section === 'today';
 const listSec = () => (section === 'today' ? todaySec : todosSec);
 const listGroups = () => (section === 'today' ? vm.todayGroups : vm.todoGroups);
-const listTodos = () => (section === 'today' ? visibleTodos().filter((t) => isToday(t, vm.today?.date)) : visibleTodos());
+const listTodos = () => (section === 'today' ? visibleTodos().filter((t) => isToday(t)) : visibleTodos());
 const ADD_INPUTS = ['todo-add-input', 'today-add-input'];
 let composing = false;
 for (const sec of [todosSec, todaySec]) {
@@ -1424,46 +1438,63 @@ function todoListKids() {
   return kids;
 }
 
-// 오늘 할 일: 날짜·남은 수 머리 + 할 일 탭과 같은 추가 칸·우선순위 묶음 + 오늘 끝낸 것
+// 오늘 할 일: 날짜·남은 수 머리 + (어제 남은 것 물음) + 추가 칸(오늘 꼭으로 생김) + 「오늘 꼭」 줄 + 오늘 끝낸 것
 function todayListKids() {
   const t = vm.today ?? { date: '', items: [] };
-  const groups = dragGroups && section === 'today' ? withEmptyGroups(vm.todayGroups) : vm.todayGroups;
+  const groups = dragGroups && section === 'today' ? withEmptyGroups(vm.todayGroups, [TODAY_PRIORITY]) : vm.todayGroups;
   const open = vm.stats.todayOpen, total = vm.stats.todayTotal;
   const kids = [
     h('div.today-head', null,
       h('h2', { text: t.date ? `${t.date} 오늘 할 일` : '오늘 할 일' }),
       h('span.muted', { text: total ? `남은 ${open} · 전체 ${total}` : '아직 없어요. 일정을 보고 적어 보세요.' }),
       focusView.bar('today')),
-    addForm('today'),
   ];
+  if (t.carry?.n) kids.push(carryBox(t));
+  kids.push(addForm('today'));
   if (todoMsg) kids.push(h(`div.result.${todoMsg.ok ? 'ok' : 'err'}`, { role: 'status', text: todoMsg.text }));
   if (total && !groups.length) kids.push(h('div.empty', { text: '오늘 할 일을 다 끝냈어요' }));
-  kids.push(...groups.map(todoGroup));
+  kids.push(...groups.map((g) => todoGroup(g, 'today')));
   if (vm.todayDone.length) {
     kids.push(h('div.group.done', null,
       h('h2', null, h('span', { text: '오늘 끝냄' }), h('span.chip', { text: String(vm.todayDone.length) })),
       h('div.card.todos', null, vm.todayDone.map(doneRow))));
   }
-  if (!total) kids.push(h('div.muted.small', { text: '할 일 탭에서 줄의 「오늘」을 눌러 골라도 돼요.' }));
+  kids.push(h('div.muted.small.today-hint', { text: total ? '줄의 「오늘」을 다시 누르면 오늘 할 일에서 빠져 이번 주로 가요.' : '할 일 탭에서 줄의 「오늘」을 누르거나 우선순위를 「오늘 꼭」으로 바꿔도 여기 들어와요.' }));
   kids.push(focusView.foot('today'));
   return kids;
 }
 
-function withEmptyGroups(groups) {
+function withEmptyGroups(groups, keep = [1, 2, 3, BACKLOG]) {
   const out = [...groups];
-  for (const p of [1, 2, 3, BACKLOG]) if (!out.some((g) => g.priority === p)) out.push({ priority: p, label: priorityLabel(p), items: [] });
+  for (const p of keep) if (!out.some((g) => g.priority === p)) out.push({ priority: p, label: priorityLabel(p), items: [] });
   return out.sort((a, b) => a.priority - b.priority);
 }
 
+// 「어제 남은 N개, 오늘도 할까요?」 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요]
+function carryBox(t) {
+  const q = `어제 남은 ${t.carry.n}개, 오늘도 할까요?`;
+  if (carryHidden && carryHidden === t.date) {
+    return h('div.carry-box.folded', { role: 'status' }, h('span', { text: `${q} 줄의 「오늘」을 누르면 이번 주로 내려가요.` }),
+      h('button.ghost.small', { type: 'button', text: '다시 고르기', onclick: () => { carryHidden = ''; renderTodos(); } }));
+  }
+  return h('div.carry-box', { role: 'group', 'aria-label': q },
+    h('span.q', { text: q }),
+    h('span.carry-actions', null, CARRY_CHOICES.map((c) => h(`button${c.primary ? '.primary' : '.ghost'}`, {
+      type: 'button', text: c.label, title: c.title, disabled: carryBusy, dataset: { carry: c.cmd }, onclick: () => carryDecide(c.cmd),
+    }))));
+}
+
 // 우선순위 묶음. 백로그(P4)는 기본 접힘(기억) — 접혀 있어도 끌어 놓을 칸은 남는다
-function todoGroup(g) {
+function todoGroup(g, scope = 'todos') {
   const collapsed = isCollapsed(g.priority, backlogOpen);
   const head = g.priority === BACKLOG
     ? h('h2.backlog-head', {
       role: 'button', tabindex: '0', 'aria-expanded': String(!collapsed), title: collapsed ? '펼치기' : '접기',
       onclick: toggleBacklog, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBacklog(); } },
     }, h('span.caret', { text: collapsed ? '▸' : '▾' }), h('span', { text: g.label }), h('span.chip', { text: String(g.items.length) }))
-    : h('h2', null, h('span', { text: g.label }), h('span.chip', { text: String(g.items.length) }));
+    : h('h2', null, h('span', { text: g.label }),
+      g.priority === TODAY_PRIORITY && scope !== 'today' ? h('span.muted.small.prio-today', { text: '(오늘 할 일)', title: '「오늘 꼭」은 오늘 할 일 탭에 그대로 보여요' }) : null,
+      h('span.chip', { text: String(g.items.length) }));
   const body = collapsed
     ? h('div.card.todos.drop-empty.collapsed', null, g.items.length ? null : h('div.muted.small', { text: '끌어 놓기' }))
     : h(`div.card.todos${g.items.length ? '' : '.drop-empty'}`, null, g.items.length ? g.items.map(todoRow) : h('div.muted.small', { text: '끌어 놓기' }));
@@ -1525,7 +1556,7 @@ function addForm(scope = 'todos') {
   });
   return h('div.todo-add', null,
     input,
-    prioritySelect(today ? todayPriority : addPriority, (p) => { if (today) todayPriority = p; else addPriority = p; }),
+    today ? null : prioritySelect(addPriority, (p) => { addPriority = p; }), // 오늘 할 일 탭에서 적으면 늘 「오늘 꼭」
     h('button.primary', { type: 'button', text: '추가', onclick: () => addTodo(scope) }));
 }
 

@@ -73,7 +73,6 @@ export function groupTodos(todos) {
       ...(t.appliedRule && str(t.appliedRule.text) ? { appliedRule: { id: str(t.appliedRule.id), text: t.appliedRule.text } } : {}), // 적용된 할 일 규칙
       ...(str(t.progress) ? { progress: t.progress, progressAt: str(t.progressAt) } : {}), // 어디까지 됐는지(데몬 진행 확인)
       ...(typeof t.doing === 'boolean' ? { doing: t.doing } : {}), // 사용자가 누른 (진행중) 토글
-      ...(str(t.today) ? { today: t.today } : {}), // 오늘 할 일로 고른 날(KST)
       ...(str(t.projectId) ? { projectId: t.projectId } : {}), // 묶인 직접 만든 프로젝트
       ...(str(t.projectId) && Number.isFinite(t.projectOrder) ? { projectOrder: t.projectOrder } : {}), // 그 프로젝트 안 순서
     });
@@ -263,14 +262,14 @@ export function shapeDashboard(raw, now = Date.now()) {
   const b = r.briefing && typeof r.briefing === 'object' ? r.briefing : null;
   const today = r.today && typeof r.today === 'object' ? r.today : null;
   const connectors = shapeConnectors(r.connectors);
-  // 오늘 할 일 = 할 일 중 오늘로 고른 것. 열린 건 할 일 탭과 같은 우선순위 묶음(낙관적 반영 포함), 끝낸 건 '오늘 끝냄'
+  // 오늘 할 일 = 우선순위 1(오늘 꼭)인 할 일. 열린 건 할 일 탭의 「오늘 꼭」 묶음 그대로(낙관적 반영 포함), 끝낸 건 '오늘 끝냄'
   const todayDate = str(today?.date);
-  const todayGroups = todayDate ? groupTodos(arr(r.todos).filter((t) => t && t.today === todayDate)) : [];
+  const todayGroups = todayDate ? groupTodos(arr(r.todos).filter((t) => t && t.priority === 1)) : [];
   const todayOpen = todayGroups.flatMap((g) => g.items);
   const openIds = new Set(todayOpen.map((t) => t.id));
   const todayDone = arr(today?.items)
     .filter((it) => it && typeof it === 'object' && str(it.id) && str(it.title) && it.done === true && !openIds.has(it.id))
-    .map((it) => ({ id: it.id, title: it.title, source: str(it.source), priority: [1, 2, 3, 4].includes(it.priority) ? it.priority : 2, today: todayDate, auto: false, doneRel: '' }));
+    .map((it) => ({ id: it.id, title: it.title, source: str(it.source), priority: [1, 2, 3, 4].includes(it.priority) ? it.priority : 1, auto: false, doneRel: '' }));
   const todayItems = [
     ...todayOpen.map((t) => ({ id: t.id, title: t.title, done: false, priority: t.priority })),
     ...todayDone.map((t) => ({ id: t.id, title: t.title, done: true, priority: t.priority })),
@@ -298,8 +297,15 @@ export function shapeDashboard(raw, now = Date.now()) {
     proposals,
     connectors,
     notReady: connectors.filter((c) => !c.ready).map((c) => c.cap),
-    today: { date: todayDate, items: todayItems, asked: today?.asked === true },
+    today: { date: todayDate, items: todayItems, asked: today?.asked === true, ...shapeCarry(today?.carry, openIds) },
     todayGroups,
     todayDone,
   };
+}
+
+// 아침에 물은 「어제 남은 N개」 중 아직 안 고른 것(오늘 할 일 탭 위 안내). 지금 열린 오늘 할 일에 남은 것만 센다
+function shapeCarry(c, openIds) {
+  if (!c || typeof c !== 'object' || !Array.isArray(c.ids)) return {};
+  const ids = c.ids.filter((id) => typeof id === 'string' && openIds.has(id));
+  return ids.length ? { carry: { n: ids.length, ids } } : {};
 }

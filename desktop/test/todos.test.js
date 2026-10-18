@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanLink, cleanTitle, detailPatch, newTodoBody, overlayTodos, sanitizeTodoPatch, patchToday, isToday } from '../src/todos.js';
+import { cleanLink, cleanTitle, detailPatch, newTodoBody, overlayTodos, sanitizeTodoPatch, patchToday, isToday, todayPatch } from '../src/todos.js';
 import { groupTodos } from '../src/dashboard.js';
 
 const server = [
@@ -100,25 +100,24 @@ test('(진행중): 사용자 토글이 먼저, 없으면 비서 진척', async (
   assert.equal(t.userEdited, false); // 토글은 '직접 수정' 표시를 달지 않는다
 });
 
-test('오늘 할 일: today 패치는 IPC 를 통과하고, 겹쳐 보기·응답 전 맞추기', () => {
-  assert.deepEqual(sanitizeTodoPatch({ today: true }), { today: true });
+test('오늘 할 일 = 우선순위 1: 넣기·빼기 패치, 겹쳐 보기, 응답 전 맞추기', () => {
+  assert.deepEqual(sanitizeTodoPatch({ today: true }), { today: true }, '예전 today 패치도 IPC 는 통과(데몬이 P1·P2 로 바꾼다)');
   assert.deepEqual(sanitizeTodoPatch({ today: null }), { today: null });
   assert.equal(sanitizeTodoPatch({ today: 'x' }), null);
-  assert.deepEqual(sanitizeTodoPatch({ title: '가', priority: 1, today: true }, { allowStatus: false }), { title: '가', priority: 1, today: true });
-  // 응답 전 겹쳐 보기: 고르면 날짜가 붙고, 빼면(null) 없어진다
-  const base = [{ id: 'a', title: '가', priority: 2 }, { id: 'b', title: '나', priority: 1, today: '2026-10-09' }];
-  const on = overlayTodos(base, [{ kind: 'edit', id: 'a', patch: { today: '2026-10-09' }, rule: true }]);
-  assert.equal(on[0].today, '2026-10-09');
-  assert.equal(on[0].userEdited, undefined, '오늘 고르기는 사용자 편집 표시를 달지 않는다');
-  const off = overlayTodos(base, [{ kind: 'edit', id: 'b', patch: { today: null }, rule: true }]);
-  assert.equal('today' in off[1], false);
-  assert.equal(isToday(on[0], '2026-10-09'), true);
-  assert.equal(isToday(on[0], ''), false);
+  assert.deepEqual(todayPatch(true), { priority: 1 });
+  assert.deepEqual(todayPatch(false), { priority: 2 }, '빼면 이번 주로');
+  const base = [{ id: 'a', title: '가', priority: 2 }, { id: 'b', title: '나', priority: 1 }];
+  const on = overlayTodos(base, [{ kind: 'edit', id: 'a', patch: todayPatch(true) }]);
+  assert.equal(isToday(on[0]), true);
+  const off = overlayTodos(base, [{ kind: 'edit', id: 'b', patch: todayPatch(false) }]);
+  assert.equal(isToday(off[1]), false);
+  assert.equal(off[1].priority, 2);
+  assert.equal(isToday({ priority: 1 }, ''), true, '날짜와 상관없이 P1 이면 오늘 할 일');
   // 대시보드 today 맞추기
-  const t = { date: '2026-10-09', asked: true, items: [{ id: 'b', title: '나', done: false, priority: 1 }] };
+  const t = { date: 'd', items: [{ id: 'b', title: '나', done: false, priority: 1 }] };
   assert.deepEqual(patchToday(t, 'b', { done: true }).items, [{ id: 'b', title: '나', done: true, priority: 1 }]);
   assert.deepEqual(patchToday(t, 'b', null).items, []);
-  assert.deepEqual(patchToday(t, 'n', { title: '새', priority: 3 }).items.at(-1), { id: 'n', done: false, priority: 3, title: '새' });
+  assert.deepEqual(patchToday(t, 'n', { title: '새' }).items.at(-1), { id: 'n', done: false, priority: 1, title: '새' });
   assert.equal(patchToday(t, 'n', { done: true }), t, '모르는 줄에 상태만 오면 그대로');
   assert.equal(patchToday(null, 'b', null), null);
 });

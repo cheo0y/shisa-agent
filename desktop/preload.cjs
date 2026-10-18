@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('cy', {
   // 확인 카드(회의 응답 등): decision = 'confirm' | 'cancel'
   onAction: on('action'),
   actionDecide: (id, decision) => ipcRenderer.invoke('action-decide', String(id), String(decision)),
+  // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: decision = 'keep' | 'demote' → POST /today/carry
+  todayCarry: (decision) => ipcRenderer.invoke('today-carry', String(decision)),
   // 뇌(말 거는 AI) 연결 상태(brain-state.js brainView). 없으면 더블클릭이 고르는 질문 칩
   brain: () => ipcRenderer.invoke('brain-get'),
   // AI 없이 고르는 질문 칩(quick-ask.js) → 데몬 POST /local/ask

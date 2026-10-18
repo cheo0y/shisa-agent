@@ -693,6 +693,13 @@ button.ghost.danger-text { color: var(--err); }
 /* 오늘 할 일: 할 일 탭과 같은 줄·묶음. 머리에 날짜와 남은 수 */
 #sec-today .today-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 4px; }
 #sec-today .today-head h2 { margin: 0; }
+/* 아침에 물은 「어제 남은 N개, 오늘도 할까요?」 */
+#sec-today .carry-box { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 10px; padding: 9px 12px; border-radius: 10px; background: var(--accent-soft); }
+#sec-today .carry-box .q { font-weight: 600; }
+#sec-today .carry-box .carry-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+#sec-today .carry-box.folded { font-size: 12.5px; color: var(--muted); background: transparent; border: 1px dashed var(--line); }
+#sec-today .today-hint { margin-top: 6px; }
+.group h2 .prio-today { font-weight: 400; }
 /* 줄의 '오늘' 토글: 오늘 할 일로 고르기·빼기 */
 .todo.row .row-today { flex: none; padding: 1px 7px; font-size: 11.5px; border-radius: 999px; color: var(--faint); opacity: 0; transition: opacity 0.12s ease; }
 .todo.row:hover .row-today, .todo.row:focus-visible .row-today, .todo.row:focus-within .row-today, .todo.row .row-today:focus-visible, .todo.row .row-today.on { opacity: 1; }

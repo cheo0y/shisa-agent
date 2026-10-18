@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
-import { cleanMergeQuestion, normalizeOpen } from './src/bubbles.js';
+import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
 import { createSSEParser, backoffDelay, isEventStream, createSSEGate } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
@@ -1849,6 +1849,11 @@ function setupIPC() {
     if (!fromOurs(e) || !okActionId(id) || !['confirm', 'always', 'cancel'].includes(decision)) return denied();
     if (decision === 'always') return post(`/actions/${id}/confirm`, { always: true }, 120_000);
     return post(`/actions/${id}/${decision}`, undefined, 120_000);
+  });
+  // 아침 질문 「어제 남은 N개, 오늘도 할까요?」(말풍선·패널 오늘 할 일 탭 위): keep 그대로 · demote 이번 주로
+  ipcMain.handle('today-carry', (e, decision) => {
+    if (!fromOurs(e) || !isCarryDecision(decision)) return denied();
+    return post('/today/carry', { decision });
   });
   // [항상 허용]으로 저장한 도구 권한 규칙: 목록 · 지우기
   ipcMain.handle('permissions', (e) => (fromOurs(e) ? request('GET', '/permissions') : denied()));

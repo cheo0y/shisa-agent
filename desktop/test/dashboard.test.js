@@ -49,7 +49,7 @@ test('shapeDashboard: 숫자 요약과 프로젝트 정리', () => {
       { name: 'a', path: '/p/a', lastActive: ago(10 * MIN), sessions24h: 2, commitsToday: 3, recentCommits: [{ sha: 'abcdef1234', subject: 'feat: x', time: ago(HOUR) }, { sha: 'zz' }] },
       { name: 'b', path: '/p/b', lastActive: ago(3 * DAY), sessions24h: 0, commitsToday: 0 },
     ],
-    todos: [{ id: '1', title: '리뷰', priority: 1, today: '2026-10-09' }, { id: '2', title: 'u', priority: 3 }],
+    todos: [{ id: '1', title: '리뷰', priority: 1 }, { id: '2', title: 'u', priority: 3 }],
     proposals: [{ id: 'p', title: 'x', status: 'pending' }, { id: 'q', title: 'y', status: 'done' }],
     today: { date: '2026-10-09', items: [{ id: '1', title: '리뷰', done: false, priority: 1 }, { id: 'd', title: '끝', done: true, priority: 2 }] },
   }, NOW);
@@ -157,28 +157,29 @@ test('shapeDashboard: connectors → notReady, 오늘 할 일 탭은 항상 보�
   assert.equal(shapeConnectors([{ cap: 'slack', mode: 'gateway', ready: true }]).length, 0);
 });
 
-test('shapeDashboard: 오늘 할 일은 할 일 중 오늘로 고른 것: 할 일 탭과 같은 우선순위 묶음 + 오늘 끝냄', () => {
+test('shapeDashboard: 오늘 할 일 = 우선순위 1(오늘 꼭): 「오늘 꼭」 줄 하나 + 오늘 끝냄 + 어제 남은 것 물음', () => {
   const vm = shapeDashboard({
     todos: [
-      { id: 'a', title: '가', priority: 2, today: '2026-10-09' },
-      { id: 'b', title: '나', priority: 1, today: '2026-10-09', doing: true },
-      { id: 'c', title: '어제 고른 것', priority: 1, today: '2026-10-08' },
-      { id: 'e', title: '백로그', priority: 4, today: '2026-10-09' },
+      { id: 'a', title: '가', priority: 2 },
+      { id: 'b', title: '나', priority: 1, doing: true },
+      { id: 'c', title: '다', priority: 1 },
+      { id: 'e', title: '백로그', priority: 4 },
     ],
-    today: { date: '2026-10-09', asked: true, items: [
+    today: { date: '2026-10-09', asked: true, carry: { n: 2, ids: ['c', 'x', 'nope'] }, items: [
       { id: 'b', title: '나', done: false, priority: 1 },
-      { id: 'x', title: '끝낸 일', done: true, priority: 3, source: 'user' },
-      { id: 'gone', title: '응답 대기로 빠진 줄', done: false, priority: 2 },
+      { id: 'x', title: '끝낸 일', done: true, priority: 1, source: 'user' },
+      { id: 'gone', title: '응답 대기로 빠진 줄', done: false, priority: 1 },
     ] },
   }, NOW);
-  assert.deepEqual(vm.todayGroups.map((g) => [g.label, g.items.map((t) => t.id)]), [['오늘 꼭', ['b']], ['이번 주', ['a']], ['언젠가', ['e']]]);
+  assert.deepEqual(vm.todayGroups.map((g) => [g.label, g.items.map((t) => t.id)]), [['오늘 꼭', ['b', 'c']]]);
   assert.equal(vm.todayGroups[0].items[0].doing, true);
-  assert.equal(vm.todayGroups[0].items[0].today, '2026-10-09');
-  assert.deepEqual(vm.todayDone.map((t) => [t.id, t.priority, t.auto]), [['x', 3, false]]);
-  assert.equal(vm.stats.todayOpen, 3);
-  assert.equal(vm.stats.todayTotal, 4);
-  assert.deepEqual(vm.today.items.map((x) => [x.id, x.done]), [['b', false], ['a', false], ['e', false], ['x', true]]);
+  assert.deepEqual(vm.todayDone.map((t) => [t.id, t.priority, t.auto]), [['x', 1, false]]);
+  assert.equal(vm.stats.todayOpen, 2);
+  assert.equal(vm.stats.todayTotal, 3);
+  assert.deepEqual(vm.today.items.map((x) => [x.id, x.done]), [['b', false], ['c', false], ['x', true]]);
+  assert.deepEqual(vm.today.carry, { n: 1, ids: ['c'] }, '어제 남은 것 중 아직 열린 오늘 할 일만');
   // 할 일 탭에는 그대로 다 있다(같은 모델)
   assert.equal(vm.todoGroups.flatMap((g) => g.items).length, 4);
-  assert.deepEqual(shapeDashboard({ todos: [{ id: 'a', title: '가', priority: 2, today: '2026-10-09' }] }, NOW).todayGroups, [], '날짜를 모르면 비움');
+  assert.deepEqual(shapeDashboard({ todos: [{ id: 'a', title: '가', priority: 1 }] }, NOW).todayGroups, [], '날짜를 모르면 비움');
+  assert.equal('carry' in shapeDashboard({ todos: [{ id: 'a', title: '가', priority: 2 }], today: { date: 'd', items: [], carry: { n: 1, ids: ['a'] } } }, NOW).today, false, '이번 주로 내린 건 안 묻는다');
 });
