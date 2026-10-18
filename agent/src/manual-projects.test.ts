@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ManualProjects, applyProjectOps, calendarPick, calendarPickWindow, draftFromEvent, manualProjectsContext, parseNewProject, parseProjectPatch, pickEvents,
+  ManualProjects, applyProjectOps, calendarPick, calendarPickWindow, draftFromEvent, manualProjectsContext, parseNewProject, parseOrderBody, parseProjectPatch, pickEvents,
 } from "./manual-projects.ts";
 import { CalendarSync, icsSource, type CalEvent } from "./calendar-sync.ts";
 import { calendarName } from "./ics.ts";
@@ -279,4 +279,115 @@ test("AI 맥락: 대시보드 요약에 진행 중인 직접 만든 프로젝트
   assert.deepEqual(manualProjectsContext([]), []);
   // applyProjectOps 단독: 이름 없는 add 는 오류
   assert.deepEqual(applyProjectOps(pj, [{ op: "add", name: "" }]).errors.length, 1);
+});
+
+test("순서: 넣으면 맨 아래, 순서 바꾸기 저장·검증(남의 id·빠진 id·휴지통), 뺐다 다시 넣으면 맨 아래, 다시 열어도 그대로", () => {
+  const store = new Store(":memory:");
+  const pj = new ManualProjects(store);
+  const p = pj.add({ name: "이사" });
+  const q = pj.add({ name: "다른 일" });
+  const a = store.addTodo({ title: "견적", projectId: p.id });
+  const b = store.addTodo({ title: "짐", projectId: p.id });
+  const c = store.addTodo({ title: "주소" });
+  store.editTodo(c.id, { projectId: p.id });
+  const other = store.addTodo({ title: "남의 일", projectId: q.id });
+  const titles = () => pj.todos(p.id).map((t) => t.title);
+  assert.deepEqual(titles(), ["견적", "짐", "주소"], "새로 넣은 건 맨 아래");
+  assert.deepEqual([a, b].map((t) => t.projectOrder), [0, 1]);
+  assert.equal(other.projectOrder, 0, "프로젝트마다 따로 센다");
+
+  const r = pj.reorder(p.id, [c.id, a.id, b.id]);
+  assert.ok(r && r.ok);
+  assert.deepEqual(titles(), ["주소", "견적", "짐"]);
+  // 검증: 남의 id·빠진 id·없는 프로젝트
+  assert.match((pj.reorder(p.id, [c.id, a.id, b.id, other.id]) as any).error, /not a todo of this project/);
+  assert.match((pj.reorder(p.id, [c.id, a.id]) as any).error, /missing todo/);
+  assert.equal(pj.reorder("proj:none", [a.id]), undefined);
+  assert.deepEqual(titles(), ["주소", "견적", "짐"], "실패하면 그대로");
+  // 같은 프로젝트로 다시 고쳐도(projectId 같음) 순서 그대로, 제목 고치기도 그대로
+  store.editTodo(a.id, { projectId: p.id, title: "견적 받기" });
+  assert.deepEqual(titles(), ["주소", "견적 받기", "짐"]);
+  // 뺐다 다시 넣으면 맨 아래
+  store.editTodo(c.id, { projectId: null });
+  assert.equal(store.getTodo(c.id)!.projectOrder, undefined);
+  store.editTodo(c.id, { projectId: p.id });
+  assert.deepEqual(titles(), ["견적 받기", "짐", "주소"]);
+  // 끝낸 할 일은 안 줘도 된다(뒤에 그대로), 휴지통 할 일은 남의 id 처럼 거절
+  store.editTodo(b.id, { status: "done" });
+  assert.ok((pj.reorder(p.id, [c.id, a.id]) as any).ok);
+  assert.deepEqual(titles(), ["주소", "견적 받기", "짐"]);
+  store.trashTodo(a.id);
+  assert.match((pj.reorder(p.id, [a.id, c.id]) as any).error, /not a todo of this project/);
+  // 다른 프로젝트로 옮기면 거기 맨 아래
+  store.editTodo(c.id, { projectId: q.id });
+  assert.deepEqual(pj.todos(q.id).map((t) => t.title), ["남의 일", "주소"]);
+  // 본문 모양
+  assert.deepEqual(parseOrderBody({ todoIds: ["a", "b"] }), { ok: true, value: ["a", "b"] });
+  for (const bad of [null, [], { todoIds: [] }, { todoIds: "a" }, { todoIds: ["a", 1] }, { todoIds: ["a", "a"] }, { todoIds: ["a"], x: 1 }]) assert.equal(parseOrderBody(bad).ok, false, JSON.stringify(bad));
+});
+
+test("순서: 예전 DB(순서 열 없음)는 열을 붙이며 예전 보이던 순서로 채우고, 새로 넣은 건 그 아래", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "cy-order-"));
+  try {
+    const file = join(dir, "cy.db");
+    const s1 = new Store(file);
+    const pj = new ManualProjects(s1);
+    const p = pj.add({ name: "행사" });
+    const x = s1.addTodo({ title: "둘째", priority: 2, projectId: p.id });
+    const y = s1.addTodo({ title: "첫째", priority: 1, projectId: p.id });
+    s1.db.exec("ALTER TABLE todos DROP COLUMN project_order");
+    s1.db.close();
+    const s2 = new Store(file);
+    assert.deepEqual([s2.getTodo(y.id)!.projectOrder, s2.getTodo(x.id)!.projectOrder], [0, 1], "우선순위 높은 것이 위");
+    const z = s2.addTodo({ title: "셋째", projectId: p.id });
+    assert.equal(z.projectOrder, 2);
+    assert.deepEqual(new ManualProjects(s2).todos(p.id).map((t) => t.title), ["첫째", "둘째", "셋째"]);
+    s2.db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("API: POST /projects/manual/:id/order: 저장하면 대시보드·AI 맥락도 그 순서, 남의 id·빠진 id 400, 없는 프로젝트 404, 헤더 없으면 403, 이름 바꾸기는 POST /todos/:id(빈 제목 400, 사용자가 고침)", async () => {
+  const s = setup();
+  const bus = new Bus();
+  await bus.listen(0, {
+    approve: async () => "", hold: async () => "", briefing: async () => "",
+    dashboard: () => s.agent.dashboard(), todoDone: () => true, chat: () => "c", chatHistory: () => [],
+    todoAdd: (t) => s.agent.addTodo(t), todoEdit: (id, p) => s.agent.editTodo(id, p),
+    manualProjects: s.agent.manualProjectsApi(), projectExists: (id) => s.agent.projectExists(id),
+  });
+  const base = `http://127.0.0.1:${(bus.server!.address() as any).port}`;
+  const H = { "x-cy-agent": "1", "content-type": "application/json" };
+  const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = H) =>
+    fetch(base + path, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  try {
+    const { project: p } = await (await call("POST", "/projects/manual", { name: "가을 행사" })).json();
+    const { project: q } = await (await call("POST", "/projects/manual", { name: "다른 일" })).json();
+    const enc = encodeURIComponent(p.id);
+    const add = async (title: string, projectId: string) => (await (await call("POST", "/todos", { title, projectId })).json());
+    const t1 = await add("현수막", p.id), t2 = await add("견적", p.id), t3 = await add("섭외", p.id), o = await add("남의 일", q.id);
+    const id = (x: any) => x.todo?.id ?? x.id;
+    const [a, b, c, other] = [t1, t2, t3, o].map(id);
+    assert.equal((await call("POST", `/projects/manual/${enc}/order`, { todoIds: [c, a, b] }, { "content-type": "application/json" })).status, 403);
+    assert.equal((await call("POST", `/projects/manual/${enc}/order`, { todoIds: [c, a] })).status, 400, "빠진 id");
+    assert.equal((await call("POST", `/projects/manual/${enc}/order`, { todoIds: [c, a, b, other] })).status, 400, "남의 id");
+    assert.equal((await call("POST", `/projects/manual/${enc}/order`, { ids: [c, a, b] })).status, 400, "모르는 키");
+    assert.equal((await call("POST", "/projects/manual/proj%3Anone/order", { todoIds: [a] })).status, 404);
+    assert.equal((await call("GET", `/projects/manual/${enc}/order`)).status, 405);
+    const r = await call("POST", `/projects/manual/${enc}/order`, { todoIds: [c, a, b] });
+    assert.equal(r.status, 200);
+    assert.deepEqual((await r.json()).todos.map((t: any) => t.title), ["섭외", "현수막", "견적"]);
+    assert.deepEqual((await (await call("GET", `/projects/manual/${enc}`)).json()).todos.map((t: any) => t.title), ["섭외", "현수막", "견적"]);
+    const dash = await s.agent.dashboard();
+    assert.deepEqual(Object.fromEntries(dash.todos.filter((t) => t.projectId === p.id).map((t) => [t.title, t.projectOrder])), { 현수막: 1, 견적: 2, 섭외: 0 });
+    const ctx = dashboardSummary(dash);
+    assert.ok(ctx.includes(`  1. 섭외 (id=${c})\n  2. 현수막 (id=${a})\n  3. 견적 (id=${b})`), ctx);
+    // 이름 바꾸기: 할 일 탭과 같은 POST /todos/:id, 빈 제목 거절, 사용자가 고침 표시
+    assert.equal((await call("POST", `/todos/${encodeURIComponent(a)}`, { title: "  " })).status, 400);
+    assert.equal((await call("POST", `/todos/${encodeURIComponent(a)}`, { title: "현수막 주문" })).status, 200);
+    const after = (await s.agent.dashboard()).todos.find((t) => t.id === a)!;
+    assert.deepEqual([after.title, after.userEdited, after.projectOrder], ["현수막 주문", true, 1]);
+  } finally { bus.close(); }
 });

@@ -44,7 +44,7 @@ import { addAgentWorktree, agentBranch, finishAgentWorktree, isolationSource, wo
 import { runBackgroundAgent } from "./chat.ts";
 import { inlineContext } from "./ctx-tools.ts";
 import { AttachmentStore, type Attachment } from "./attachments.ts";
-import { ManualProjects, applyProjectOps, parseNewProject, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
+import { ManualProjects, applyProjectOps, parseNewProject, parseOrderBody, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
 import { Guidelines, applyGuidelineOp, guidelinesApi, setGuidelineStore, type GuidelineCtx, type GuidelinesApi } from "./guidelines.ts";
 import { WAIT_SETUP, modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
 
@@ -1128,7 +1128,19 @@ ${meetingsContext(this.store)}`,
   manualProjectsApi() {
     const missing = { status: 404, body: { error: "no such project" } };
     return {
-      handle: (method: string, id: string | undefined, body: unknown): { status: number; body: unknown } => {
+      handle: (method: string, id: string | undefined, body: unknown, sub?: "order"): { status: number; body: unknown } => {
+        // 프로젝트 안 할 일 순서: { todoIds }. 그 프로젝트의 열린 할 일 모두, 남의 id·빠진 id 는 400
+        if (sub === "order") {
+          if (method !== "POST" || !id) return { status: 405, body: { error: "method not allowed" } };
+          if (!this.projects.get(id)) return missing;
+          const ids = parseOrderBody(body);
+          if (!ids.ok) return { status: 400, body: { error: ids.error } };
+          const r = this.projects.reorder(id, ids.value);
+          if (!r) return missing;
+          if (!r.ok) return { status: 400, body: { error: r.error } };
+          this.changed();
+          return { status: 200, body: { todos: r.todos } };
+        }
         if (method === "GET" && !id) return { status: 200, body: { projects: this.projects.views() } };
         if (method === "GET" && id) {
           const p = this.projects.view(id);

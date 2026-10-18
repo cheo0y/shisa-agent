@@ -60,8 +60,8 @@ export type BusHandlers = {
   todoReorder?(id: string, priority: number, beforeId?: string): unknown; // "missing" → 404, "bad_before" → 400, 그 외 바뀐 할 일
   projectHide?(id: string): boolean | Promise<boolean>; // 프로젝트 숨기기(id = 경로). 모르는 프로젝트면 false → 404
   projectUnhide?(id: string): boolean | Promise<boolean>; // 숨긴 적 없으면 false → 404
-  // 직접 만든 프로젝트(manual-projects.ts): GET/POST /projects/manual · GET/PATCH/DELETE /projects/manual/:id. 없으면 503
-  manualProjects?: { handle(method: string, id: string | undefined, body: unknown): { status: number; body: unknown } };
+  // 직접 만든 프로젝트(manual-projects.ts): GET/POST /projects/manual · GET/PATCH/DELETE /projects/manual/:id · POST /projects/manual/:id/order(sub "order"). 없으면 503
+  manualProjects?: { handle(method: string, id: string | undefined, body: unknown, sub?: "order"): { status: number; body: unknown } };
   projectExists?(id: string): boolean; // 할 일의 projectId 확인(없는 프로젝트면 400)
   // 일정에서 프로젝트 만들기: 연결된 캘린더의 고를 일정(지난 며칠 ~ 2주). { connected: false } 면 캘린더 안 붙음. 없으면 503
   calendarPick?(): Promise<unknown>;
@@ -564,7 +564,7 @@ export class Bus {
       if (!h.calendarPick) return json(res, 503, { error: "calendar pick unavailable" });
       return json(res, 200, await h.calendarPick());
     }
-    const mp = url.pathname.match(/^\/projects\/manual(?:\/([^/]{1,200}))?$/);
+    const mp = url.pathname.match(/^\/projects\/manual(?:\/([^/]{1,200})(\/order)?)?$/);
     if (mp) {
       const method = req.method ?? "GET";
       if (method !== "GET" && (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://")))) return json(res, 403, { error: "forbidden" });
@@ -572,7 +572,7 @@ export class Bus {
       let id: string | undefined;
       try { id = mp[1] === undefined ? undefined : decodeURIComponent(mp[1]); } catch { throw new BadRequest("bad project id"); }
       const body = method === "POST" || method === "PATCH" ? await readJson(req) : undefined;
-      const r = h.manualProjects.handle(method, id, body);
+      const r = h.manualProjects.handle(method, id, body, mp[2] ? "order" : undefined);
       return json(res, r.status, r.body);
     }
     // 행동 지침 — 쓰기(POST·PUT·DELETE)는 POST 와 같은 헤더 규칙

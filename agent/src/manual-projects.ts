@@ -1,6 +1,7 @@
 // 직접 만든 프로젝트: 사람이 패널 「프로젝트」 탭의 ＋(새로 만들기·일정에서 가져오기)나 채팅(project_ops)으로 만든 것.
 // 코드 작업(Claude Code·Codex 세션·git 레포)에서 저절로 모은 프로젝트(dashboard.ts projects)와 따로, cy.db 의 manual_projects 테이블에 둔다.
 // 할 일은 todos.project_id 로 묶는다(할 일 하나에 프로젝트 하나, 없으면 안 묶임). 프로젝트를 지우면 할 일은 남기고 묶음만 푼다.
+// 프로젝트 안 순서는 todos.project_order(작을수록 위). 넣으면 맨 아래, 카드에서 끌어 바꾸면 POST /projects/manual/:id/order 로 다시 매긴다.
 import { randomUUID } from "node:crypto";
 import { localDate } from "./calendar.ts";
 import type { CalEvent } from "./calendar-sync.ts";
@@ -90,6 +91,19 @@ export function parseProjectPatch(body: unknown): Result<ProjectPatch> {
   return { ok: true, value: out };
 }
 
+// POST /projects/manual/:id/order 본문 { todoIds: [...] }. 모양만 본다(그 프로젝트 할 일인지는 reorder 가)
+export function parseOrderBody(body: unknown): Result<string[]> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fail("json object required");
+  const b = body as Record<string, unknown>;
+  for (const k of Object.keys(b)) if (k !== "todoIds") return fail(`unknown field: ${k}`);
+  if (!Array.isArray(b.todoIds) || !b.todoIds.length) return fail("todoIds must be a non-empty array");
+  if (b.todoIds.some((x) => typeof x !== "string" || !x)) return fail("todoIds must be strings");
+  const ids = b.todoIds as string[];
+  const dup = ids.find((x, i) => ids.indexOf(x) !== i);
+  if (dup) return fail(`duplicate todo id: ${dup}`);
+  return { ok: true, value: ids };
+}
+
 // ---- 저장소 ----
 export function ensureProjectTable(store: Store) {
   store.db.exec(`CREATE TABLE IF NOT EXISTS manual_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, note TEXT, start_day TEXT, due_day TEXT,
@@ -134,10 +148,27 @@ export class ManualProjects {
   view(id: string): ManualProjectView | undefined {
     return this.views().find((p) => p.id === id);
   }
-  // 그 프로젝트에 묶인 할 일(열린 것 먼저)
+  // 그 프로젝트에 묶인 할 일: 열린 것 먼저, 그 안은 프로젝트 순서(project_order)
   todos(id: string): Todo[] {
-    return (this.store.db.prepare("SELECT id FROM todos WHERE project_id = ? AND trashed_at IS NULL AND status IN ('open', 'done') ORDER BY status = 'done', priority, sort IS NULL, sort, created").all(id) as any[])
+    return (this.store.db.prepare("SELECT id FROM todos WHERE project_id = ? AND trashed_at IS NULL AND status IN ('open', 'done') ORDER BY status = 'done', project_order IS NULL, project_order, created").all(id) as any[])
       .map((r) => this.store.getTodo(String(r.id))).filter((t): t is Todo => !!t);
+  }
+  // 순서 바꾸기: todoIds 는 그 프로젝트의 열린 할 일을 모두 담아야 한다(끝낸 할 일은 넣어도 되고 안 넣으면 뒤에 그대로).
+  // 남의 id·휴지통 할 일 → bad, 빠진 열린 할 일 → missing. 성공하면 0..n 으로 다시 매긴 할 일 목록
+  reorder(id: string, todoIds: string[]): { ok: true; todos: Todo[] } | { ok: false; error: string; missing?: boolean } | undefined {
+    if (!this.get(id)) return undefined;
+    const mine = this.todos(id);
+    const have = new Set(mine.map((t) => t.id));
+    const stranger = todoIds.find((x) => !have.has(x));
+    if (stranger) return { ok: false, error: `not a todo of this project: ${stranger}` };
+    const given = new Set(todoIds);
+    const left = mine.find((t) => t.status === "open" && !given.has(t.id));
+    if (left) return { ok: false, error: `missing todo: ${left.id}`, missing: true };
+    const order = [...todoIds, ...mine.filter((t) => !given.has(t.id)).map((t) => t.id)];
+    const st = this.store.db.prepare("UPDATE todos SET project_order = ? WHERE id = ? AND project_id = ?");
+    this.store.db.exec("BEGIN");
+    try { order.forEach((t, i) => st.run(i, t, id)); this.store.db.exec("COMMIT"); } catch (e) { this.store.db.exec("ROLLBACK"); throw e; }
+    return { ok: true, todos: this.todos(id) };
   }
 
   add(p: NewProject): ManualProject {
@@ -164,7 +195,7 @@ export class ManualProjects {
   delete(id: string): { project: ManualProject; unlinked: number } | undefined {
     const cur = this.get(id);
     if (!cur) return undefined;
-    const unlinked = Number(this.store.db.prepare("UPDATE todos SET project_id = NULL WHERE project_id = ?").run(id).changes);
+    const unlinked = Number(this.store.db.prepare("UPDATE todos SET project_id = NULL, project_order = NULL WHERE project_id = ?").run(id).changes);
     this.store.db.prepare("DELETE FROM manual_projects WHERE id = ?").run(id);
     return { project: cur, unlinked };
   }
@@ -295,13 +326,19 @@ export function applyProjectOps(projects: ManualProjects, ops: unknown[]): { app
   return { applied, errors, added };
 }
 
-// 맥락 줄(대시보드 요약·projects 도구). 진행 중인 것만, 할 일 수·기한
-export function manualProjectsContext(list: ManualProjectView[]): string[] {
+// 맥락 줄(대시보드 요약·projects 도구). 진행 중인 것만, 할 일 수·기한. todos(열린 할 일)를 주면 프로젝트마다 그 안 순서대로 아래에 단다
+export type ContextTodo = { id: string; title: string; projectId?: string; projectOrder?: number };
+export function manualProjectsContext(list: ManualProjectView[], todos: ContextTodo[] = []): string[] {
   const open = list.filter((p) => p.status === "open");
   if (!open.length) return [];
+  const of = (pid: string) => todos.filter((t) => t.projectId === pid)
+    .map((t, i) => ({ t, i })).sort((a, b) => (a.t.projectOrder ?? Infinity) - (b.t.projectOrder ?? Infinity) || a.i - b.i).map((x) => x.t);
   return [
-    "### 내가 만든 프로젝트 (진행 중 — project_ops·todo_ops 의 project 에 쓸 id)",
-    ...open.map((p) => `- id=${p.id} ${p.name}${p.due ? ` — 기한 ${p.due}` : ""}${p.start ? `, 시작 ${p.start}` : ""} · 할 일 ${p.openTodos}/${p.todos} 남음${p.source ? ` · 📅 일정에서${p.source.calendar ? `(${p.source.calendar})` : ""}` : ""}${p.note ? ` · 메모: ${p.note.replace(/\s+/g, " ").slice(0, 120)}` : ""}`),
+    "### 내가 만든 프로젝트 (진행 중 — project_ops·todo_ops 의 project 에 쓸 id. 할 일은 사용자가 정한 순서)",
+    ...open.flatMap((p) => [
+      `- id=${p.id} ${p.name}${p.due ? ` — 기한 ${p.due}` : ""}${p.start ? `, 시작 ${p.start}` : ""} · 할 일 ${p.openTodos}/${p.todos} 남음${p.source ? ` · 📅 일정에서${p.source.calendar ? `(${p.source.calendar})` : ""}` : ""}${p.note ? ` · 메모: ${p.note.replace(/\s+/g, " ").slice(0, 120)}` : ""}`,
+      ...of(p.id).map((t, i) => `  ${i + 1}. ${t.title} (id=${t.id})`),
+    ]),
   ];
 }
 

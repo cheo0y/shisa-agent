@@ -218,12 +218,14 @@ type Bubble = {
 |---|---|
 | `GET /projects/manual` | 200 `{ projects }` |
 | `POST /projects/manual { name, note?, start?, due?, source? }` | 201 `{ project }`. `name` 필수 |
-| `GET /projects/manual/:id` | 200 `{ project, todos }`(묶인 할 일, 열린 것 먼저) |
+| `GET /projects/manual/:id` | 200 `{ project, todos }`(묶인 할 일, 열린 것 먼저, 그 안은 프로젝트 순서) |
 | `PATCH /projects/manual/:id { name?, note?, start?, due?, status? }` | 200 `{ project }`. `null`·빈 글은 지우기, `status: done`이면 `doneAt` |
+| `POST /projects/manual/:id/order { todoIds }` | 200 `{ todos }`(다시 매긴 순서). `todoIds`는 그 프로젝트의 열린 할 일을 하나도 빠짐없이 원하는 순서로 담는다. 끝낸 할 일은 넣어도 되고, 안 넣으면 그 뒤에 예전 순서대로 남는다. 빠진 열린 할 일·다른 프로젝트나 휴지통의 할 일·같은 id 두 번·모르는 키는 400, 없는 프로젝트는 404 |
 | `DELETE /projects/manual/:id` | 200 `{ ok, unlinked }`. 프로젝트만 지우고 묶인 할 일은 남긴다(묶음만 푼다) |
 | `GET /projects/calendar-events` | 200 `{ connected, ok, from, to, events[] }`. 연결된 캘린더(ICS 여러 개·MCP)에서 지난 3일 ~ 앞으로 14일 일정. 항목: `id`, `title`, `start`, `end`, `allDay`, `past`, `calendar?`, `location?`, `description?`, `attendees?`, `joinUrl?`, `draft`(그 일정으로 채운 `POST /projects/manual` 본문: 제목 → 이름, 설명·장소·참석자 → 메모, 날짜 → 시작·기한, `source`). 취소·거절한 일정은 뺀다. 캘린더가 안 붙었으면 `connected: false` |
 
 할 일에 묶기: `POST /todos`·`POST /todos/:id`의 `projectId`(id, 빼기는 `null`). 없는 프로젝트면 400.
+프로젝트 안 순서는 할 일마다 `projectOrder`(작을수록 위)로 저장한다. 새로 넣거나 다른 프로젝트로 옮기면 그 프로젝트 맨 아래, 빼면 순서도 지운다(다시 넣으면 다시 맨 아래). 같은 `projectId`를 다시 보내면 순서는 그대로다. 이름 바꾸기는 할 일 탭과 같은 `POST /todos/:id { title }`(빈 제목 400, 사용자가 고친 필드로 남는다).
 
 ## 할 일
 
@@ -232,6 +234,7 @@ type Bubble = {
 - `doing?`(사용자가 ▶로 정한 진행중), `progress?`·`progressAt?`(작업 세션에서 본 진척)
 - `appliedRule?`, `doneBy?: user|auto|briefing`, `autoReason?`, `autoEvidence?`
 - `projectId?`: 묶인 직접 만든 프로젝트
+- `projectOrder?`: 그 프로젝트 안 순서(작을수록 위). 묶였을 때만
 
 화면에 「(진행중)」은 `doing`이 있으면 그 값으로, 없으면 `progress`가 있을 때 붙는다.
 

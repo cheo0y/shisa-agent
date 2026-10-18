@@ -24,6 +24,7 @@ export type Todo = {
   doing?: boolean; // 사용자가 직접 정한 (진행중): true 켬 · false 끔 · 없음 = 자동(progress 가 있으면 진행중)
   today?: string; // 오늘 할 일로 고른 날(KST YYYY-MM-DD). 그날 '오늘 할 일' 탭에 같은 줄로 보인다(daily-plan.ts)
   projectId?: string; // 묶인 직접 만든 프로젝트(manual-projects.ts). 없으면 어느 프로젝트에도 안 묶임
+  projectOrder?: number; // 그 프로젝트 안 순서(작을수록 위). 넣을 때 맨 아래, 카드에서 끌어 바꾼다
 };
 export type TodoSourceKind = "slack" | "commit" | "mail" | "session" | "calendar" | "jira" | "user" | "other";
 export type TodoSource = {
@@ -133,6 +134,7 @@ function todoRow(r: any): Todo {
     ...(r.doing === 1 || r.doing === 0 ? { doing: r.doing === 1 } : {}),
     ...(r.plan_day ? { today: r.plan_day } : {}),
     ...(r.project_id ? { projectId: r.project_id } : {}),
+    ...(r.project_id && r.project_order !== null && r.project_order !== undefined ? { projectOrder: Number(r.project_order) } : {}),
   };
 }
 
@@ -169,8 +171,12 @@ export class Store {
       ["doing", "INTEGER"], // 사용자가 누른 (진행중) 토글: 1 켬 · 0 끔 · NULL 자동
       ["plan_day", "TEXT"], // 오늘 할 일로 고른 날(KST), daily-plan.ts
       ["project_id", "TEXT"], // 묶인 직접 만든 프로젝트(manual-projects.ts)
+      ["project_order", "INTEGER"], // 그 프로젝트 안 순서(manual-projects.ts reorder)
     ];
     for (const [name, type] of add) if (!cols.has(name)) this.db.exec(`ALTER TABLE todos ADD COLUMN ${name} ${type}`);
+    // 순서 열이 막 생겼으면: 이미 묶인 할 일에 예전 보이던 순서(열린 것 먼저·우선순위·끌기 순서·만든 때)로 0..n 을 매긴다
+    if (!cols.has("project_order")) this.db.exec(`UPDATE todos SET project_order = (SELECT n FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id
+      ORDER BY status = 'done', priority, sort IS NULL, sort, created) - 1 AS n FROM todos WHERE project_id IS NOT NULL) o WHERE o.id = todos.id) WHERE project_id IS NOT NULL`);
     // 할 일 일지: 처음 만들 때 지금 있는 할 일·휴지통·묘비로 한 번 채운다(예전 DB 도 "사용자가 지운 일"을 바로 기억)
     const hadLedger = !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'todo_ledger'").get();
     this.db.exec(LEDGER);
@@ -362,14 +368,21 @@ export class Store {
     return true;
   }
 
+  // 그 프로젝트 맨 아래 순서(휴지통에 든 것까지 보고 하나 더, 되살려도 겹치지 않게)
+  nextProjectOrder(projectId: string): number {
+    const r = this.db.prepare("SELECT MAX(project_order) AS m FROM todos WHERE project_id = ?").get(projectId) as any;
+    return r?.m === null || r?.m === undefined ? 0 : Number(r.m) + 1;
+  }
+
   // 사용자가 직접 추가한 할 일
   addTodo(t: { title: string; priority?: number; link?: string | null; note?: string | null; source?: string; description?: string | null; sourceRef?: string | null; origin?: TodoSource; today?: boolean | string | null; projectId?: string | null }, by: TodoActor = "user"): Todo {
     const id = `user:${randomUUID()}`;
     const at = now();
     this.db
-      .prepare("INSERT INTO todos (id, title, source, link, priority, status, created, note, updated, description, source_ref, origin, plan_day, project_id) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO todos (id, title, source, link, priority, status, created, note, updated, description, source_ref, origin, plan_day, project_id, project_order) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(id, t.title, t.source ?? "user", t.link ?? null, t.priority ?? 2, at, t.note ?? null, at,
-        t.description ?? null, t.sourceRef ?? null, t.origin ? JSON.stringify(t.origin) : null, planDay(t.today), t.projectId ?? null);
+        t.description ?? null, t.sourceRef ?? null, t.origin ? JSON.stringify(t.origin) : null, planDay(t.today), t.projectId ?? null,
+        t.projectId ? this.nextProjectOrder(t.projectId) : null);
     this.log(id, t.title, "added", by, undefined, at);
     return this.getTodo(id)!;
   }
@@ -435,7 +448,11 @@ export class Store {
     // 오늘 할 일 고르기·빼기: 사용자 필드 아님(브리핑이 덮지 않는 제목 등과 무관)
     if (patch.today !== undefined) { sets.push("plan_day = ?"); vals.push(planDay(patch.today)); }
     // 프로젝트에 묶기·빼기: 사용자 필드 아님
-    if (patch.projectId !== undefined) { sets.push("project_id = ?"); vals.push(patch.projectId || null); }
+    // 다른 프로젝트로 옮기거나 다시 넣으면 그 프로젝트 맨 아래, 빼면 순서도 지운다. 같은 프로젝트면 순서 그대로
+    if (patch.projectId !== undefined) {
+      sets.push("project_id = ?"); vals.push(patch.projectId || null);
+      if ((patch.projectId || undefined) !== cur.projectId) { sets.push("project_order = ?"); vals.push(patch.projectId ? this.nextProjectOrder(patch.projectId) : null); }
+    }
     if (!sets.length) return cur;
     if (patch.status !== undefined && patch.status !== cur.status) { sets.push("done_by = ?"); vals.push(patch.status === "done" ? "user" : null); }
     sets.push("user_edited = ?", "updated = ?");

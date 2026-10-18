@@ -245,7 +245,7 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
     projects_recent: () => guard("최근 7일 프로젝트", async () => {
       const d = await dashboard();
       const ps = d.projects.filter((p) => !p.hidden).slice(0, 15);
-      const mine = manualProjectsContext(d.manualProjects ?? []);
+      const mine = manualProjectsContext(d.manualProjects ?? [], d.todos ?? []);
       return out("최근 7일 프로젝트 (레포 경로 — 코드 작업 proposals 의 repo 는 여기 경로)", [...ps.map((p) =>
         `- ${p.name} (${p.path}) — 마지막 활동 ${fmtTime(p.lastActive)}, 24h 세션 ${p.sessions24h}, 오늘 커밋 ${p.commitsToday}${p.branch ? `, ${p.branch}` : ""}${p.lastTitle ? ` · 최근: ${clip(p.lastTitle, 60)}` : ""}`), ...mine].join("\n"));
     }),

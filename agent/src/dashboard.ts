@@ -41,6 +41,7 @@ export type DashTodo = {
   progress?: string; progressAt?: string; // 어디까지 됐는지(할 일 진행 확인 — todo-progress.ts)
   doing?: boolean; today?: string; // doing: 사용자가 누른 (진행중) 토글(▶/⏸)
   projectId?: string; // 묶인 직접 만든 프로젝트
+  projectOrder?: number; // 그 프로젝트 안 순서(작을수록 위), 카드 할 일 줄 순서
 };
 export type DashboardDeps = {
   git?: (cfg: Config) => Promise<RepoActivity[]>;
@@ -94,6 +95,7 @@ function dashTodo(t: Todo): DashTodo {
     ...(t.doing !== undefined ? { doing: t.doing } : {}),
     ...(t.today ? { today: t.today } : {}), // 오늘 할 일로 고른 날(KST). 그날이면 '오늘 할 일' 탭에도 보인다
     ...(t.projectId ? { projectId: t.projectId } : {}),
+    ...(t.projectId && t.projectOrder !== undefined ? { projectOrder: t.projectOrder } : {}),
   };
 }
 
@@ -145,7 +147,7 @@ function projects(store: Store, repos: RepoActivity[], now: Date, withSessions =
 
 // 채팅 프롬프트용 한 줄 요약들
 export function dashboardSummary(d: Dashboard): string {
-  const lines = [`## 대시보드 요약`, `오늘 내 커밋: ${d.commitsToday}개`, ...manualProjectsContext(d.manualProjects ?? []), `### 최근 7일 프로젝트`];
+  const lines = [`## 대시보드 요약`, `오늘 내 커밋: ${d.commitsToday}개`, ...manualProjectsContext(d.manualProjects ?? [], d.todos ?? []), `### 최근 7일 프로젝트`];
   if (!d.projects.length) lines.push("(없음)");
   const shown = d.projects.filter((p) => !p.hidden);
   if (!shown.length && d.projects.length) lines.push("(없음)");
