@@ -354,6 +354,7 @@ let debugWin = null;
 let lastDebug = { text: '', qr: '', fileName: '', speech: '' };
 let sessionPick = null; // 창 로드 전에 요청된 run
 let lastState = null;
+let charHidden = false; // 윈도우: 캐릭터 숨김(창은 그대로, 그림만 감춤 — toggleCharacter)
 let lastFocus = null; // 마지막 SSE focus(집중하기) — 앱을 끌 때 집중 중이면 그만하고 끈다
 let focusStopped = false;
 let activeRuns = [];
@@ -538,7 +539,7 @@ function createWindow() {
   win.webContents.on('did-finish-load', () => {
     winLoaded = true;
     send('connection', { connected });
-    send('visibility', { hidden: state.bubblesHidden });
+    sendVisibility();
     sendOverlayPrefs();
     // 화면이 뜨기 전에 온 말풍선(SSE 가 먼저 붙으면 데몬이 다시 보내는 승인·머지 말풍선)을 이제 보낸다 — 버리지 않게
     for (const [c, p] of early.splice(0)) send(c, p);
@@ -957,7 +958,7 @@ function menuTemplate() {
       click: () => {
         state.bubblesHidden = !state.bubblesHidden;
         saveState();
-        send('visibility', { hidden: state.bubblesHidden });
+        sendVisibility();
         rebuildTrayMenu();
       },
     },
@@ -997,10 +998,21 @@ function createTray() {
 // ---- 앱(Dock·Cmd+Tab·메뉴 막대) ----
 // Dock 에 보이는 일반 앱 — Cmd+Tab/Dock 으로 돌아오면 대시보드 패널이 앞으로 온다.
 // 오버레이는 비활성 패널이라 앱 활성화와 상관없이 항상 위·모든 Space 에 그대로 있다.
+// 윈도우: 오버레이를 hide → showInactive 하면 Chromium 이 포커스 안 받는 창의 버튼 누름을 삼켜(뗌만 온다)
+// 왼쪽 클릭·끌기·말풍선 버튼이 다 안 먹는다. 그래서 창은 숨기지 않고 렌더러가 그림을 감춘다(감춘 건 클릭 투과)
 function toggleCharacter() {
   if (!win) return;
+  if (process.platform === 'win32') {
+    charHidden = !charHidden;
+    sendVisibility();
+    if (!charHidden) keepOnTop(win);
+    return;
+  }
   if (win.isVisible()) win.hide();
   else win.showInactive();
+}
+function sendVisibility() {
+  send('visibility', { hidden: state.bubblesHidden, character: !charHidden });
 }
 
 function createAppMenu() {

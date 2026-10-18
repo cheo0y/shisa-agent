@@ -18,5 +18,5 @@ test('배선: 다시 보일 때·화면 구성 바뀜·절전/잠금 뒤에만, 
   assert.match(m, /for \(const ev of \['display-added', 'display-removed', 'display-metrics-changed'\]\) screen\.on\(ev, \(\) => keepOnTop\(win\)\);/);
   assert.match(m, /for \(const ev of \['resume', 'unlock-screen'\]\) powerMonitor\.on\(ev, \(\) => keepOnTop\(win\)\);/);
   assert.doesNotMatch(m, /setInterval\([^)]*keepOnTop/, '주기적으로 남의 항상 위 창과 싸우지 않는다');
-  assert.equal(m.match(/keepOnTop\(/g).length, 4, '정의 1 + show 1 + 화면 1 + 절전 1');
+  assert.equal(m.match(/keepOnTop\(/g).length, 5, '정의 1 + show 1 + 화면 1 + 절전 1 + 윈도우 캐릭터 다시 보이기 1');
 });

@@ -15,6 +15,7 @@ import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, dance
 import { applyCharacters } from '../src/character-registry.js';
 import { BubbleExpiry } from '../src/bubble-expiry.js';
 import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
+import { createPressTracker, missedClick, staleHold } from '../src/press.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -706,6 +707,7 @@ const focusStopBtn = document.getElementById('focus-stop');
 let focus = null;
 let focusTick = null;
 let focusBusy = false;
+const FOCUS_CMD_MS = 20e3;
 function drawFocus() {
   const v = focusBubble(focus);
   const was = !focusEl.hidden;
@@ -737,8 +739,10 @@ async function focusCmd(cmd) {
   focusBusy = true;
   drawFocus();
   let r;
-  try { r = await cy.focusCmd(cmd); } catch { r = { ok: false }; }
-  focusBusy = false;
+  try {
+    // 답이 영영 안 와도 버튼이 꺼진 채로 남지 않게(메인 요청은 15초에 끊긴다)
+    r = await Promise.race([cy.focusCmd(cmd), new Promise((ok) => setTimeout(() => ok({ ok: false }), FOCUS_CMD_MS))]);
+  } catch { r = { ok: false }; } finally { focusBusy = false; }
   if (r?.ok && r.data) setFocus(r.data); // SSE focus 도 곧 온다(같은 모양)
   else drawFocus();
 }
@@ -972,9 +976,12 @@ function updateHover(el) {
   }
 }
 
-cy.onVisibility(({ hidden }) => {
+cy.onVisibility(({ hidden, character }) => {
   catchUp();
   stack.classList.toggle('hidden', !!hidden);
+  // 윈도우: 캐릭터 숨기기는 창을 숨기지 않고 그림만 감춘다(main.js toggleCharacter). 감춘 건 안 맞으니 마우스도 투과
+  document.body.classList.toggle('char-hidden', character === false);
+  if (character === false) resetPress();
   requestAnimationFrame(recheckHit);
 });
 
@@ -991,6 +998,7 @@ function setInteractive(v) {
 }
 
 function recheckHit() {
+  if (staleHold(down, dragging, Date.now())) resetPress(); // 뗌을 놓친 누름이 호버 판정을 영영 막지 않게
   if (dragging || down) return;
   if (!last) {
     updateHover(null);
@@ -1010,12 +1018,14 @@ function resetPress() {
 
 // 렌더러 타이머가 늦게 깨도 사용자가 보거나 움직이는 순간엔 지난 말풍선을 바로 치운다
 document.addEventListener('visibilitychange', catchUp);
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetPress(); });
 window.addEventListener('focus', catchUp);
 window.addEventListener('pageshow', catchUp);
 
 document.addEventListener('mousemove', (e) => {
   catchUp();
   last = { x: e.clientX, y: e.clientY };
+  if (down) down.movedAt = Date.now();
   if (down && (e.buttons & 1) === 0) resetPress();
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
     dragging = true;
@@ -1034,7 +1044,7 @@ document.addEventListener('mouseleave', (e) => {
 
 wrap.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || e.ctrlKey) return; // Ctrl+클릭은 macOS 에서 오른쪽 클릭(메뉴) — 드래그로 치지 않는다
-  down = { x: e.screenX, y: e.screenY };
+  down = { x: e.screenX, y: e.screenY, at: Date.now() };
   hoverAsk.cancel(); // 누르면(끌기·클릭) 재던 호버 입력창은 취소
   e.preventDefault();
 });
@@ -1136,6 +1146,17 @@ function onCharacterClick() {
     cy.togglePanel();
   }, DOUBLE_CLICK_MS);
 }
+
+// 누름을 못 받고 뗌만 왔으면(윈도우에서 창을 숨겼다 보인 뒤 Chromium 이 누름을 삼킴, src/press.js) 뗌을 클릭으로 친다
+const press = createPressTracker();
+document.addEventListener('mousedown', (e) => press.down(e.button), true);
+window.addEventListener('mouseup', (e) => {
+  const el = e.target instanceof Element ? e.target : null;
+  if (!missedClick(press.up(e.button), e.button, el?.closest('.hit')) || el.closest('button:disabled')) return;
+  if (el.closest('#char-wrap')) onCharacterClick(); // 한 번 = 패널, 두 번 = 말 걸기(그대로)
+  else if (el.matches('input, textarea')) el.focus();
+  else el.click();
+}, true);
 
 window.addEventListener('mouseup', (e) => {
   if (!down) return;
