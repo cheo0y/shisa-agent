@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('cy', {
   onOverlayPrefs: on('overlay-prefs'),
   onAgents: on('agents'), // { running } — 돌고 있는 서브에이전트 수(캡션 "에이전트 N개 실행 중")
   setInteractive: (v) => ipcRenderer.send('set-interactive', !!v),
+  // 윈도우: 메인이 직접 물은 커서 위치(창 안 좌표 { x, y }, 밖이면 null) — forward 의 mousemove 가 끊겨도 hit 검사를 하게(src/hit-watch.js)
+  onCursor: on('cursor'),
   dragStart: () => ipcRenderer.send('drag-start'),
   dragEnd: () => ipcRenderer.send('drag-end'),
   characterMenu: () => ipcRenderer.send('character-menu'),

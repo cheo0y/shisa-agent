@@ -9,7 +9,7 @@ import { createMarkdown } from '../src/markdown.js';
 import { initialChat, chatReducer, isBusy, summarizeReply, stopTargets, busyCaption } from '../src/chat.js';
 import { createAttachTray } from './attach-tray.js';
 import { hasFiles, filesFromTransfer, ATTACH_ERRORS } from '../src/attachments.js';
-import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
+import { normFocus, focusBubble, doingBubble, focusSend } from '../src/focus.js';
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
@@ -728,6 +728,7 @@ const focusStopBtn = document.getElementById('focus-stop');
 let focus = null;
 let focusTick = null;
 let focusBusy = false;
+let focusSize = '';
 function drawFocus() {
   const v = focusBubble(focus);
   const was = !focusEl.hidden;
@@ -741,7 +742,10 @@ function drawFocus() {
     focusToggle.dataset.cmd = v.toggle.cmd;
     focusToggle.disabled = focusStopBtn.disabled = focusBusy;
   }
-  if (was !== !!v) requestAnimationFrame(recheckHit);
+  // 글 길이가 바뀌어 말풍선 크기가 달라지면(「59:59」→「1:00:00」·일시정지 글) 커서 밑 hit 를 다시 본다 — 마우스를 안 움직여도 단추가 눌리게
+  const size = v ? `${focusEl.offsetWidth}x${focusEl.offsetHeight}` : '';
+  if (was !== !!v || size !== focusSize) requestAnimationFrame(recheckHit);
+  focusSize = size;
   drawDoing(); // 집중하기가 먼저 — 집중하는 동안 진행 중 말풍선은 숨는다
 }
 function setFocus(raw) {
@@ -758,11 +762,13 @@ async function focusCmd(cmd) {
   if (focusBusy || !cy.focusCmd) return;
   focusBusy = true;
   drawFocus();
-  let r;
-  try { r = await cy.focusCmd(cmd); } catch { r = { ok: false }; }
+  const r = await focusSend(cy.focusCmd, cmd);
   focusBusy = false;
   if (r?.ok && r.data) setFocus(r.data); // SSE focus 도 곧 온다(같은 모양)
-  else drawFocus();
+  else {
+    drawFocus();
+    loadFocus(); // 못 했으면 데몬 상태로 다시 맞춘다(이미 끝난 세션이면 말풍선이 걷힌다)
+  }
 }
 async function loadFocus() {
   const r = await cy.focusGet?.().catch(() => null);
@@ -1043,6 +1049,16 @@ document.addEventListener('mousemove', (e) => {
     dragging = true;
     cy.dragStart();
   }
+  recheckHit();
+});
+// 윈도우: 메인이 물은 커서 위치(src/hit-watch.js). 넘겨받는 mousemove 가 끊겨도(마우스 훅이 빠짐) 이걸로 말풍선·단추를 다시 누를 수 있게 된다
+cy.onCursor?.((p) => {
+  if (down || dragging) return;
+  const x = Number(p?.x), y = Number(p?.y);
+  if (p && Number.isFinite(x) && Number.isFinite(y)) last = { x, y };
+  else if (!interactive) last = null; // 창이 마우스를 받는 중이면 진짜 mouseleave 가 정리한다
+  else return;
+  catchUp();
   recheckHit();
 });
 document.addEventListener('mouseleave', (e) => {

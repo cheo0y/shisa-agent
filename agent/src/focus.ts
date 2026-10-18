@@ -246,14 +246,49 @@ export class Focus {
     return this.view();
   }
   // 그만하기 → { stopped: { id, seconds } | null, ...view }. quiet: 마무리 말풍선(onStop)을 띄우지 않는다(부른 쪽이 따로 말할 때)
+  // 그만은 언제나 된다: 끝나지 않은 세션이 여럿 남아 있어도(같은 cy.db 를 쓴 데몬이 둘이었던 것처럼 꼬인 상태) 다 끝내고,
+  // 계산하다 오류가 나면 강제로 끝내고 기록한다(forceEnd). 안 그러면 그만을 눌러도 남은 세션이 「집중 중」으로 다시 보인다
   stop(opts: { quiet?: boolean } = {}): FocusView & { stopped: { id: string; seconds: number } | null } {
-    this.bridgeGap(); // 잠에서 깨자마자 그만해도 잠든 시간은 빼고
-    const cur = this.current();
-    if (!cur) return { ...this.view(), stopped: null };
-    const sec = this.finish(cur.id, this.now());
+    let cur: ReturnType<Focus["current"]>;
+    let sec = 0;
+    const end = this.now();
+    try {
+      try { this.bridgeGap(); } catch (e: any) { console.warn("[focus] 잠든 시간 빼기:", e?.message ?? e); } // 잠에서 깨자마자 그만해도 잠든 시간은 빼고
+      cur = this.current();
+      if (!cur) return { ...this.view(), stopped: null };
+      sec = this.finish(cur.id, end);
+      // 남은 것(더 예전 세션)은 마지막 저장 시각에 끝낸다 — recover 와 같은 규칙
+      const rest = this.store.db.prepare("SELECT id, seen FROM focus_sessions WHERE ended IS NULL").all() as any[];
+      for (const r of rest) this.finish(String(r.id), Math.min(end, Number(r.seen) || end));
+    } catch (e: any) {
+      console.warn("[focus] 그만하기 — 강제로 끝냄:", e?.message ?? e);
+      const forced = this.forceEnd(end);
+      if (!forced) return { ...this.safeView(), stopped: null };
+      cur ??= { id: forced.id } as NonNullable<ReturnType<Focus["current"]>>;
+      sec = forced.seconds;
+    }
     this.changed();
     if (!opts.quiet) try { this.onStop?.(sec); } catch (e: any) { console.warn("[focus] onStop:", e?.message ?? e); }
-    return { ...this.view(), stopped: { id: cur.id, seconds: sec } };
+    return { ...this.safeView(), stopped: { id: cur!.id, seconds: sec } };
+  }
+  // 마지막 수단: 끝나지 않은 세션을 SQL 한 번에 다 끝낸다(열린 구간은 end 에 닫고 초는 구간 합). 가장 최근 것 → { id, seconds }, 없으면 null
+  private forceEnd(end: number): { id: string; seconds: number } | null {
+    const db = this.store.db;
+    const rows = db.prepare("SELECT id FROM focus_sessions WHERE ended IS NULL ORDER BY started DESC").all() as any[];
+    if (!rows.length) return null;
+    db.prepare("UPDATE focus_spans SET end = MAX(start, ?), open = 0 WHERE open = 1 AND session_id IN (SELECT id FROM focus_sessions WHERE ended IS NULL)").run(end);
+    db.prepare(`UPDATE focus_sessions SET ended = ?, paused = 0, seen = ?,
+      seconds = (SELECT COALESCE(SUM(end - start), 0) / 1000 FROM focus_spans WHERE session_id = focus_sessions.id) WHERE ended IS NULL`).run(end, end);
+    const top = db.prepare("SELECT seconds FROM focus_sessions WHERE id = ?").get(rows[0].id) as any;
+    return { id: String(rows[0].id), seconds: Math.max(0, Number(top?.seconds) || 0) };
+  }
+  // 그만한 뒤 돌려줄 상태: 오늘 합계를 못 세도 「집중 안 함」은 꼭 보인다
+  private safeView(): FocusView {
+    try { return this.view(); } catch (e: any) {
+      console.warn("[focus] 보기:", e?.message ?? e);
+      const now = this.now();
+      return { active: null, day: localDay(now), today: 0, now };
+    }
   }
   act(cmd: FocusCmd) {
     return cmd === "start" ? this.start() : cmd === "pause" ? this.pause() : cmd === "resume" ? this.resume() : this.stop();
@@ -297,7 +332,7 @@ export class Focus {
   }
 
   private changed() {
-    this.armGoal();
+    try { this.armGoal(); } catch (e: any) { console.warn("[focus] 정한 시간 타이머:", e?.message ?? e); }
     try { this.onChange?.(this.view()); } catch (e: any) { console.warn("[focus] onChange:", e?.message ?? e); }
   }
 }

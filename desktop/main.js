@@ -39,6 +39,7 @@ import { applyCharacters } from './src/character-registry.js';
 import { normStatus, brainView, sameView } from './src/brain-state.js';
 import { isAskId } from './src/quick-ask.js';
 import { isFocusCmd, DAY_RE, doingTodos } from './src/focus.js';
+import { createHitWatch, wantHitWatch, POLL_MS as HIT_POLL_MS } from './src/hit-watch.js';
 import { tourSteps, tourBubble, TOUR_VERSION } from './src/tour.js';
 import { NEW_DAEMON_CONFIG, cleanSetupPatch, openSetupAtLaunch, setupView } from './src/setup-plan.js';
 import { attachConsole, assembleBundle, collectLogFiles, createRing, formatLogLine, redact, shapeConnectorsSafe } from './src/debug-share.js';
@@ -533,6 +534,8 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   win.setIgnoreMouseEvents(true, { forward: true });
+  ignoringMouse = true;
+  wantInteractive = false;
 
   // 외부 탐색/새 창 차단
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -1230,11 +1233,36 @@ function registerDebugShortcut() {
 // ---- IPC ----
 let drag = null; // { offX, offY, timer, started }
 
+// ---- 클릭 투과(캐릭터 창): 렌더러가 커서 밑이 말풍선·단추인지 보고 set-interactive 로 알린다 ----
+let wantInteractive = false; // 렌더러가 마지막으로 원한 것
+let ignoringMouse = true; // 지금 창이 마우스를 통과시키는 중인가(createWindow 에서 켠다)
+function applyInteractive() {
+  if (!win || win.isDestroyed()) return;
+  if (wantInteractive) { win.setIgnoreMouseEvents(false); ignoringMouse = false; }
+  else if (!drag) { win.setIgnoreMouseEvents(true, { forward: true }); ignoringMouse = true; }
+}
+// 윈도우: forward 의 마우스 훅이 소리 없이 빠지면(메인이 바빴거나 잠금·절전 뒤) mousemove 가 안 와 말풍선 단추가 영영 안 눌린다.
+// 메인이 커서를 직접 물어 렌더러에 알리고(cursor), 투과 중이면 가끔 forward 를 다시 건다(src/hit-watch.js)
+let hitWatch = null;
+function startHitWatch() {
+  if (hitWatch || !wantHitWatch(process.platform, process.env)) return;
+  hitWatch = createHitWatch({
+    cursor: () => screen.getCursorScreenPoint(),
+    bounds: () => win.getBounds(),
+    ignoring: () => ignoringMouse,
+    busy: () => !win || win.isDestroyed() || !win.isVisible() || !winLoaded || !!drag,
+    send: (p) => win.webContents.send('cursor', p),
+    rearm: () => { win.setIgnoreMouseEvents(false); win.setIgnoreMouseEvents(true, { forward: true }); },
+  });
+  setInterval(() => { try { hitWatch.tick(); } catch (e) { console.warn('[hit-watch]', e?.message ?? e); } }, HIT_POLL_MS);
+}
+
 function endDrag() {
   if (!drag) return;
   clearInterval(drag.timer);
   drag = null;
   if (!win) return;
+  applyInteractive(); // 드래그 중에 「이제 투과」가 왔으면 지금 따른다
   const [x, y] = win.getPosition();
   state.pos = { x, y };
   saveState();
@@ -1264,10 +1292,10 @@ function setupIPC() {
     preload: path.join(__dirname, 'preload-settings.cjs'),
     html: path.join(__dirname, 'renderer', 'settings.html'),
   });
-  ipcMain.on('set-interactive', (_e, on) => {
-    if (!win) return;
-    if (on) win.setIgnoreMouseEvents(false);
-    else if (!drag) win.setIgnoreMouseEvents(true, { forward: true });
+  ipcMain.on('set-interactive', (e, on) => {
+    if (!win || e.sender !== win.webContents) return;
+    wantInteractive = !!on;
+    applyInteractive();
   });
 
   // 드래그: 커서를 메인에서 폴링 — 빠르게 움직여 창 밖으로 나가도 따라간다
@@ -2175,6 +2203,10 @@ if (SQUIRREL) {
     // 화면 구성 바뀜·절전/잠금 뒤 캐릭터를 다시 맨 위로(윈도우)
     for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => keepOnTop(win));
     for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => keepOnTop(win));
+    // 클릭 투과 보강(윈도우): 커서를 직접 물어 hit 검사 · 절전/잠금·화면 바뀜 뒤엔 forward 훅을 바로 다시 건다
+    startHitWatch();
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => hitWatch?.rearmNow());
+    for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => hitWatch?.rearmNow());
 
     // 디스플레이 구성 바뀌면 화면 밖으로 나갔는지 확인
     screen.on('display-removed', () => {
