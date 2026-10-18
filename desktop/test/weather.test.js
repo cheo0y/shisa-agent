@@ -119,12 +119,13 @@ test('검색 칸: 데몬 오류·연결 안 됨은 이유를 목록 자리에 �
   assert.equal(placeFromCandidate({ name: 'x', latitude: 1, longitude: 2 }).timezone, 'auto');
 });
 
-test('저장 본문: weather 는 아는 칸만, 지역은 이름·좌표, 시각은 HH:MM 여섯 개까지', () => {
+test('저장 본문: weather 는 아는 칸만, 지역은 이름·좌표, 시각은 HH:MM(개수 제한 없음)', () => {
+  assert.equal(sanitizeSettingsPatch({ weather: { times: ['01:00', '02:00', '03:00', '04:00', '05:00', '06:00', '07:00'] } }).weather.times.length, 7);
   assert.deepEqual(sanitizeSettingsPatch({ weather: { place: MAPO } }), { weather: { place: MAPO } });
   assert.deepEqual(sanitizeSettingsPatch({ weather: { place: null, morning: false } }), { weather: { place: null, morning: false } });
   assert.deepEqual(sanitizeSettingsPatch({ weather: { times: ['17:00', '09:00', '09:00'] } }), { weather: { times: ['09:00', '17:00'] } });
   for (const bad of [{ weather: null }, { weather: {} }, { weather: { nope: 1 } }, { weather: { leave: 'y' } }, { weather: { times: ['9:00'] } }, { weather: { place: { name: 'x', latitude: 99, longitude: 0 } } },
-    { weather: { place: { name: '', latitude: 1, longitude: 1 } } }, { weather: { place: { ...SEOUL, timezone: '../x y' } } }, { weather: { times: ['01:00', '02:00', '03:00', '04:00', '05:00', '06:00', '07:00'] } }])
+    { weather: { place: { name: '', latitude: 1, longitude: 1 } } }, { weather: { place: { ...SEOUL, timezone: '../x y' } } }])
     assert.equal(sanitizeSettingsPatch(bad), null, JSON.stringify(bad));
   assert.equal(cleanWeatherPatch({ place: { ...SEOUL, label: undefined } }).place.label, '서울');
 });
@@ -139,7 +140,7 @@ test('화면 값·요약: 지역 없으면 꺼짐 안내, 있으면 「출근 �
   assert.deepEqual(weatherTimesNext(['13:00'], '08:30', true), { times: ['08:30', '13:00'] });
   assert.deepEqual(weatherTimesNext(['13:00', '08:30'], '13:00', false), { times: ['08:30'] });
   assert.ok(weatherTimesNext([], '', true).error);
-  assert.ok(weatherTimesNext(['01:00', '02:00', '03:00', '04:00', '05:00', '06:00'], '07:00', true).error);
+  assert.equal(weatherTimesNext(['01:00', '02:00', '03:00', '04:00', '05:00', '06:00'], '07:00', true).times.length, 7); // 개수 제한 없음
   assert.equal(WEATHER_ATTRIBUTION.label, '날씨: Open-Meteo');
   assert.equal(WEATHER_ATTRIBUTION.license, 'CC BY 4.0');
 });

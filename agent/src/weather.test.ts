@@ -57,7 +57,7 @@ test("설정: 기본은 지역 없음(꺼짐)·출근 후·퇴근 20분 전 켬,
   assert.equal(weatherOf({ place: { name: "x", latitude: 1, longitude: 2, timezone: "../etc" } }).place?.timezone, "auto");
   assert.deepEqual(validateWeather({ place: null }), { place: null });
   assert.deepEqual(validateWeather({ times: ["17:00", "09:15"] }), { times: ["09:15", "17:00"] });
-  for (const bad of [null, [], { nope: 1 }, { morning: "yes" }, { times: ["25:00"] }, { times: "09:00" }, { place: { name: "", latitude: 1, longitude: 1 } }, { times: ["01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00"] }])
+  for (const bad of [null, [], { nope: 1 }, { morning: "yes" }, { times: ["25:00"] }, { times: "09:00" }, { place: { name: "", latitude: 1, longitude: 1 } }])
     assert.throws(() => validateWeather(bad), JSON.stringify(bad));
   assert.deepEqual(mergeWeather(weatherOf({ place: SEOUL }), { leave: false }), { place: SEOUL, morning: true, leave: false, times: [] });
   assert.equal(mergeWeather(weatherOf({ place: SEOUL }), { place: null }).place, null);

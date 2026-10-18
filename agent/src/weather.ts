@@ -14,7 +14,6 @@ export const WEATHER_DEFAULTS: Readonly<WeatherConfig> = Object.freeze({ place: 
 export const LEAVE_WEATHER_MIN = 20; // 퇴근 몇 분 전에 날씨를 알릴지(퇴근 10분 전 인사와 따로)
 export const TIME_SPAN_MIN = 60; // 사용자가 정한 시각부터 이만큼 안에 한 번(앱이 그 시각에 꺼져 있었을 때)
 export const MORNING_WAIT_MS = 90e3; // 출근 인사 뒤 브리핑이 없으면 이만큼 기다렸다가
-export const WEATHER_TIMES_MAX = 6;
 export const ATTRIBUTION = { label: "날씨: Open-Meteo", url: "https://open-meteo.com/", license: "CC BY 4.0" } as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -37,7 +36,7 @@ const cleanTimes = (v: unknown): string[] | null => {
 // config.json 값 → 날씨 설정(빠지거나 이상한 값은 기본값)
 export function weatherOf(v: unknown): WeatherConfig {
   const o = isObj(v) ? v : {};
-  return { place: placeOf(o.place), morning: o.morning !== false, leave: o.leave !== false, times: (cleanTimes(o.times) ?? []).slice(0, WEATHER_TIMES_MAX) };
+  return { place: placeOf(o.place), morning: o.morning !== false, leave: o.leave !== false, times: cleanTimes(o.times) ?? [] };
 }
 // PUT /settings { weather: { place?: {...} | null, morning?, leave?, times? } } 검증. 틀리면 던진다
 export type WeatherPatch = { place?: WeatherPlace | null; morning?: boolean; leave?: boolean; times?: string[] };
@@ -61,7 +60,6 @@ export function validateWeather(v: unknown): WeatherPatch {
   if (v.times !== undefined) {
     const t = cleanTimes(v.times);
     if (!t) throw new Error("날씨 알림 시각은 HH:MM(예: 08:30) 목록이어야 해요");
-    if (t.length > WEATHER_TIMES_MAX) throw new Error(`날씨 알림 시각은 ${WEATHER_TIMES_MAX}개까지예요`);
     out.times = t;
   }
   return out;

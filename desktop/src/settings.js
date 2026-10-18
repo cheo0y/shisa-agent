@@ -167,7 +167,6 @@ export function workTimeNext(view, key, value) {
 
 // ---- 날씨 알리미(GET /settings weather — 데몬 agent/src/weather.ts 와 같은 규칙) ----
 export const WEATHER_DEFAULT = { place: null, morning: true, leave: true, times: [] };
-export const WEATHER_TIMES_MAX = 6;
 export const WEATHER_ATTRIBUTION = { label: '날씨: Open-Meteo', url: 'https://open-meteo.com/', license: 'CC BY 4.0', licenseUrl: 'https://creativecommons.org/licenses/by/4.0/' };
 const okPlace = (p) => !!p && typeof p === 'object' && !Array.isArray(p) && typeof p.name === 'string' && !!p.name.trim() && p.name.length <= 80
   && Number.isFinite(p.latitude) && Math.abs(p.latitude) <= 90 && Number.isFinite(p.longitude) && Math.abs(p.longitude) <= 180
@@ -187,7 +186,7 @@ export function cleanWeatherPatch(w) {
     out[k] = w[k];
   }
   if (w.times !== undefined) {
-    if (!Array.isArray(w.times) || !w.times.every(okHhmm) || new Set(w.times).size > WEATHER_TIMES_MAX) return null;
+    if (!Array.isArray(w.times) || !w.times.every(okHhmm)) return null;
     out.times = sortTimes(w.times);
   }
   return Object.keys(out).length ? out : null;
@@ -206,7 +205,6 @@ export function weatherTimesNext(list, time, on) {
   const cur = Array.isArray(list) ? list.filter(okHhmm) : [];
   if (on && !okHhmm(time)) return { error: '시각을 HH:MM(예: 13:00)으로 골라 주세요' };
   const next = sortTimes(on ? [...cur, time] : cur.filter((t) => t !== time));
-  if (next.length > WEATHER_TIMES_MAX) return { error: `알림 시각은 ${WEATHER_TIMES_MAX}개까지예요` };
   return { times: next };
 }
 // 지금 설정을 한 줄로(근무 시간의 퇴근 시각으로 「17:40」을 보여 준다)

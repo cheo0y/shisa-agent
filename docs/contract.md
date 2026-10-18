@@ -54,7 +54,7 @@ type Bubble = {
 - 날씨 알리미(`weather.ts`·`weather-say.ts`, 설정 `weather`): `weather.place`(사용자가 고른 지역)가 있을 때만 돈다. AI 없이 Open-Meteo 예보를 정해진 말로 말풍선 id `weather:<키>`에 띄운다(비·눈 소식이 있으면 `kind: "todo"`, 아니면 `info`). 근무 요일에 하루 한 번씩이고, 날짜는 근무 시간과 같은 `lunch.json`에 키 `weatherMorning`·`weatherLeave`·`weather@HH:MM`로 남긴다. 예보를 못 가져오면 남기지 않고 다음 확인(1분마다) 때 다시 본다.
   - 출근 후(`weather.morning`, 기본 켬): 출근 시각부터 퇴근 20분 전까지. 출근 인사(`startAlert`)가 켜져 있으면 그 인사(로컬 뇌 브리핑의 아침 인사 포함) 뒤에만 뜬다. 브리핑이 도는 중이면 기다렸다가 끝나고 3초쯤 뒤에, 브리핑이 없으면 인사 1분 30초 뒤에 뜬다. 출근 인사를 껐으면 출근 시각(또는 데몬을 켠 때)을 기준으로 한다. 대사 `local.weatherMorning`.
   - 퇴근 20분 전(`weather.leave`, 기본 켬): 퇴근 20분 전부터 퇴근 시각 전까지, 퇴근 10분 전 인사와 따로다. 퇴근 2시간 전부터 3시간 뒤까지 비·눈(강수 확률 50% 이상 또는 0.5mm 이상)이 있으면 `local.weatherLeaveRain`(☔ 「퇴근길 비 와요, 우산!」), 없으면 퇴근 시각 즈음 날씨로 `local.weatherLeave`. 일정 알림 춤 중이면 다음 확인에.
-  - 정한 시각(`weather.times`, 여섯 개까지): 그 시각부터 한 시간 안에 한 번. 대사 `local.weatherNow`.
+  - 정한 시각(`weather.times`): 그 시각부터 한 시간 안에 한 번. 대사 `local.weatherNow`.
   - 채팅·브리핑 맥락(도구 머리말·큰 맥락 블록 둘 다)에 예보가 캐시에 있으면 한 줄(`- 오늘 날씨(서울 · Open-Meteo 예보): 맑음, 지금 14°C(맑음) · 최고 21°C/최저 11°C · 오후 3시쯤 비 60%`)이 붙는다. 프롬프트 때문에 바깥에 묻지는 않는다.
   - 대사 자리표시: `weatherMorning`·`weatherNow`는 `{place}` `{summary}` `{now}` `{max}` `{min}` `{rain}`, `weatherLeave`는 `{place}` `{summary}` `{now}` `{max}` `{min}`, `weatherLeaveRain`은 `{place}` `{what}` `{when}` `{prob}` `{now}`, `weatherRain`(`{rain}` 자리에 들어가는 조각)은 `{when}`(「오후 3시」) `{what}`(비·눈) `{prob}`(「60%」). `weatherNoPlace`·`weatherFail`은 없다. 앞에 날씨 이모지 하나(비·눈이면 ☔)는 코드가 붙인다. 날씨 코드(WMO)는 맑음·구름 조금·구름 많음·흐림·안개·이슬비·비·소나기·눈·뇌우 같은 낱말로 바꾼다.
 
@@ -120,7 +120,7 @@ type Bubble = {
   "workDays": [1, 2, 3, 4, 5],                            // 0 일~6 토, 하나 이상
   "startAlert": true, "leaveAlert": true,                 // 출근 인사·퇴근 10분 전 인사 켜고 끄기(기본 켬)
   "weather": { "place": { "name": "서울", "label": "서울특별시 · 대한민국", "latitude": 37.566, "longitude": 126.9784, "timezone": "Asia/Seoul" } | null,
-               "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 여섯 개까지
+               "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 목록
   "character": "hachi"                                    // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
 }
 ```
