@@ -243,7 +243,7 @@ type Bubble = {
 
 | | |
 |---|---|
-| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`) |
+| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`). `today: true`면 P1(오늘 할 일) |
 | `POST /todos/:id { title?, priority?, link?, note?, description?, status?: open\|done, doing?: boolean\|null, today?, projectId?: string\|null }` | 200 `{ ok, todo }`. 사용자가 고친 필드는 브리핑이 덮지 않는다(`doing`은 예외) |
 | `POST /todos/:id/done` | 완료 |
 | `POST /todos/:id/delete` → `/restore` → `/purge`, `POST /todos/trash/empty` | 휴지통(30일 뒤 자동 비움) |
@@ -271,13 +271,17 @@ type Bubble = {
 
 ### 오늘 할 일
 
-따로 표를 두지 않고 할 일에 "오늘로 고른 날"(`today`, KST `YYYY-MM-DD`)을 단다. 패널 '오늘 할 일' 탭은 할 일 탭과 같은 줄·우선순위 묶음(P1·P2·P3·백로그)으로 그날 고른 것만 보인다. 이 맥의 SQLite에만 둔다.
+오늘 할 일은 우선순위 1(「오늘 꼭」)인 할 일입니다. 따로 표나 날짜를 두지 않습니다. 패널 '오늘 할 일' 탭은 「오늘 꼭」 줄만 모아 보는 화면이고, 할 일 탭에서 우선순위를 「오늘 꼭」으로 바꾸면 바로 오늘 할 일에 보입니다. 이 맥의 SQLite에만 둡니다.
 
-- 새로 적기: `POST /todos { title, priority?, today: true }`
-- 고르기·빼기: `POST /todos/:id { today: true | false | null }` (빼도 할 일은 남는다)
-- `GET /dashboard` 의 `todos[].today`, `today: { date, asked, items: [{ id, title, done, priority, source }] }`
-- 예전 `POST /today` 표 저장은 없다. 예전 표의 오늘 줄은 데몬이 켜질 때 할 일로 옮긴다
-- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번. 모델 없이 정해진 말로 알린다
+- 오늘 할 일 = 열린 P1 + 오늘(이 맥 시간대) 끝낸 P1입니다. 날짜가 넘어가면 어제 끝낸 것은 빠집니다. 하루 진행률(절반·전부 응원)도 이 기준으로 셉니다.
+- 새로 적기: `POST /todos { title, priority: 1 }`. 예전 `today: true`도 받으며 P1으로 만듭니다.
+- 넣기·빼기: `POST /todos/:id { priority: 1 }`(넣기), `{ priority: 2 }`(빼기, 이번 주로). 예전 `{ today: true | false | null }`도 받으며 `true`는 P1로, `false`·`null`은 P1이면 P2로 바꿉니다. 빼도 할 일은 남습니다.
+- `GET /dashboard` 의 `today: { date, asked, items: [{ id, title, done, priority, source }], carry?: { n, ids } }`. `todos[].today`는 더 내려주지 않습니다.
+- 아침 질문: 영업일 아침 안내 때 어제(전날까지)부터 남은 열린 P1이 있으면 「어제 남은 N개, 오늘도 할까요?」라고 묻습니다(문구 `today_carry`, 자리표시 `{n}`). 말풍선에 `carry: { n }`이 붙어 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] 단추가 뜨고, 고르기 전까지 `today.carry`가 남아 패널 오늘 할 일 탭 위에도 같은 물음이 보입니다. 남은 것이 없으면 예전처럼 「오늘 할 일 적어 주세요」라고 알립니다. 주말·공휴일에는 묻지 않습니다.
+- 답하기: `POST /today/carry { decision: "keep" | "demote" }` → 200 `{ ok, moved }`. `keep`은 그대로 두고, `demote`는 물은 것 중 아직 열린 P1을 P2(이번 주)로 내립니다. 고른 뒤에는 그날 다시 묻지 않고 말풍선도 걷습니다. [하나씩 볼게요]는 패널만 엽니다.
+- 채팅·브리핑의 `plan_ops`: `add(title)`은 P1 할 일을 만들고, `add(id)`는 그 할 일을 P1로 올리고, `remove`는 P2로 내립니다. 「오늘 할 일에 넣어 줘」는 P1, 「오늘은 빼 줘」는 P2입니다. 브리핑·채팅은 오늘 안에 해야 하는 것만 P1로 넣습니다.
+- 옮기기(한 번만): 예전에 날짜로 골라 둔 오늘 할 일(`todos.plan_day`가 오늘이나 앞날인 열린 할 일, 오늘 끝낸 것 포함)은 데몬이 켜질 때 P1로 옮기고 `daily_plan_flags`에 `today-is-p1`을 남깁니다. 다시 켜도 또 옮기지 않습니다. `plan_day` 열은 지우지 않고 더 쓰지도 않습니다. 더 예전 `daily_plan` 표의 오늘·앞날 줄도 P1 할 일로 옮깁니다. 예전 `POST /today` 표 저장은 없습니다.
+- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번입니다. 모델 없이 정해진 말로 알립니다.
 
 ### 집중하기
 

@@ -12,7 +12,7 @@ import { loadConfig } from "./config.ts";
 
 const WED = () => new Date("2026-10-07T01:00:00Z"); // KST 수요일 10:00
 const at = (iso: string) => () => new Date(iso);
-// 끝낸 때(updated)를 가짜 시계의 그날로 — 끝내기는 실제 시계로 적히니까
+// 끝낸 때(updated)를 가짜 시계의 그날로(끝내기는 실제 시계로 적히니까)
 const doneOnWed = (store: Store, title: string) => store.db.prepare("UPDATE todos SET updated = ? WHERE title = ?").run("2026-10-07T01:30:00Z", title);
 
 test("오늘 할 일 = 우선순위 1(오늘 꼭): 추가는 P1, 넣기 = P1 로, 빼기 = 이번 주(P2)로", () => {
@@ -30,7 +30,7 @@ test("오늘 할 일 = 우선순위 1(오늘 꼭): 추가는 P1, 넣기 = P1 로
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.plan.items.map((x) => [x.title, x.priority, x.done]), [["이미 있던 일", 1, false], ["원래 오늘 꼭", 1, false], ["회의 준비", 1, false], ["메일 답장", 1, false]]);
   assert.equal(store.getTodo(old.id)?.priority, 1, "넣기 = 할 일 자체가 P1");
-  assert.ok(store.getTodo(old.id)?.userEdited?.includes("priority"), "사용자가 고른 것 — 브리핑이 덮지 않는다");
+  assert.ok(store.getTodo(old.id)?.userEdited?.includes("priority"), "사용자가 고른 것이라 브리핑이 덮지 않는다");
   const byTitle = (t: string) => r.plan.items.find((x) => x.title === t)!;
   const mail = byTitle("메일 답장");
   const r2 = p.applyOps([{ op: "toggle", id: mail.id }, { op: "remove", id: p1.id }]);
@@ -254,7 +254,7 @@ test("하루 진행률은 P1(오늘 할 일) 기준: 어제 끝낸 P1 은 세지
   const later = agent.addTodo({ title: "이번 주였던 일", priority: 2 });
   agent.editTodo(later.id, { today: true }); // 오늘 P1 으로 올림 → 오늘 할 일 3개
   agent.todoDone(a.id);
-  assert.ok(!bubbles.some((b) => b.image === "daily_half_complete"), "1/3 — 어제 끝낸 걸 세면 2/4 로 절반이 된다");
+  assert.ok(!bubbles.some((b) => b.image === "daily_half_complete"), "1/3. 어제 끝낸 걸 세면 2/4 로 절반이 된다");
   agent.todoDone(later.id);
   assert.equal(bubbles.at(-1)?.image, "daily_half_complete");
   assert.match(bubbles.at(-1)?.text, /2\/3/);

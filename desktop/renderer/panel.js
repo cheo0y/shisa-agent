@@ -1141,7 +1141,7 @@ async function carryDecide(cmd) {
     if (raw?.today) { const { carry: _c, ...rest } = raw.today; raw = { ...raw, today: rest }; }
     loadSoon();
   } else {
-    todoMsg = { ok: false, text: `고르지 못했어요 — ${why(r)}` };
+    todoMsg = { ok: false, text: `고르지 못했어요: ${why(r)}` };
   }
   renderAll();
 }

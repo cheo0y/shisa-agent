@@ -1,4 +1,4 @@
-// 오늘 할 일 = 우선순위 1(오늘 꼭) — 패널·오버레이·메인 연결(글로 확인. 실제 화면은 CDP 로 따로 봤다)
+// 오늘 할 일 = 우선순위 1(오늘 꼭). 패널·오버레이·메인 연결(글로 확인. 실제 화면은 CDP 로 따로 봤다)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

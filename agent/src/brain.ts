@@ -214,7 +214,7 @@ function todayPlan(store: Store): string {
       return lines.join("\n");
     }
     for (const r of plan.items) lines.push(`- id=${r.id} ${r.done ? "[x]" : "[ ]"} ${r.title}`);
-    if (plan.carry) lines.push(`(어제 남은 ${plan.carry.n}개를 오늘도 할지 아직 안 골랐다 — 패널 오늘 할 일 탭 위에서 고른다)`);
+    if (plan.carry) lines.push(`(어제 남은 ${plan.carry.n}개를 오늘도 할지 아직 안 골랐다. 패널 오늘 할 일 탭 위에서 고른다)`);
     return lines.join("\n");
   } catch { return ""; }
 }

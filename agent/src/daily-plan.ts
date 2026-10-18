@@ -100,7 +100,7 @@ export function validateTodayReminder(raw: unknown): TodayReminder {
   return todayReminderOf({ ...DEFAULT_TODAY_REMINDER, ...r });
 }
 
-// carry: 아침 질문 「어제 남은 N개, 오늘도 할까요?」 — 말풍선에 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요]
+// carry: 아침 질문 「어제 남은 N개, 오늘도 할까요?」. 말풍선에 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요]
 export type Reminder = { kind: "ask" | "remind"; text: string; plan: DailyPlan; carry?: PlanCarry };
 
 // 정해진 말(모델 없이). 다 끝냈으면 알리지 않는다(null)

@@ -130,7 +130,7 @@ test("bus: 오늘 할 일은 할 일 API 로(today 필드), 예전 /today 표 �
   }
 });
 
-test("bus: 아침 질문 답(POST /today/carry) — keep·demote 만", async () => {
+test("bus: 아침 질문 답(POST /today/carry): keep·demote 만", async () => {
   const got: string[] = [];
   const b = await serve({ todayCarry: (d) => { got.push(d); return { moved: d === "demote" ? 2 : 0 }; } });
   try {
