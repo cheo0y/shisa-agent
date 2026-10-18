@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('cy', {
   disconnectBrain: (id) => ipcRenderer.invoke('settings-brain-disconnect', String(id || '')),
   disconnectConnector: (cap) => ipcRenderer.invoke('settings-connector-disconnect', String(cap || '')),
   // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label }] }(주소는 없음) · 하나 빼기(id) → { ok, items, note?, error? }
+  // 날씨 지역 검색: 글자 → { ok, data: { ok, items: [{ name, label, latitude, longitude, timezone }] } }
+  searchWeather: (q) => ipcRenderer.invoke('settings-weather-search', String(q ?? '')),
+  openSource: (which) => ipcRenderer.send('settings-open-source', String(which)), // 'weather'(Open-Meteo) | 'license'(CC BY 4.0)
   getCalendars: () => ipcRenderer.invoke('settings-calendars'),
   addCalendar: (body) => ipcRenderer.invoke('settings-calendar-add', { name: String(body?.name ?? ''), url: String(body?.url ?? '') }),
   renameCalendar: (id, name) => ipcRenderer.invoke('settings-calendar-rename', String(id || ''), String(name ?? '')),

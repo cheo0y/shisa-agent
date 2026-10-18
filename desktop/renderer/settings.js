@@ -8,7 +8,9 @@ import {
   REMINDER_DEFAULT, REMINDER_HOURS, cleanReminder, parseTimes, reminderSummary,
   ALERT_DEFAULT, cleanCalendarAlert, alertMinutesNext, parseAlertMinutes, alertChoices, calendarAlertSummary,
   workHoursView, workDaysNext, workTimeNext, WORK_DAY_ORDER, DAY_LABEL,
+  weatherView, weatherTimesNext, weatherSummary,
 } from '../src/settings.js';
+import { createPlaceSearch } from '../src/weather-search.js';
 import { mountGuidelines } from '../src/guidelines.js';
 import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf } from '../src/character-registry.js';
@@ -924,7 +926,7 @@ for (const [id, k] of [['work-start', 'workStart'], ['work-lunch', 'lunchTime'],
     $('work-err').textContent = '';
     const r = workTimeNext(settings, k, e.target.value);
     if (r.error) { $('work-err').textContent = r.error; return; }
-    if (await save(r.patch)) renderWork();
+    if (await save(r.patch)) { renderWork(); renderWeather(); }
   });
   // 고르다 만 값(오류)은 칸을 떠나면 저장된 값으로 되돌린다
   $(id).addEventListener('blur', () => { if ($('work-err').textContent) { $('work-err').textContent = ''; renderWork(); } });
@@ -955,6 +957,78 @@ async function addCustomAlert() {
 }
 $('cal-custom-add').addEventListener('click', addCustomAlert);
 $('cal-custom').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomAlert(); } });
+
+// ---- 날씨: 지역 검색(300ms 멈춤 → 후보 목록, ↑↓ Enter·클릭) · 알림 시각(출근 후 브리핑 다음 · 퇴근 20분 전 · 정한 시각) ----
+let weatherEditing = false; // [바꾸기]를 눌러 검색 칸을 연 채
+async function saveWeather(patch) {
+  $('weather-err').textContent = '';
+  const ok = await save({ weather: patch });
+  renderWeather();
+  return ok;
+}
+createPlaceSearch({
+  input: $('weather-q'), list: $('weather-list'), doc: document,
+  search: (q) => cy.searchWeather(q),
+  onPick: async (place) => {
+    $('weather-q').value = '';
+    weatherEditing = false;
+    if (await saveWeather({ place })) flash(`${place.name} 날씨를 알려 줄게요`);
+  },
+});
+function renderWeather() {
+  if (!settings) return;
+  const v = weatherView(settings);
+  const picked = !!v.place && !weatherEditing;
+  $('weather-picked').hidden = !picked;
+  $('weather-find').hidden = picked;
+  if (v.place) { $('weather-name').textContent = v.place.name; $('weather-label').textContent = v.place.label && v.place.label !== v.place.name ? v.place.label : ''; }
+  $('weather-when').hidden = !v.place;
+  $('weather-morning').checked = v.morning;
+  $('weather-leave').checked = v.leave;
+  const end = workHoursView(settings).workEnd;
+  const m = Math.max(0, Number(end.slice(0, 2)) * 60 + Number(end.slice(3)) - 20);
+  $('weather-leave-label').textContent = `퇴근 20분 전(${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')})`;
+  const box = $('weather-times');
+  box.replaceChildren();
+  box.hidden = !v.times.length;
+  // 정한 시각: 「20:19 [빼기]」 칩
+  for (const t of v.times) {
+    const chip = el('span', 'weather-chip');
+    chip.setAttribute('role', 'listitem');
+    const del = el('button', 'small ghost', '빼기');
+    del.type = 'button';
+    del.setAttribute('aria-label', `${t} 알림 빼기`);
+    del.addEventListener('click', async () => {
+      del.disabled = true;
+      if (!(await saveWeather({ times: weatherTimesNext(weatherView(settings).times, t, false).times }))) del.disabled = false;
+    });
+    chip.append(el('span', 'weather-chip-time', t), del);
+    box.append(chip);
+  }
+  $('weather-summary').textContent = weatherSummary(v, settings);
+}
+$('weather-change').addEventListener('click', () => { weatherEditing = true; renderWeather(); $('weather-q').focus(); });
+$('weather-q').addEventListener('keydown', (e) => { if (e.key === 'Escape' && weatherEditing && $('weather-list').hidden) { weatherEditing = false; renderWeather(); } });
+$('weather-clear').addEventListener('click', async () => { weatherEditing = false; if (await saveWeather({ place: null })) flash('날씨 알림을 껐어요'); });
+for (const [id, k, on, off] of [['weather-morning', 'morning', '출근 후 날씨를 켰어요', '출근 후 날씨를 껐어요'], ['weather-leave', 'leave', '퇴근 전 날씨를 켰어요', '퇴근 전 날씨를 껐어요']]) {
+  $(id).addEventListener('change', async (e) => {
+    const cb = e.target;
+    cb.disabled = true;
+    const ok = await saveWeather({ [k]: cb.checked });
+    cb.disabled = false;
+    if (ok) flash(cb.checked ? on : off);
+  });
+}
+async function addWeatherTime() {
+  const r = weatherTimesNext(weatherView(settings).times, $('weather-time').value, true);
+  if (r.error) { $('weather-err').textContent = r.error; return; }
+  $('weather-time-add').disabled = true;
+  if (await saveWeather({ times: r.times })) $('weather-time').value = '';
+  $('weather-time-add').disabled = false;
+}
+$('weather-time-add').addEventListener('click', addWeatherTime);
+$('weather-src').addEventListener('click', (e) => { e.preventDefault(); cy.openSource?.('weather'); });
+$('weather-license').addEventListener('click', (e) => { e.preventDefault(); cy.openSource?.('license'); });
 
 // ---- 자동 머지 레포 ----
 function renderAutoMerge() {
@@ -1180,7 +1254,7 @@ async function load() {
   if (k && typeof k === 'object' && typeof k.claude === 'boolean') caps = { claude: k.claude, codex: k.codex === true };
   if (!s?.ok || !c?.ok) banner(`${who()}에 연결되지 않았어요. ${who()}가 켜져 있는지 확인해 주세요.`);
   else banner(null);
-  if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderAutoMerge(); renderPhrases(); renderCharacter(); loadCharacters(); }
+  if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); loadCharacters(); }
   if (c?.ok) {
     await loadCalendars();
     rows = Array.isArray(c.data?.rows) ? c.data.rows : [];

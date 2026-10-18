@@ -1,6 +1,6 @@
 // 설정 창(메인 프로세스 쪽): 창 하나 + 이 창에서만 받는 IPC. 일렉트론 객체는 main.js 가 넘긴다(시험은 가짜로).
 // 모델·브리핑 출처 저장(PUT /settings) · 연결 상태(GET /connections, POST /connections/check) · 패널의 설치 안내·모델 탭 열기.
-import { sanitizeSettingsPatch, sanitizeAppPrefs, okCheckId, okPanelTarget, sanitizeCharacterBody, okMediaSlot, okStoredFile } from './settings.js';
+import { WEATHER_ATTRIBUTION, sanitizeSettingsPatch, sanitizeAppPrefs, okCheckId, okPanelTarget, sanitizeCharacterBody, okMediaSlot, okStoredFile } from './settings.js';
 import { okCharacterId } from './character.js';
 import { cleanUpload } from './attachments.js';
 import { sanitizeGuidelineAdd, sanitizeGuidelinePatch, okGuidelineId } from './guidelines.js';
@@ -77,6 +77,16 @@ export function setupSettings(deps) {
   ipcMain.handle('settings-brain-disconnect', (e, id) => (isMine(e) && okBrainId(id) && deps.disconnectBrain ? deps.disconnectBrain(id) : denied()));
   ipcMain.handle('settings-connector-disconnect', (e, cap) => (isMine(e) && okCap(cap) && deps.disconnectConnector ? deps.disconnectConnector(cap) : denied()));
   // 캘린더 여러 개: 목록(가린 이름만) · 하나 빼기(id). 빼는 일은 main 이(패널과 같은 함수)
+  // 날씨 지역 검색(데몬 GET /weather/search → Open-Meteo Geocoding). 글자는 60자까지
+  ipcMain.handle('settings-weather-search', (e, q) => {
+    const t = typeof q === 'string' ? q.replace(/\s+/g, ' ').trim() : '';
+    return isMine(e) && t && t.length <= 60 ? deps.request('GET', `/weather/search?q=${encodeURIComponent(t)}`, undefined, 15000) : denied();
+  });
+  // 출처 링크(「날씨: Open-Meteo」·CC BY 4.0): 정해 둔 두 주소만 기본 브라우저로
+  ipcMain.on('settings-open-source', (e, which) => {
+    const url = { weather: WEATHER_ATTRIBUTION.url, license: WEATHER_ATTRIBUTION.licenseUrl }[which];
+    if (isMine(e) && url) deps.shell?.openExternal?.(url);
+  });
   ipcMain.handle('settings-calendars', (e) => (isMine(e) && deps.calendars ? deps.calendars() : denied()));
   ipcMain.handle('settings-calendar-remove', (e, id) => (isMine(e) && okCalendarId(id) && deps.removeCalendar ? deps.removeCalendar(id) : denied()));
   ipcMain.handle('settings-calendar-add', (e, b) => (isMine(e) && b && typeof b === 'object' && okCalendarUrl(b.url) && (b.name === undefined || okCalendarName(b.name)) && deps.addCalendar

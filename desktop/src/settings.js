@@ -31,7 +31,7 @@ export function autoMergeNext(list, slug, add) {
 export function sanitizeSettingsPatch(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const out = {};
-  for (const k of Object.keys(p)) if (k !== 'models' && k !== 'brainModels' && k !== 'briefing' && k !== 'phrases' && k !== 'autoMerge' && k !== 'todayReminder' && k !== 'readSessions' && k !== 'calendarAlert' && k !== 'lunchAlert' && !WORK_KEYS.includes(k) && k !== 'character') return null;
+  for (const k of Object.keys(p)) if (k !== 'models' && k !== 'brainModels' && k !== 'briefing' && k !== 'phrases' && k !== 'autoMerge' && k !== 'todayReminder' && k !== 'readSessions' && k !== 'calendarAlert' && k !== 'lunchAlert' && !WORK_KEYS.includes(k) && k !== 'weather' && k !== 'character') return null;
   // 캐릭터(src/character.js 의 id)
   if (p.character !== undefined) {
     if (!okCharacterId(p.character)) return null; // 기본 여덟 또는 사용자 캐릭터 모양(있는지는 데몬이)
@@ -113,6 +113,12 @@ export function sanitizeSettingsPatch(p) {
     if (typeof p[k] !== 'boolean') return null;
     out[k] = p[k];
   }
+  // 날씨 알리미: { place?: {...} | null, morning?, leave?, times? } — 준 칸만
+  if (p.weather !== undefined) {
+    const w = cleanWeatherPatch(p.weather);
+    if (!w) return null;
+    out.weather = w;
+  }
   // 일정 알림: { minutesBefore: [분…] } ([] = 끔)
   if (p.calendarAlert !== undefined) {
     const c = cleanCalendarAlert(p.calendarAlert);
@@ -157,6 +163,62 @@ export function workTimeNext(view, key, value) {
   const v = { ...workHoursView(view), [key]: value };
   if (v.workStart >= v.workEnd) return { error: '출근 시각은 퇴근 시각보다 앞이어야 해요' };
   return { patch: { [key]: value } };
+}
+
+// ---- 날씨 알리미(GET /settings weather — 데몬 agent/src/weather.ts 와 같은 규칙) ----
+export const WEATHER_DEFAULT = { place: null, morning: true, leave: true, times: [] };
+export const WEATHER_TIMES_MAX = 6;
+export const WEATHER_ATTRIBUTION = { label: '날씨: Open-Meteo', url: 'https://open-meteo.com/', license: 'CC BY 4.0', licenseUrl: 'https://creativecommons.org/licenses/by/4.0/' };
+const okPlace = (p) => !!p && typeof p === 'object' && !Array.isArray(p) && typeof p.name === 'string' && !!p.name.trim() && p.name.length <= 80
+  && Number.isFinite(p.latitude) && Math.abs(p.latitude) <= 90 && Number.isFinite(p.longitude) && Math.abs(p.longitude) <= 180
+  && (p.label === undefined || (typeof p.label === 'string' && p.label.length <= 200)) && (p.timezone === undefined || (typeof p.timezone === 'string' && /^[\w/+-]{1,64}$/.test(p.timezone)));
+const sortTimes = (xs) => [...new Set(xs)].sort();
+export function cleanWeatherPatch(w) {
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return null;
+  const out = {};
+  for (const k of Object.keys(w)) if (!['place', 'morning', 'leave', 'times'].includes(k)) return null;
+  if (w.place !== undefined) {
+    if (w.place !== null && !okPlace(w.place)) return null;
+    out.place = w.place === null ? null : { name: w.place.name.trim(), label: String(w.place.label ?? w.place.name).trim(), latitude: w.place.latitude, longitude: w.place.longitude, timezone: w.place.timezone || 'auto' };
+  }
+  for (const k of ['morning', 'leave']) {
+    if (w[k] === undefined) continue;
+    if (typeof w[k] !== 'boolean') return null;
+    out[k] = w[k];
+  }
+  if (w.times !== undefined) {
+    if (!Array.isArray(w.times) || !w.times.every(okHhmm) || new Set(w.times).size > WEATHER_TIMES_MAX) return null;
+    out.times = sortTimes(w.times);
+  }
+  return Object.keys(out).length ? out : null;
+}
+// 설정 값 → 화면 값
+export function weatherView(s) {
+  const w = s?.weather && typeof s.weather === 'object' ? s.weather : {};
+  return {
+    place: okPlace(w.place) ? w.place : null, morning: w.morning !== false, leave: w.leave !== false,
+    times: Array.isArray(w.times) ? sortTimes(w.times.filter(okHhmm)) : [],
+    attribution: w.attribution?.url === WEATHER_ATTRIBUTION.url ? { ...WEATHER_ATTRIBUTION, ...w.attribution } : WEATHER_ATTRIBUTION,
+  };
+}
+// 시각 넣기·빼기 → { times } | { error }
+export function weatherTimesNext(list, time, on) {
+  const cur = Array.isArray(list) ? list.filter(okHhmm) : [];
+  if (on && !okHhmm(time)) return { error: '시각을 HH:MM(예: 13:00)으로 골라 주세요' };
+  const next = sortTimes(on ? [...cur, time] : cur.filter((t) => t !== time));
+  if (next.length > WEATHER_TIMES_MAX) return { error: `알림 시각은 ${WEATHER_TIMES_MAX}개까지예요` };
+  return { times: next };
+}
+// 지금 설정을 한 줄로(근무 시간의 퇴근 시각으로 「17:40」을 보여 준다)
+export function weatherSummary(view, work) {
+  const v = view ?? WEATHER_DEFAULT;
+  if (!v.place) return '지역을 고르면 날씨를 알려 줘요. 고르기 전에는 아무 데도 묻지 않아요.';
+  const end = workHoursView(work).workEnd;
+  const m = Number(end.slice(0, 2)) * 60 + Number(end.slice(3)) - 20;
+  const leaveAt = `${String(Math.floor(Math.max(0, m) / 60)).padStart(2, '0')}:${String(Math.max(0, m) % 60).padStart(2, '0')}`;
+  const when = [v.morning ? '출근 후 브리핑 다음' : '', v.leave ? `퇴근 20분 전(${leaveAt})` : '', ...v.times].filter(Boolean);
+  if (!when.length) return `${v.place.name} 날씨는 알림 없이 「오늘 날씨?」 칩으로만 알려 줘요.`;
+  return `${v.place.name} 날씨를 근무 요일에 ${when.join(', ')}에 하루 한 번씩 알려 줘요.`;
 }
 
 // ---- 일정 알림(GET /settings calendarAlert) ----

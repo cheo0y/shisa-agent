@@ -1,5 +1,6 @@
 // AI(뇌) 없이 캐릭터를 더블클릭하면 뜨는 고르는 질문(칩). 순수 로직: 렌더러·main·테스트가 같이 쓴다.
 // 답은 데몬 POST /local/ask { id } 가 오늘 할 일·할 일·캘린더만 보고 정해진 말로 준다(agent local-mode.ts quickAnswer).
+// 「오늘 날씨?」(weather)는 데몬이 Open-Meteo 예보(캐시)로 답한다(agent weather-say.ts). 지역을 안 골랐으면 「설정에서 지역을 고르면 알려 줄게요」.
 // 마지막 칩 「AI 연결하기」는 데몬에 묻지 않고 설치 마법사의 뇌 단계를 연다.
 // 「집중 시작할래?」(focus_start)·「집중 그만할래?」(focus_stop)는 지금 집중 중인지에 따라 둘 중 하나만 보인다. 누르면 데몬이 바로 시작·멈춤(agent focus-ops.ts).
 
@@ -13,6 +14,7 @@ export const QUICK_CHIPS = [
   { id: 'today', label: '오늘 할 일 얼마나 했어요?' },
   { id: 'next_todo', label: '지금 할 일 뭐 있어요?' },
   { id: 'next_event', label: '다음 일정은요?' },
+  { id: 'weather', label: '오늘 날씨?' }, // 설정 「날씨」에서 고른 지역(없으면 고르라는 안내)
   { id: 'focus_start', label: '집중 시작할래?' },
   { id: 'focus_stop', label: '집중 그만할래?' },
   { id: 'cheer', label: '응원해 줘' },
