@@ -21,7 +21,7 @@ test('denied: status 400 과 data.error 를 채워 화면이 이유를 보여 �
   // 대시보드: 데몬에 닿지 못했을 때(status 없음)만 「연결되지 않았어요」
   assert.match(read('../renderer/panel.js'), /error = r\?\.error && !r\?\.status \? `\$\{who\(\)\}에 연결되지 않았어요\.`/); // 이름은 고른 캐릭터
   // 연결 해제 실패는 data.error 를 먼저
-  assert.equal(read('../renderer/settings.js').match(/res\?\.data\?\.error \|\| res\?\.error \|\| `끊지 못했어요/g)?.length, 2);
+  assert.equal(read('../renderer/settings.js').match(/res\?\.data\?\.error \|\| res\?\.error \|\| t\('settings\.disc_fail_off'/g)?.length, 2);
 });
 
 test('main.js: 메인과 설정 창이 같은 denied 를 쓰고, 복사·대화 이름에 글자 수 제한이 없다', () => {

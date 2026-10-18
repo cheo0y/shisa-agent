@@ -56,7 +56,8 @@ test('배선: 기본 켜짐(state.panelOverlay !== false), 패널 보임·숨김
   assert.match(r, /dispatchChat\(\{ type: 'sending', clientId \}\)/);
   assert.match(r, /cy\.chatSend\(text, ids, clientId\)/);
   assert.match(read('preload.cjs'), /chatSend: \(text, attachments, clientId\) =>/);
-  assert.match(read('renderer/settings.js'), /캐릭터 위에 마우스를 2초 두면 입력창이 열려요/);
+  assert.match(read('renderer/settings.js'), /t\('settings\.pref_overlay'\)/);
+  assert.match(read('src/i18n/settings.js'), /캐릭터 위에 마우스를 2초 두면 입력창이 열려요/);
   assert.doesNotMatch(read('renderer/settings.js'), /\u2014.*2초/);
 });
 

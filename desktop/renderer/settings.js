@@ -13,13 +13,14 @@ import {
 import { createPlaceSearch } from '../src/weather-search.js';
 import { mountGuidelines } from '../src/guidelines.js';
 import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS } from '../src/character.js';
-import { applyCharacters, effectiveLines, defaultsOf } from '../src/character-registry.js';
+import { applyCharacters, effectiveLines, defaultsOf, staticCharacters } from '../src/character-registry.js';
 import { editorSections, flattenLines, unflattenLines, fieldText, fieldProblem, linesFromTexts, diffLines, slotRows, okMediaName, previewKind, missingRequired, sourceOptions, ACCEPT, MULTI_HINT, sayPlaceholder, sayTitle } from '../src/character-edit.js';
-import { who, setWho, onWho } from './who.js';
+import { who, whoId, setWho, onWho } from './who.js';
 // 안내 글 속 이름(<span class="who">)도 캐릭터 이름으로
 onWho(() => { for (const n of document.querySelectorAll('.who')) n.textContent = who(); });
 import { brainRows, brainDisconnectCopy, connectorAction, capOfRow, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { createCalendarEditor } from '../src/calendar-editor.js';
+import { t, bindLanguage, language } from '../src/i18n.js';
 
 const cy = window.cy;
 const $ = (id) => document.getElementById(id);
@@ -31,10 +32,10 @@ const el = (tag, cls, text) => {
 };
 
 const ROLE_DESC = {
-  quick: '캐릭터를 눌러 그 자리에서 묻는 대화. 패널 채팅의 모델과 따로예요.',
-  general: '패널 채팅의 기본 모델(채팅 입력줄 옆에서 대화마다 다른 AI·모델을 고를 수 있어요) · 브리핑',
-  code: '승인한 코드 수정 작업을 실행할 때',
-  light: 'Slack·캘린더 수집, 대화 제목 짓기 같은 가벼운 일',
+  get quick() { return t('settings.role_quick'); },
+  get general() { return t('settings.role_general'); },
+  get code() { return t('settings.role_code'); },
+  get light() { return t('settings.role_light'); },
 };
 
 let settings = null;
@@ -63,11 +64,11 @@ function banner(text) {
 async function save(patch) {
   const r = await cy.saveSettings(patch).catch(() => null);
   if (!r?.ok) {
-    flash(r?.data?.error ? `저장 못 했어요: ${r.data.error}` : `저장 못 했어요 — ${who()}에 연결되지 않았어요`, true);
+    flash(r?.data?.error ? t('settings.save_fail_err', { error: r.data.error }) : t('settings.save_fail_off', { who: who() }), true);
     return false;
   }
   settings = r.data.settings ?? settings;
-  flash(r.data.note ? `저장했어요 · ${r.data.note}` : '저장했어요 — 바로 적용돼요');
+  flash(r.data.note ? t('settings.saved_note', { note: r.data.note }) : t('settings.saved_now'));
   return true;
 }
 
@@ -93,10 +94,10 @@ function renderModels() {
   const codeSlot = slots?.roles?.find((r) => r.role === 'code' && r.coder);
   $('models-note').hidden = !show && !codeSlot;
   $('models-hint').hidden = show;
-  $('models-hint').textContent = show ? '' : slots?.provider === 'local' ? 'AI 를 연결하면 일마다 쓸 모델을 고를 수 있어요.' : 'Claude Code 를 쓰면 일마다 다른 Claude 모델을 고를 수 있어요. 지금은 패널의 [모델] 탭에서 고른 AI 하나로 다 해요.';
+  $('models-hint').textContent = show ? '' : slots?.provider === 'local' ? t('settings.models_local') : t('settings.models_noclaude');
   if (!show && !codeSlot) return;
-  $('models-title').textContent = show ? slots?.title ?? 'Claude Code 세부 모델' : '코드 작업 모델';
-  $('config-path').textContent = settings.configPathLabel || settings.configPath ? `(${settings.configPathLabel || settings.configPath} 에 저장)` : '';
+  $('models-title').textContent = show ? slots?.title ?? t('settings.models_claude_title') : t('settings.models_code_title');
+  $('config-path').textContent = settings.configPathLabel || settings.configPath ? t('settings.config_saved_at', { path: settings.configPathLabel || settings.configPath }) : '';
   const roles = show ? slots?.roles ?? (settings.modelRoles ?? []).map((r) => ({ ...r, value: settings.models?.[r.role], enabled: true })) : [codeSlot];
   const list = claudeSlots ? null : (brainLists ?? []).find((b) => b.provider === slots.provider);
   if ((!claudeSlots || codeSlot?.coder?.provider === 'codex') && brainLists === null) loadBrainLists();
@@ -111,11 +112,11 @@ function renderModels() {
     sel.id = id;
     const add = (v, text) => { const o = el('option', null, text); o.value = v; o.selected = v === (value ?? ''); sel.append(o); };
     if (!enabled) {
-      add('', '쓰지 않아요');
+      add('', t('settings.unused'));
     } else if (claudeSlots) {
       for (const o of settings.modelOptions ?? []) add(o.id, o.label);
     } else {
-      add('', role === 'general' ? `기본(${list?.defaultLabel ?? '그 AI 기본'})` : '기본(패널 채팅 기본과 같게)');
+      add('', role === 'general' ? t('settings.model_default', { label: list?.defaultLabel ?? t('settings.model_default_fallback') }) : t('settings.model_default_chat'));
       for (const m of list?.models ?? []) if (m.id !== '') add(m.id, m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id);
       if (value && !(list?.models ?? []).some((m) => m.id === value)) add(value, value);
     }
@@ -128,9 +129,9 @@ function renderModels() {
       if (!ok) sel.value = value ?? '';
       renderModels();
     });
-    const desc = el('div', 'desc', enabled ? (!claudeSlots && role === 'light' ? '대화 제목 짓기 같은 가벼운 일' : ROLE_DESC[role] ?? '') : (why ?? ''));
-    if (enabled && settings.envLocked?.includes(role) && claudeSlots) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
-    if (enabled && !claudeSlots && list?.listError && role === 'general') desc.append(el('span', 'lock', ` · 목록: ${list.listError}`));
+    const desc = el('div', 'desc', enabled ? (!claudeSlots && role === 'light' ? t('settings.role_light_other') : ROLE_DESC[role] ?? '') : (why ?? ''));
+    if (enabled && settings.envLocked?.includes(role) && claudeSlots) desc.append(el('span', 'lock', t('settings.env_locked')));
+    if (enabled && !claudeSlots && list?.listError && role === 'general') desc.append(el('span', 'lock', t('settings.list_error', { error: list.listError })));
     row.append(lab, sel, desc);
     box.append(row);
   }
@@ -143,9 +144,9 @@ function codeRow({ label, value, enabled, why, coder }) {
   lab.htmlFor = 'model-code';
   const ai = el('select');
   ai.id = 'model-code-ai';
-  ai.setAttribute('aria-label', '코드 작업 AI');
+  ai.setAttribute('aria-label', t('settings.code_ai_aria'));
   for (const c of coder.choices) {
-    const o = el('option', null, c.ready === false ? `코드 작업 AI: ${c.label} (준비 안 됨)` : `코드 작업 AI: ${c.label}`);
+    const o = el('option', null, t(c.ready === false ? 'settings.code_ai_opt_notready' : 'settings.code_ai_opt', { label: c.label }));
     o.value = c.id;
     o.selected = c.id === coder.provider;
     ai.append(o);
@@ -161,11 +162,11 @@ function codeRow({ label, value, enabled, why, coder }) {
   sel.id = 'model-code';
   const add = (v, text) => { const o = el('option', null, text); o.value = v; o.selected = v === (value ?? ''); sel.append(o); };
   const codex = coder.provider === 'codex';
-  if (!enabled) add(value ?? '', '쓰지 않아요');
+  if (!enabled) add(value ?? '', t('settings.unused'));
   else if (!codex) for (const o of settings.modelOptions ?? []) add(o.id, o.label);
   else {
     const list = (brainLists ?? []).find((b) => b.provider === 'codex');
-    add('', 'Codex 기본');
+    add('', t('settings.codex_default'));
     for (const m of list?.models ?? []) if (m.id !== '') add(m.id, m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id);
     if (value && !(list?.models ?? []).some((m) => m.id === value)) add(value, value);
   }
@@ -179,7 +180,7 @@ function codeRow({ label, value, enabled, why, coder }) {
   });
   const picked = coder.choices.find((c) => c.id === coder.provider);
   const desc = el('div', 'desc', enabled ? ROLE_DESC.code : (picked?.why ?? why ?? ''));
-  if (enabled && !codex && settings.envLocked?.includes('code')) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
+  if (enabled && !codex && settings.envLocked?.includes('code')) desc.append(el('span', 'lock', t('settings.env_locked')));
   const pick = el('div', 'code-ai');
   pick.append(ai, sel);
   row.append(lab, pick, desc);
@@ -201,8 +202,8 @@ function renderBrains() {
   if (!list.length) {
     const row = el('div', 'conn');
     const main = el('div', 'main');
-    main.append(el('div', 'name', 'AI 없이 쓰는 중'), el('div', 'detail', '정해진 말·할 일·오늘 표·회의 알림은 그대로 돼요.'));
-    const b = el('button', 'small primary', '연결하기');
+    main.append(el('div', 'name', t('settings.no_ai')), el('div', 'detail', t('settings.no_ai_detail')));
+    const b = el('button', 'small primary', t('settings.connect'));
     b.type = 'button';
     b.addEventListener('click', () => cy.openPanel('models'));
     const acts = el('div', 'acts');
@@ -216,18 +217,18 @@ function renderBrains() {
     row.dataset.id = `brain:${r.id}`;
     const main = el('div', 'main');
     const name = el('div', 'name', r.title);
-    if (r.active) name.append(el('span', 'badge', '지금 쓰는 AI'));
-    main.append(name, el('div', 'detail', r.kind === 'cli' ? '이 맥에 로그인된 CLI로 답해요' : 'API 키로 답해요'));
+    if (r.active) name.append(el('span', 'badge', t('settings.active_ai')));
+    main.append(name, el('div', 'detail', t(r.kind === 'cli' ? 'settings.brain_cli' : 'settings.brain_key')));
     const copy = brainDisconnectCopy(r.id, r.active);
     main.append(disconnectControl(document, {
       ...copy, ...confirmOpts(`brain:${r.id}`),
       onConfirm: async () => {
         const res = await cy.disconnectBrain(r.id).catch(() => null);
-        if (!res?.ok) return { ok: false, error: res?.data?.error || res?.error || `끊지 못했어요. ${who()}에 연결되지 않았어요` };
+        if (!res?.ok) return { ok: false, error: res?.data?.error || res?.error || t('settings.disc_fail_off', { who: who() }) };
         sisaView = res;
         const s = await cy.getSettings().catch(() => null);
         if (s?.ok) settings = s.data;
-        flash(`${copy.done}${r.active ? ' 이제 「AI 없이 쓰기」예요.' : ''}${res.offline ? ` ${who()}가 꺼져 있어서 다음에 켤 때 적용돼요.` : ' 바로 적용돼요.'}`);
+        flash(`${copy.done}${r.active ? t('settings.brain_now_local') : ''}${res.offline ? t('settings.brain_offline', { who: who() }) : t('settings.applied_now_sp')}`);
         renderBrains();
         refreshRows();
         return res;
@@ -244,12 +245,12 @@ function renderAppPrefs() {
   const box = $('app-prefs');
   box.replaceChildren();
   if (!appPrefs) return;
-  $('app-version').textContent = appPrefs.version ? `지금 버전 v${appPrefs.version}` : '';
+  $('app-version').textContent = appPrefs.version ? t('settings.app_version', { v: appPrefs.version }) : '';
   const login = appPrefs.openAtLogin ?? {};
   const rows = [
-    { key: 'openAtLogin', on: login.on === true, label: `로그인할 때 ${who()} 켜기`, disabled: !login.available },
-    { key: 'updateCheck', on: appPrefs.updateCheck !== false, label: '새 버전이 나오면 알려 주기 (하루 한 번 확인)' },
-    { key: 'panelOverlay', on: appPrefs.panelOverlay !== false, label: '캐릭터 위에 답·입력창 (패널이나 다른 창에서 한 대화의 답도 캐릭터 위에 띄워요 · 캐릭터 위에 마우스를 2초 두면 입력창이 열려요)' },
+    { key: 'openAtLogin', on: login.on === true, label: t('settings.pref_login', { who: who() }), disabled: !login.available },
+    { key: 'updateCheck', on: appPrefs.updateCheck !== false, label: t('settings.pref_update') },
+    { key: 'panelOverlay', on: appPrefs.panelOverlay !== false, label: t('settings.pref_overlay') },
   ];
   for (const r of rows) {
     const lab = el('label', `toggle${r.on ? '' : ' off'}`);
@@ -260,7 +261,7 @@ function renderAppPrefs() {
     cb.addEventListener('change', async () => {
       cb.disabled = true;
       const res = await cy.setAppPrefs?.({ [r.key]: cb.checked }).catch(() => null);
-      if (res?.ok) { appPrefs = res; flash('저장했어요'); }
+      if (res?.ok) { appPrefs = res; flash(t('settings.saved')); }
       renderAppPrefs();
     });
     lab.append(cb, document.createTextNode(r.label));
@@ -276,7 +277,7 @@ function renderLang() {
   if (!box) return;
   box.replaceChildren();
   if (!settings) return;
-  const list = Array.isArray(settings.languages) && settings.languages.length ? settings.languages : [{ id: 'ko', label: '한국어' }];
+  const list = Array.isArray(settings.languages) && settings.languages.length ? settings.languages : [{ id: 'ko', label: t('settings.lang_ko') }];
   for (const l of list) {
     const lab = el('label', 'toggle');
     const rb = el('input');
@@ -286,7 +287,7 @@ function renderLang() {
     rb.checked = (settings.language ?? 'ko') === l.id;
     rb.addEventListener('change', async () => {
       if (!rb.checked) return;
-      if (await save({ language: l.id })) { renderPhrases(); renderCharacter(); }
+      await save({ language: l.id }); // 바뀐 언어는 메인이 'lang' 으로 알려 창 전체를 다시 그린다(bindLanguage)
       renderLang();
     });
     lab.append(rb, document.createTextNode(l.label));
@@ -337,7 +338,7 @@ function renderLocal() {
   const cb = el('input');
   cb.type = 'checkbox';
   cb.checked = v.sessions;
-  cb.title = 'Claude Code·Codex 대화 기록(~/.claude/projects, ~/.codex/sessions)을 읽어서 최근 프로젝트와 할 일 진행을 정리해요';
+  cb.title = t('settings.local_sessions_tip');
   cb.addEventListener('change', async () => {
     cb.disabled = true;
     const ok = await save({ readSessions: cb.checked });
@@ -345,7 +346,7 @@ function renderLocal() {
     if (!ok) cb.checked = !cb.checked;
     renderLocal();
   });
-  lab.append(cb, document.createTextNode('내 Claude Code·Codex 작업 기록 읽기'));
+  lab.append(cb, document.createTextNode(t('settings.local_sessions')));
   box.append(lab);
   $('local-repos').textContent = v.reposText;
 }
@@ -365,6 +366,7 @@ function takeCharacters(data) {
   applyCharacters(data);
   if (settings && typeof data.current === 'string') settings = { ...settings, character: data.current };
   renderCharacter();
+  renderAppPrefs(); // 이름이 든 줄(로그인할 때 … 켜기): 새 목록(언어가 바뀌었으면 그 언어 이름)으로
   if (editing?.mode === 'edit' && !charEntry(editing.id)) { editing = null; editDirty = false; }
   if (editing && !editDirty) renderCharEditor();
 }
@@ -395,11 +397,11 @@ function renderCharacter() {
     pic.src = characterAssets(c.id).open;
     const nm = c.name ?? characterName(c.id);
     lab.append(rb, pic, el('span', 'char-name', nm));
-    if (c.custom) lab.append(el('span', 'char-tag', '만든 것'));
-    else if (c.override) lab.append(el('span', 'char-tag', '대사 고침'));
+    if (c.custom) lab.append(el('span', 'char-tag', t('settings.char_made')));
+    else if (c.override) lab.append(el('span', 'char-tag', t('settings.char_overridden')));
     const edit = el('button', 'char-edit', '✎');
     edit.type = 'button';
-    edit.title = c.custom ? `${nm} 고치기(이름·그림·대사)` : `${nm} 대사 고치기`;
+    edit.title = t(c.custom ? 'settings.char_edit_custom' : 'settings.char_edit_lines', { name: nm });
     edit.setAttribute('aria-label', edit.title);
     edit.addEventListener('click', () => openCharEditor({ mode: 'edit', id: c.id }));
     card.append(lab, edit);
@@ -409,8 +411,8 @@ function renderCharacter() {
   add.type = 'button';
   add.id = 'char-new';
   add.disabled = editing?.mode === 'new';
-  add.append(el('span', 'char-add-plus', '＋'), el('span', 'char-name', '새 캐릭터'));
-  add.title = '이름·그림·말투를 직접 정해요';
+  add.append(el('span', 'char-add-plus', '＋'), el('span', 'char-name', t('settings.char_new')));
+  add.title = t('settings.char_new_tip');
   add.addEventListener('click', () => openCharEditor({ mode: 'new' }));
   box.append(add);
 }
@@ -421,7 +423,7 @@ function openCharEditor(next) {
   renderCharEditor();
   $('char-editor').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
-const confirmLeave = () => window.confirm('고치던 글이 저장되지 않았어요. 버릴까요?');
+const confirmLeave = () => window.confirm(t('settings.confirm_leave'));
 function closeCharEditor() {
   if (editDirty && !confirmLeave()) return;
   editing = null;
@@ -431,7 +433,7 @@ function closeCharEditor() {
 
 // 미리보기 하나(그림은 <img>, webm·mp4 는 <video>). src 는 cy-asset 주소나 고른 파일의 blob 주소
 function mediaPreview(src, name) {
-  if (!src) return el('span', 'slot-empty', '비어 있음');
+  if (!src) return el('span', 'slot-empty', t('settings.slot_empty'));
   if (previewKind(name ?? src) === 'video') {
     const v = el('video', 'slot-pic');
     v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
@@ -465,15 +467,15 @@ function slotList(rows, srcOf, nameOf, frames, h) {
     fc.type = 'checkbox';
     fc.checked = framed;
     fc.addEventListener('change', () => { pic.classList.toggle('framed', fc.checked); onFrame(fc.checked, fc); });
-    fl.append(fc, document.createTextNode('테두리'));
+    fl.append(fc, document.createTextNode(t('settings.frame')));
     return fl;
   };
   for (const r of rows) {
     const row = el('div', `slot${r.multi ? ' slot-multi' : ''}`);
     const head = el('div', 'slot-head');
-    head.append(el('b', null, r.label), el('span', r.required ? 'slot-req' : 'faint', r.required ? '꼭 넣어 주세요' : '골라도 돼요'));
+    head.append(el('b', null, r.label), el('span', r.required ? 'slot-req' : 'faint', r.required ? t('settings.slot_req') : t('settings.slot_opt')));
     const err = el('span', 'ph-err');
-    const check = (fs) => { if (fs.some((f) => !okMediaName(f.name))) { err.textContent = 'png·jpg·webp·gif·webm·mp4 파일만 넣을 수 있어요'; return false; } err.textContent = ''; return true; };
+    const check = (fs) => { if (fs.some((f) => !okMediaName(f.name))) { err.textContent = t('settings.media_bad'); return false; } err.textContent = ''; return true; };
     row.append(head);
     if (!r.multi) {
       const src = r.file ? srcOf(r.file) : null;
@@ -481,14 +483,14 @@ function slotList(rows, srcOf, nameOf, frames, h) {
       const framed = src ? (typeof frames[r.slot] === 'boolean' ? frames[r.slot] : defaultFrame(nameOf(r.file))) : false;
       if (src) pic.classList.toggle('framed', framed); // 오버레이와 같은 둥근 네모 카드로 미리 보기
       const input = fileInput(false, async (fs) => { if (check(fs)) await h.pick(r.slot, fs, err); });
-      const pick = el('button', 'small', src ? '바꾸기' : '고르기');
+      const pick = el('button', 'small', src ? t('settings.change') : t('settings.pick'));
       pick.type = 'button';
       pick.addEventListener('click', () => input.click());
       const btns = el('div', 'slot-btns');
       btns.append(pick);
       if (src) btns.append(frameBox(framed, pic, (on, fc) => h.frame(r.slot, null, on, fc)));
       if (src) {
-        const rm = el('button', 'small ghost', '빼기');
+        const rm = el('button', 'small ghost', t('settings.remove'));
         rm.type = 'button';
         rm.addEventListener('click', () => h.remove(r.slot, null, err));
         btns.append(rm);
@@ -508,7 +510,7 @@ function slotList(rows, srcOf, nameOf, frames, h) {
       pic.classList.toggle('framed', framed);
       const btns = el('div', 'slot-btns');
       btns.append(frameBox(framed, pic, (on, fc) => h.frame(r.slot, it.file, on, fc)));
-      const rm = el('button', 'small ghost', '빼기');
+      const rm = el('button', 'small ghost', t('settings.remove'));
       rm.type = 'button';
       rm.addEventListener('click', () => h.remove(r.slot, it.file, err));
       btns.append(rm);
@@ -519,14 +521,14 @@ function slotList(rows, srcOf, nameOf, frames, h) {
         say.placeholder = sayPlaceholder(r.slot);
         say.title = sayTitle(r.slot);
         say.value = it.say ?? '';
-        say.setAttribute('aria-label', `${r.label} 한마디`);
+        say.setAttribute('aria-label', t('settings.say_aria', { label: r.label }));
         say.addEventListener('change', () => h.say(r.slot, it.file, say.value));
         item.append(say);
       }
       list.append(item);
     }
     const input = fileInput(true, async (fs) => { if (check(fs)) await h.pick(r.slot, fs, err); });
-    const add = el('button', 'small', r.files.length ? '＋ 더 넣기' : '고르기');
+    const add = el('button', 'small', r.files.length ? t('settings.add_more') : t('settings.pick'));
     add.type = 'button';
     add.addEventListener('click', () => input.click());
     const btns = el('div', 'slot-btns');
@@ -547,7 +549,7 @@ function linesEditor(entry, values, base, custom) {
     const d = el('details');
     const sum = el('summary', null, sec.title);
     const changed = base ? sec.fields.filter((f) => JSON.stringify(flattenLines(base)[f.path]) !== JSON.stringify(flattenLines(values)[f.path])).length : 0;
-    sum.append(el('span', 'faint', `${sec.fields.length}칸${changed ? ` · 고친 것 ${changed}` : ''}`));
+    sum.append(el('span', 'faint', `${t('settings.fields_n', { n: sec.fields.length })}${changed ? t('settings.changed_n', { n: changed }) : ''}`));
     const list = el('div', 'ph-list');
     if (sec.help) list.append(el('p', 'hint', sec.help));
     const flat = flattenLines(values);
@@ -559,7 +561,7 @@ function linesEditor(entry, values, base, custom) {
       lab.htmlFor = id;
       head.append(lab);
       if (f.vars.length) head.append(el('span', 'ph-vars', f.vars.map((v) => `{${v}}`).join(' ')));
-      if (f.kind === 'list') head.append(el('span', 'faint', '한 줄에 하나(그중 하나를 골라 써요)'));
+      if (f.kind === 'list') head.append(el('span', 'faint', t('settings.one_per_line')));
       const ta = el('textarea');
       ta.id = id;
       ta.spellcheck = false;
@@ -570,7 +572,7 @@ function linesEditor(entry, values, base, custom) {
       const foot = el('div', 'ph-foot');
       const def = base ? flattenLines(base)[f.path] : undefined;
       if (base && def !== undefined && JSON.stringify(def) !== JSON.stringify(flat[f.path])) {
-        const back = el('button', 'small ghost', '이 칸만 기본값');
+        const back = el('button', 'small ghost', t('settings.field_default'));
         back.type = 'button';
         back.addEventListener('click', () => { ta.value = fieldText(f, def); editDirty = true; err.textContent = ''; });
         foot.append(back);
@@ -609,7 +611,7 @@ function renamed(lines, from, to) {
 function sourceSelect(selected) {
   const sel = el('select');
   for (const o of sourceOptions(charList())) {
-    const op = el('option', null, `${o.name}${o.custom ? ' (만든 것)' : ''}`);
+    const op = el('option', null, `${o.name}${o.custom ? t('settings.made_suffix') : ''}`);
     op.value = o.id;
     sel.append(op);
   }
@@ -624,19 +626,19 @@ function renderCharEditor() {
   if ($('char-new')) $('char-new').disabled = editing?.mode === 'new';
   if (!editing) return;
   const head = el('div', 'ce-head');
-  const close = el('button', 'small ghost', '닫기');
+  const close = el('button', 'small ghost', t('settings.close'));
   close.type = 'button';
   close.addEventListener('click', closeCharEditor);
   const status = el('span', 'ph-err ce-status');
   if (editing.mode === 'new') {
-    head.append(el('h3', null, '새 캐릭터 만들기'), close);
+    head.append(el('h3', null, t('settings.ce_new_title')), close);
     // 고른 파일: 눈 그림은 { 칸: { key, file, url } }, 여러 개 넣는 칸은 { 칸: [{ key, file, url, say, frame? }] }
     const chosen = {};
     let seq = 0;
     const byKey = new Map(); // 미리보기 키 → 고른 파일
     const nameIn = el('input', 'ce-name');
     nameIn.type = 'text';
-    nameIn.placeholder = '이름(예: 까망이)';
+    nameIn.placeholder = t('settings.ce_name_ph');
     nameIn.addEventListener('input', () => { editDirty = true; });
     const src = sourceSelect('shisa');
     const frames = {}; // 눈 그림 칸마다 사용자가 고른 테두리(나머지는 파일 종류 기본값)
@@ -669,45 +671,45 @@ function renderCharEditor() {
       slotsBox = next;
     };
     redrawSlots();
-    const make = el('button', 'primary', '만들기');
+    const make = el('button', 'primary', t('settings.create'));
     make.type = 'button';
     make.addEventListener('click', async () => {
       const name = nameIn.value.trim();
-      if (!name) { status.textContent = '이름을 적어 주세요'; nameIn.focus(); return; }
+      if (!name) { status.textContent = t('settings.need_name'); nameIn.focus(); return; }
       const miss = missingRequired(chosen);
-      if (miss.length) { status.textContent = `${miss.join('·')} 그림을 넣어 주세요`; return; }
+      if (miss.length) { status.textContent = t('settings.need_media', { list: miss.join('·') }); return; }
       make.disabled = true;
       status.textContent = '';
       const from = charEntry(src.value);
       // 가져올 대사: 그 캐릭터가 지금 쓰는 대사 전부(시사의 정해진 답·설치 화면 말처럼 앱에만 있는 칸도). 이름은 데몬이 새 이름으로 바꾼다
       const r = await cy.createCharacter({ name, from: src.value, lines: from ? effectiveLines(from) : {}, frames }).catch(() => null);
-      if (!r?.ok) { make.disabled = false; status.textContent = r?.data?.error ?? `만들지 못했어요 · ${who()}에 연결되지 않았어요`; return; }
+      if (!r?.ok) { make.disabled = false; status.textContent = r?.data?.error ?? t('settings.create_fail_off', { who: who() }); return; }
       const id = r.data.character.id;
       const meta = {}; // 올린 뒤 데몬이 지은 이름마다 한마디·테두리
       for (const [slot, c] of Object.entries(chosen)) {
         for (const x of Array.isArray(c) ? c : [c]) {
           const u = await cy.putCharacterMedia(id, slot, x.file.name, x.file.type, new Uint8Array(await x.file.arrayBuffer())).catch(() => null);
-          if (!u?.ok) status.textContent = `${slot} 그림을 넣지 못했어요: ${u?.data?.error ?? '연결 안 됨'}`;
+          if (!u?.ok) status.textContent = t('settings.media_put_fail', { slot, error: u?.data?.error ?? t('settings.not_connected') });
           else if (Array.isArray(c) && (x.say?.trim() || typeof x.frame === 'boolean')) meta[u.data.file] = { ...(x.say?.trim() ? { say: x.say.trim() } : {}), ...(typeof x.frame === 'boolean' ? { frame: x.frame } : {}) };
           drop(x);
         }
       }
       if (Object.keys(meta).length) {
         const m = await cy.updateCharacter(id, { files: meta }).catch(() => null);
-        if (!m?.ok) status.textContent = `한마디·테두리를 저장하지 못했어요: ${m?.data?.error ?? '연결 안 됨'}`;
+        if (!m?.ok) status.textContent = t('settings.meta_fail', { error: m?.data?.error ?? t('settings.not_connected') });
       }
       editDirty = false;
       await save({ character: id }); // 만들면 바로 그 캐릭터로
       await loadCharacters();
-      flash(`${name}을(를) 만들었어요`);
+      flash(t('settings.created', { name }));
       openCharEditor({ mode: 'edit', id });
     });
     const form = el('div', 'ce-form');
     const srcRow = el('label', 'ce-row');
-    srcRow.append(el('span', null, '말투 가져오기'), src, el('span', 'faint', '그 캐릭터의 대사를 전부 복사해서 시작해요. 이름이 든 줄은 새 이름으로 바꿔요'));
+    srcRow.append(el('span', null, t('settings.ce_src')), src, el('span', 'faint', t('settings.ce_src_hint')));
     const nameRow = el('label', 'ce-row');
-    nameRow.append(el('span', null, '이름'), nameIn);
-    form.append(nameRow, srcRow, el('h3', null, '그림·영상'), el('p', 'hint', `움직이는 gif·webp, 영상(webm·mp4)도 돼요. 크기 제한은 없어요. 「테두리」를 켜면 둥근 네모 카드로 보여요. 응원·춤·집중·일정 알림·점심시간은 ${MULTI_HINT}(춤 모션이나 일정 알림을 여러 개 넣어 보세요).`), slotsBox);
+    nameRow.append(el('span', null, t('settings.ce_name')), nameIn);
+    form.append(nameRow, srcRow, el('h3', null, t('settings.ce_media')), el('p', 'hint', t('settings.ce_media_hint_new', { multi: MULTI_HINT })), slotsBox);
     const foot = el('div', 'ce-foot');
     foot.append(status, make);
     box.append(head, form, foot);
@@ -718,7 +720,7 @@ function renderCharEditor() {
   if (!entry) { editing = null; box.hidden = true; return; }
   const custom = !!entry.custom;
   const name = characterName(entry.id);
-  head.append(el('h3', null, `${name} 고치기`), close);
+  head.append(el('h3', null, t('settings.ce_edit_title', { name })), close);
   box.append(head);
   const base = custom ? null : defaultsOf(entry);
   const values = effectiveLines(entry);
@@ -729,10 +731,10 @@ function renderCharEditor() {
     nameIn.value = entry.name ?? '';
     nameIn.addEventListener('input', () => { editDirty = true; });
     const nameRow = el('label', 'ce-row');
-    nameRow.append(el('span', null, '이름'), nameIn);
+    nameRow.append(el('span', null, t('settings.ce_name')), nameIn);
     // 그림은 고르면 바로 올리고, 테두리·한마디도 바꾸면 바로 저장. 새 목록이 오면 편집 화면을 다시 그린다(고치던 글이 있으면 그림 칸만)
     const done = async (r, ok, err) => {
-      if (!r?.ok) { if (err) err.textContent = r?.data?.error ?? '저장하지 못했어요'; else flash(r?.data?.error ?? '저장 못 했어요', true); return false; }
+      if (!r?.ok) { if (err) err.textContent = r?.data?.error ?? t('settings.save_fail_short'); else flash(r?.data?.error ?? t('settings.save_fail'), true); return false; }
       flash(ok);
       await loadCharacters();
       if (editDirty) { const n = drawSlots(charEntry(entry.id)); slots.replaceWith(n); slots = n; }
@@ -745,29 +747,29 @@ function renderCharEditor() {
           last = await cy.putCharacterMedia(entry.id, slot, f.name, f.type, new Uint8Array(await f.arrayBuffer())).catch(() => null);
           if (!last?.ok) break;
         }
-        await done(last, fs.length > 1 ? `그림 ${fs.length}개를 넣었어요` : '그림을 넣었어요', err);
+        await done(last, fs.length > 1 ? t('settings.media_added_n', { n: fs.length }) : t('settings.media_added'), err);
       },
-      remove: async (slot, file, err) => done(await cy.deleteCharacterMedia(entry.id, slot, file).catch(() => null), '그림을 뺐어요', err),
+      remove: async (slot, file, err) => done(await cy.deleteCharacterMedia(entry.id, slot, file).catch(() => null), t('settings.media_removed'), err),
       frame: async (slot, file, on, fc) => {
         const r = await cy.updateCharacter(entry.id, file ? { files: { [file]: { frame: on } } } : { frames: { [slot]: on } }).catch(() => null);
-        if (r?.ok) flash('저장했어요 · 바로 적용돼요'); else { fc.checked = !on; flash(r?.data?.error ?? '저장 못 했어요', true); }
+        if (r?.ok) flash(t('settings.saved_applied')); else { fc.checked = !on; flash(r?.data?.error ?? t('settings.save_fail'), true); }
       },
       say: async (slot, file, text) => {
         const r = await cy.updateCharacter(entry.id, { files: { [file]: { say: text.trim() || null } } }).catch(() => null);
-        if (r?.ok) flash(text.trim() ? '한마디를 저장했어요' : '기본 대사로 돌렸어요'); else flash(r?.data?.error ?? '저장 못 했어요', true);
+        if (r?.ok) flash(text.trim() ? t('settings.say_saved') : t('settings.say_reset')); else flash(r?.data?.error ?? t('settings.save_fail'), true);
       },
     };
     const drawSlots = (e) => slotList(slotRows(e?.media, e?.clips), (f) => `${USER_CHAR_DIR}/${entry.id}/${f}`, (f) => f, e?.frames ?? {}, handlers);
     let slots = drawSlots(entry);
-    box.append(nameRow, el('h3', null, '그림·영상'), el('p', 'hint', `「테두리」를 켜면 둥근 네모 카드로 보여요(배경이 있는 그림에 어울려요). 응원·춤·집중·일정 알림·점심시간은 ${MULTI_HINT}.`), slots);
+    box.append(nameRow, el('h3', null, t('settings.ce_media')), el('p', 'hint', t('settings.ce_media_hint_edit', { multi: MULTI_HINT })), slots);
   }
   // 다른 캐릭터 대사로 채우기(저장 전까지는 화면만)
   const fill = el('div', 'ce-row');
   const fillSel = sourceSelect(entry.from && charEntry(entry.from) ? entry.from : 'shisa');
-  const fillBtn = el('button', 'ghost', '이 캐릭터 대사로 채우기');
+  const fillBtn = el('button', 'ghost', t('settings.fill_btn'));
   fillBtn.type = 'button';
-  fill.append(el('span', null, '대사 가져오기'), fillSel, fillBtn);
-  box.append(el('h3', null, '대사'), el('p', 'hint', custom ? '비운 칸은 시사 말로 나와요. 저장하면 바로 바뀌어요.' : '고친 칸만 따로 저장해요(앱 파일은 그대로). 「기본값으로」를 누르면 처음으로 돌아가요.'), fill);
+  fill.append(el('span', null, t('settings.fill_label')), fillSel, fillBtn);
+  box.append(el('h3', null, t('settings.ce_lines')), el('p', 'hint', t(custom ? 'settings.ce_lines_custom' : 'settings.ce_lines_builtin')), fill);
   let editor = linesEditor(entry, values, base, custom);
   box.append(editor.box);
   fillBtn.addEventListener('click', () => {
@@ -778,9 +780,9 @@ function renderCharEditor() {
     editor.box.replaceWith(next.box);
     editor = next;
     editDirty = true;
-    flash(`${characterName(from.id)} 대사로 채웠어요. 저장해야 바뀌어요`);
+    flash(t('settings.filled', { name: characterName(from.id) }));
   });
-  const saveBtn = el('button', 'primary', '대사 저장');
+  const saveBtn = el('button', 'primary', t('settings.save_lines'));
   saveBtn.type = 'button';
   saveBtn.addEventListener('click', async () => {
     const r0 = editor.read();
@@ -788,44 +790,44 @@ function renderCharEditor() {
     let body;
     if (custom) {
       const n = nameIn.value.trim();
-      if (!n) { status.textContent = '이름을 적어 주세요'; nameIn.focus(); return; }
+      if (!n) { status.textContent = t('settings.need_name'); nameIn.focus(); return; }
       body = { name: n, lines: { ...r0.lines, name: n } };
     } else body = { lines: diffLines(base, r0.lines) }; // 고친 칸만(비운 칸은 기본값)
     saveBtn.disabled = true;
     const r = await cy.updateCharacter(entry.id, body).catch(() => null);
     saveBtn.disabled = false;
-    if (!r?.ok) { status.textContent = r?.data?.error ?? `저장 못 했어요 · ${who()}에 연결되지 않았어요`; return; }
+    if (!r?.ok) { status.textContent = r?.data?.error ?? t('settings.save_fail_conn', { who: who() }); return; }
     status.textContent = '';
     editDirty = false;
-    flash('저장했어요 · 바로 적용돼요');
+    flash(t('settings.saved_applied'));
     await loadCharacters();
   });
   const foot = el('div', 'ce-foot');
   foot.append(status);
   if (!custom) {
     const n = entry.override ? Object.keys(flattenLines(entry.override)).length : 0;
-    const reset = el('button', 'ghost ce-risky', n ? `기본값으로(고친 ${n}칸)` : '기본값으로');
+    const reset = el('button', 'ghost ce-risky', n ? t('settings.reset_n', { n }) : t('settings.reset'));
     reset.type = 'button';
     reset.disabled = !n;
     reset.addEventListener('click', async () => {
-      if (!window.confirm(`${name}의 고친 대사를 다 지우고 처음으로 돌릴까요?`)) return;
+      if (!window.confirm(t('settings.reset_confirm', { name }))) return;
       const r = await cy.resetCharacter(entry.id).catch(() => null);
-      if (!r?.ok) { status.textContent = r?.data?.error ?? '되돌리지 못했어요'; return; }
+      if (!r?.ok) { status.textContent = r?.data?.error ?? t('settings.reset_fail'); return; }
       editDirty = false;
-      flash('기본값으로 돌렸어요');
+      flash(t('settings.reset_done'));
       await loadCharacters();
     });
     foot.append(reset);
   } else {
-    const del = el('button', 'danger-ghost ce-risky', '이 캐릭터 지우기');
+    const del = el('button', 'danger-ghost ce-risky', t('settings.char_delete'));
     del.type = 'button';
     del.addEventListener('click', async () => {
-      if (!window.confirm(`${name}을(를) 지울까요? 올린 그림도 같이 지워져요. 지금 쓰는 캐릭터면 시사로 돌아가요.`)) return;
+      if (!window.confirm(t('settings.char_delete_confirm', { name }))) return;
       const r = await cy.deleteCharacter(entry.id).catch(() => null);
-      if (!r?.ok) { status.textContent = r?.data?.error ?? '지우지 못했어요'; return; }
+      if (!r?.ok) { status.textContent = r?.data?.error ?? t('settings.delete_fail'); return; }
       editing = null;
       editDirty = false;
-      flash(`${name}을(를) 지웠어요`);
+      flash(t('settings.char_deleted', { name }));
       const s2 = await cy.getSettings().catch(() => null);
       if (s2?.ok) settings = s2.data;
       await loadCharacters();
@@ -850,7 +852,7 @@ function renderReminder() {
   const r = reminder();
   const box = $('rem-mode');
   box.replaceChildren();
-  for (const [mode, label] of [['auto', '자동으로 알리기'], ['off', '안 알리기']]) {
+  for (const [mode, label] of [['auto', t('settings.rem_auto')], ['off', t('settings.rem_off')]]) {
     const lab = el('label', 'toggle');
     const rb = el('input');
     rb.type = 'radio';
@@ -863,7 +865,7 @@ function renderReminder() {
   $('rem-auto').hidden = r.mode === 'off';
   const sel = $('rem-every');
   const hours = REMINDER_HOURS.includes(r.everyHours) ? REMINDER_HOURS : [...REMINDER_HOURS, r.everyHours].sort((a, b) => a - b);
-  sel.replaceChildren(...hours.map((h) => { const o = el('option', null, h ? `${h}시간` : '안 함'); o.value = String(h); return o; }));
+  sel.replaceChildren(...hours.map((h) => { const o = el('option', null, h ? t('settings.hours_n', { n: h }) : t('settings.none')); o.value = String(h); return o; }));
   sel.value = String(r.everyHours);
   if (document.activeElement !== $('rem-times')) $('rem-times').value = r.times.join(', ');
   $('rem-summary').textContent = reminderSummary(r);
@@ -908,7 +910,7 @@ function renderCalAlert() {
       if (r.error) { cb.checked = !cb.checked; $('cal-err').textContent = r.error; return; }
       saveCalAlert(r.minutesBefore);
     });
-    lab.append(cb, document.createTextNode(`${m}분 전`));
+    lab.append(cb, document.createTextNode(t('settings.min_before', { n: m })));
     box.append(lab);
   }
   $('cal-summary').textContent = calendarAlertSummary(calAlert());
@@ -929,7 +931,7 @@ function renderWork() {
     const cb = el('input');
     cb.type = 'checkbox';
     cb.checked = v.workDays.includes(d);
-    cb.setAttribute('aria-label', `${DAY_LABEL[d]}요일`);
+    cb.setAttribute('aria-label', t('settings.weekday_aria', { d: DAY_LABEL[d] }));
     cb.addEventListener('change', async () => {
       $('work-err').textContent = '';
       const r = workDaysNext(workHoursView(settings).workDays, d, cb.checked);
@@ -955,9 +957,9 @@ for (const [id, k] of [['work-start', 'workStart'], ['work-lunch', 'lunchTime'],
   $(id).addEventListener('blur', () => { if ($('work-err').textContent) { $('work-err').textContent = ''; renderWork(); } });
 }
 for (const [id, k, on, off] of [
-  ['start-on', 'startAlert', '출근 인사를 켰어요', '출근 인사를 껐어요'],
-  ['lunch-on', 'lunchAlert', '점심시간 알림을 켰어요', '점심시간 알림을 껐어요'],
-  ['leave-on', 'leaveAlert', '퇴근 인사를 켰어요', '퇴근 인사를 껐어요'],
+  ['start-on', 'startAlert', 'settings.start_on_done', 'settings.start_off_done'],
+  ['lunch-on', 'lunchAlert', 'settings.lunch_on_done', 'settings.lunch_off_done'],
+  ['leave-on', 'leaveAlert', 'settings.leave_on_done', 'settings.leave_off_done'],
 ]) {
   $(id).addEventListener('change', async (e) => {
     const cb = e.target;
@@ -965,7 +967,7 @@ for (const [id, k, on, off] of [
     const ok = await save({ [k]: cb.checked });
     cb.disabled = false;
     if (!ok) cb.checked = !cb.checked;
-    else flash(cb.checked ? on : off);
+    else flash(t(cb.checked ? on : off));
   });
 }
 $('cal-off').addEventListener('change', (e) => saveCalAlert(e.target.checked ? [] : (lastAlertOn ?? ALERT_DEFAULT.minutesBefore)));
@@ -995,7 +997,7 @@ createPlaceSearch({
   onPick: async (place) => {
     $('weather-q').value = '';
     weatherEditing = false;
-    if (await saveWeather({ place })) flash(`${place.name} 날씨를 알려 줄게요`);
+    if (await saveWeather({ place })) flash(t('settings.weather_picked', { name: place.name }));
   },
 });
 function renderWeather() {
@@ -1010,36 +1012,36 @@ function renderWeather() {
   $('weather-leave').checked = v.leave;
   const end = workHoursView(settings).workEnd;
   const m = Math.max(0, Number(end.slice(0, 2)) * 60 + Number(end.slice(3)) - 20);
-  $('weather-leave-label').textContent = `퇴근 20분 전(${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')})`;
+  $('weather-leave-label').textContent = t('settings.weather_leave_at', { time: `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}` });
   const box = $('weather-times');
   box.replaceChildren();
   box.hidden = !v.times.length;
   // 정한 시각: 「20:19 [빼기]」 칩
-  for (const t of v.times) {
+  for (const tm of v.times) {
     const chip = el('span', 'weather-chip');
     chip.setAttribute('role', 'listitem');
-    const del = el('button', 'small ghost', '빼기');
+    const del = el('button', 'small ghost', t('settings.remove'));
     del.type = 'button';
-    del.setAttribute('aria-label', `${t} 알림 빼기`);
+    del.setAttribute('aria-label', t('settings.weather_chip_rm', { time: tm }));
     del.addEventListener('click', async () => {
       del.disabled = true;
-      if (!(await saveWeather({ times: weatherTimesNext(weatherView(settings).times, t, false).times }))) del.disabled = false;
+      if (!(await saveWeather({ times: weatherTimesNext(weatherView(settings).times, tm, false).times }))) del.disabled = false;
     });
-    chip.append(el('span', 'weather-chip-time', t), del);
+    chip.append(el('span', 'weather-chip-time', tm), del);
     box.append(chip);
   }
   $('weather-summary').textContent = weatherSummary(v, settings);
 }
 $('weather-change').addEventListener('click', () => { weatherEditing = true; renderWeather(); $('weather-q').focus(); });
 $('weather-q').addEventListener('keydown', (e) => { if (e.key === 'Escape' && weatherEditing && $('weather-list').hidden) { weatherEditing = false; renderWeather(); } });
-$('weather-clear').addEventListener('click', async () => { weatherEditing = false; if (await saveWeather({ place: null })) flash('날씨 알림을 껐어요'); });
-for (const [id, k, on, off] of [['weather-morning', 'morning', '출근 후 날씨를 켰어요', '출근 후 날씨를 껐어요'], ['weather-leave', 'leave', '퇴근 전 날씨를 켰어요', '퇴근 전 날씨를 껐어요']]) {
+$('weather-clear').addEventListener('click', async () => { weatherEditing = false; if (await saveWeather({ place: null })) flash(t('settings.weather_cleared')); });
+for (const [id, k, on, off] of [['weather-morning', 'morning', 'settings.weather_morning_on', 'settings.weather_morning_off'], ['weather-leave', 'leave', 'settings.weather_leave_on', 'settings.weather_leave_off']]) {
   $(id).addEventListener('change', async (e) => {
     const cb = e.target;
     cb.disabled = true;
     const ok = await saveWeather({ [k]: cb.checked });
     cb.disabled = false;
-    if (ok) flash(cb.checked ? on : off);
+    if (ok) flash(t(cb.checked ? on : off));
   });
 }
 async function addWeatherTime() {
@@ -1064,12 +1066,12 @@ function renderAutoMerge() {
   document.querySelector('#am-card .gl-add').hidden = !can;
   if (!can) return;
   const list = settings?.autoMerge ?? [];
-  if (!list.length) box.append(el('div', 'faint', '없어요 — 모든 머지를 ✓ 로 물어봐요'));
+  if (!list.length) box.append(el('div', 'faint', t('settings.am_empty')));
   for (const slug of list) {
     const row = el('div', 'gl-row am-row');
-    const del = el('button', 'small ghost gl-del', '빼기');
+    const del = el('button', 'small ghost gl-del', t('settings.remove'));
     del.type = 'button';
-    del.title = `${slug} 는 다시 머지 전에 물어봐요`;
+    del.title = t('settings.am_remove_tip', { slug });
     del.addEventListener('click', async () => {
       del.disabled = true;
       if (await save({ autoMerge: autoMergeNext(settings.autoMerge, slug, false) })) renderAutoMerge();
@@ -1082,7 +1084,7 @@ function renderAutoMerge() {
 async function addAutoMerge() {
   const input = $('am-add-text');
   const slug = repoSlugFrom(input.value);
-  $('am-err').textContent = slug ? '' : 'owner/name 모양으로 적어 주세요(예: my-name/my-app)';
+  $('am-err').textContent = slug ? '' : t('settings.am_bad');
   if (!slug || !settings) return;
   $('am-add').disabled = true;
   const ok = await save({ autoMerge: autoMergeNext(settings.autoMerge, slug, true) });
@@ -1093,7 +1095,8 @@ $('am-add').addEventListener('click', addAutoMerge);
 $('am-add-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAutoMerge(); } });
 
 // ---- 문구 ----
-const openGroups = new Set(['캐릭터']); // 펼쳐 둔 묶음(다시 그려도 유지)
+const openGroups = new Set(); // 펼쳐 둔 묶음(다시 그려도 유지)
+const closedGroups = new Set(); // 처음 펼쳐 둔 「캐릭터」 묶음을 접은 것
 function phraseRow(p) {
   const row = el('div', 'ph-row');
   const id = `ph-${p.key}`;
@@ -1102,19 +1105,19 @@ function phraseRow(p) {
   lab.htmlFor = id;
   head.append(lab);
   if (p.vars?.length) head.append(el('span', 'ph-vars', p.vars.map((v) => `{${v}}`).join(' ')));
-  if (phraseCustom(p)) head.append(el('span', 'ph-badge', '고침'));
+  if (phraseCustom(p)) head.append(el('span', 'ph-badge', t('settings.ph_badge')));
   const ta = el('textarea');
   ta.id = id;
   ta.value = phraseText(p);
   ta.rows = Math.min(6, Math.max(1, ta.value.split('\n').length));
   ta.spellcheck = false;
   const foot = el('div', 'ph-foot');
-  const def = el('span', 'ph-def', phraseCustom(p) ? `기본값: ${phraseDefaultText(p)}` : '');
+  const def = el('span', 'ph-def', phraseCustom(p) ? t('settings.ph_default', { text: phraseDefaultText(p) }) : '');
   const err = el('span', 'ph-err');
-  const saveBtn = el('button', 'small primary', '저장');
+  const saveBtn = el('button', 'small primary', t('settings.save'));
   saveBtn.type = 'button';
   saveBtn.disabled = true;
-  const reset = el('button', 'small ghost', '기본값으로');
+  const reset = el('button', 'small ghost', t('settings.reset'));
   reset.type = 'button';
   reset.disabled = !phraseCustom(p);
   const sync = () => {
@@ -1143,11 +1146,12 @@ function renderPhrases() {
   box.replaceChildren();
   for (const g of phraseGroups(settings?.phrases)) {
     const d = el('details');
-    d.open = openGroups.has(g.group);
-    d.addEventListener('toggle', () => { if (d.open) openGroups.add(g.group); else openGroups.delete(g.group); });
+    // 「캐릭터」 묶음은 처음부터 펼쳐 둔다(데몬이 그 언어 이름으로 준다)
+    d.open = openGroups.has(g.group) || (!closedGroups.has(g.group) && (g.group === '캐릭터' || g.group === t('settings.ph_group_char')));
+    d.addEventListener('toggle', () => { if (d.open) { openGroups.add(g.group); closedGroups.delete(g.group); } else { openGroups.delete(g.group); closedGroups.add(g.group); } });
     const sum = el('summary', null, g.group);
     const n = g.items.filter(phraseCustom).length;
-    sum.append(el('span', 'faint', `${g.items.length}개${n ? ` · 고친 것 ${n}` : ''}`));
+    sum.append(el('span', 'faint', `${t('settings.items_n', { n: g.items.length })}${n ? t('settings.changed_n', { n }) : ''}`));
     const list = el('div', 'ph-list');
     list.append(...g.items.map(phraseRow));
     d.append(sum, list);
@@ -1161,7 +1165,7 @@ const calEditor = createCalendarEditor();
 async function calendarOp(fn) {
   let r;
   try { r = await fn(); } catch { r = null; }
-  if (!r) return { ok: false, error: `${who()}에 연결되지 않았어요` };
+  if (!r) return { ok: false, error: t('settings.offline_who', { who: who() }) };
   if (Array.isArray(r.items)) calendars = r.items;
   return r;
 }
@@ -1185,14 +1189,14 @@ function rowEl(r) {
   const dot = el('span', `dot ${dotClass(r.state)}${busy.has(r.check) ? ' busy' : ''}`);
   dot.title = STATE_LABEL[r.state] ?? '';
   dot.setAttribute('role', 'img');
-  dot.setAttribute('aria-label', STATE_LABEL[r.state] ?? '모름');
+  dot.setAttribute('aria-label', STATE_LABEL[r.state] ?? STATE_LABEL.unknown);
   const main = el('div', 'main');
   const name = el('div', 'name', r.label);
   const off = (r.briefing ?? []).filter((b) => !b.included);
-  if (off.length) name.append(el('span', 'badge', off.length === r.briefing.length ? '브리핑 제외' : `브리핑 제외: ${off.map((b) => b.label).join(', ')}`));
+  if (off.length) name.append(el('span', 'badge', off.length === r.briefing.length ? t('settings.brief_excluded') : t('settings.brief_excluded_some', { list: off.map((b) => b.label).join(t('settings.list_sep')) })));
   main.append(name);
   if (r.summary) main.append(el('div', 'meta', r.summary));
-  main.append(el('div', 'detail', busy.has(r.check) ? '확인 중…' : r.detail ?? ''));
+  main.append(el('div', 'detail', busy.has(r.check) ? t('settings.checking') : r.detail ?? ''));
   if (r.error) main.append(el('div', 'error', r.error));
   const meta = metaText(r);
   if (meta) main.append(el('div', 'meta', meta));
@@ -1200,9 +1204,9 @@ function rowEl(r) {
   // 커넥터 줄: 상태에 맞는 주 동작(꺼져 있으면 [연결하기], 켜져 있으면 [연결 해제]. 그 자리에서 한 번 더 묻는다)
   const action = connectorAction(r);
   if (action === 'connect') {
-    const b = el('button', 'small primary', '연결하기');
+    const b = el('button', 'small primary', t('settings.connect'));
     b.type = 'button';
-    b.title = '패널의 설치 탭에서 연결 방법을 차근차근 보여 줘요';
+    b.title = t('settings.connect_tip');
     b.addEventListener('click', () => cy.openPanel('setup'));
     acts.append(b);
   } else if (action === 'disconnect') {
@@ -1212,7 +1216,7 @@ function rowEl(r) {
       ...copy, ...confirmOpts(r.id),
       onConfirm: async () => {
         const res = await cy.disconnectConnector(cap).catch(() => null);
-        if (!res?.ok) return { ok: false, error: res?.data?.error || res?.error || `끊지 못했어요. ${who()}에 연결되지 않았어요` };
+        if (!res?.ok) return { ok: false, error: res?.data?.error || res?.error || t('settings.disc_fail_off', { who: who() }) };
         flash([copy.done, res.note].filter(Boolean).join(' '));
         refreshRows();
         return res;
@@ -1221,13 +1225,13 @@ function rowEl(r) {
     if (cap === 'calendar') main.append(calendarList());
   }
   if (needsSetupHint(r)) {
-    const b = el('button', 'small primary', '설치 안내');
+    const b = el('button', 'small primary', t('settings.setup_guide'));
     b.type = 'button';
-    b.title = '패널의 설치 탭에서 연결 방법을 차근차근 보여 줘요';
+    b.title = t('settings.connect_tip');
     b.addEventListener('click', () => cy.openPanel('setup'));
     acts.append(b);
   }
-  const again = el('button', 'small ghost', '다시 확인');
+  const again = el('button', 'small ghost', t('settings.recheck'));
   again.type = 'button';
   again.disabled = busy.has(r.check);
   again.addEventListener('click', () => runCheck(r.check));
@@ -1244,7 +1248,7 @@ function renderRows() {
   $('conn-other').replaceChildren(...g.other.map(rowEl));
   $('conn-other-wrap').hidden = !g.other.length;
   const notOk = g.other.filter((r) => r.state !== 'ok').length;
-  $('conn-other-sum').textContent = `그 밖의 서비스 ${g.other.length}개${notOk ? ` (연결 안 됨 ${notOk})` : ''}`;
+  $('conn-other-sum').textContent = `${t('settings.other_n', { n: g.other.length })}${notOk ? t('settings.other_bad', { n: notOk }) : ''}`;
   $('check-all').disabled = busy.size > 0;
 }
 
@@ -1257,7 +1261,7 @@ async function runCheck(id) {
   if (r?.ok && Array.isArray(r.data?.rows)) {
     rows = mergeRows(rows, r.data.rows, busy);
     $('conn-at').textContent = '';
-  } else banner(`연결 상태를 확인하지 못했어요 — ${who()}가 꺼져 있을 수 있어요`);
+  } else banner(t('settings.check_fail', { who: who() }));
   renderRows();
 }
 
@@ -1275,7 +1279,9 @@ async function load() {
   const [s, c, k, v] = await Promise.all([cy.getSettings().catch(() => null), cy.getConnections().catch(() => null), cy.getCaps?.().catch(() => null), cy.getSisa?.().catch(() => null)]);
   if (v && typeof v === 'object' && Array.isArray(v.connected)) sisaView = v;
   if (k && typeof k === 'object' && typeof k.claude === 'boolean') caps = { claude: k.claude, codex: k.codex === true };
-  if (!s?.ok || !c?.ok) banner(`${who()}에 연결되지 않았어요. ${who()}가 켜져 있는지 확인해 주세요.`);
+  // 데몬 목록을 못 받았으면 이름은 그 언어 기본 캐릭터로(「シーサーに接続できません」)
+  if (!s?.ok && !chars) { applyCharacters(staticCharacters(language())); setWho(settings?.character ?? whoId()); }
+  if (!s?.ok || !c?.ok) banner(t('settings.banner_offline', { who: who() }));
   else banner(null);
   if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); renderLang(); loadCharacters(); }
   if (c?.ok) {
@@ -1308,4 +1314,14 @@ window.addEventListener('focus', () => {
 window.addEventListener('focus', () => { cy.getSettings().then((r) => { if (r?.ok && settings) { settings = { ...settings, autoMerge: r.data.autoMerge ?? [] }; renderAutoMerge(); } }).catch(() => {}); });
 window.addEventListener('focus', () => { loadCalendars(); }); // 패널에서 캘린더를 더하거나 뺐으면
 window.addEventListener('focus', () => { if (!busy.size) cy.getConnections().then((c) => { if (c?.ok && Array.isArray(c.data?.rows)) { rows = mergeRows(rows, c.data.rows); renderRows(); } }).catch(() => {}); });
+
+// 언어가 바뀌면(메인 'lang' → src/i18n.js bindLanguage): HTML 정적 글(data-i18n)은 bindLanguage 가 다시 넣고,
+// 그려 둔 칸은 여기서 다시 그린 뒤 데몬이 그 언어로 주는 글(출처 이름·문구 묶음·모델 칸·연결 줄)도 다시 받는다. 고치던 대사는 그대로 둔다
+function renderAll() {
+  renderAppPrefs(); renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert();
+  renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); renderLang(); renderRows();
+  if (editing && !editDirty) renderCharEditor();
+  guidelines.render();
+}
+bindLanguage(cy, () => { renderAll(); load(); loadAppPrefs(); guidelines.load(); }, { whoName: () => who() });
 load();

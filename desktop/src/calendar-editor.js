@@ -5,6 +5,7 @@
 // 화면 글은 calendars.js CAL_TEXT 에 모았다.
 import { CAL_TEXT, calendarRemoveCopy, calendarRowState, okCalendarUrl } from './calendars.js';
 import { disconnectControl } from './disconnect.js';
+import { t } from './i18n.js';
 
 const safe = async (fn) => { try { return await fn(); } catch { return null; } };
 const plain = (doc, text) => [doc.createTextNode(String(text ?? '').replace(/\*\*/g, ''))];
@@ -142,7 +143,7 @@ export function createCalendarEditor() {
         const r = await safe(() => onAdd?.({ name: st.name.trim(), url: v }));
         st.busy = false;
         if (r?.ok) {
-          st.result = { ok: true, text: CAL_TEXT.added(r.name || st.name.trim() || '캘린더', r.events ?? 0) };
+          st.result = { ok: true, text: CAL_TEXT.added(r.name || st.name.trim() || t('settings.cal_word'), r.events ?? 0) };
           st.name = ''; st.url = ''; st.addOpen = false; // 목록에 붙고 「＋ 캘린더 추가」가 다시 남는다
         } else st.result = { ok: false, text: r?.error || CAL_TEXT.failed };
         again();

@@ -1,9 +1,12 @@
 // 설정 창 「날씨」의 지역 검색 칸: 글자를 치고 300ms 멈추면 찾아서(데몬 GET /weather/search → Open-Meteo Geocoding) 아래에 후보 목록.
 // ↑↓ 로 고르고 Enter, 또는 클릭. Esc 는 목록 닫기. 같은 글자는 다시 묻지 않는다(캐시). 늦게 온 옛 결과는 버린다.
 // DOM 은 넘겨받은 것만 쓴다(테스트는 가짜 DOM): input(addEventListener·value), list(replaceChildren·append·hidden), doc.createElement
+import { t, onLanguage } from './i18n.js';
 
 export const SEARCH_DELAY_MS = 300;
-export const NOT_FOUND = '못 찾았어요. 구·시 이름으로 다시 적어 주세요';
+// 후보가 없을 때 글(지금 언어 · live binding)
+export let NOT_FOUND = t('settings.ws_not_found');
+onLanguage(() => { NOT_FOUND = t('settings.ws_not_found'); });
 export const MIN_CHARS = 2;
 
 // 후보 하나 → 화면 글(「마포구 · 서울특별시 · 대한민국」)
@@ -72,12 +75,12 @@ export function createPlaceSearch({ input, list, doc, search, onPick, delay = SE
     const key = q.toLowerCase();
     if (cache.has(key)) return show(cache.get(key));
     const my = ++seq;
-    note('찾는 중…', 'ws-busy');
+    note(t('settings.ws_busy'), 'ws-busy');
     let r;
     try { r = await search(q); } catch (e) { r = { ok: false, error: e?.message }; }
     if (my !== seq) return; // 그 사이 글자가 바뀌었다
     const d = r?.ok ? (r.data ?? r) : null;
-    if (!d || d.ok === false) return note(String(d?.error || r?.data?.error || r?.error || '지역을 찾지 못했어요. 잠시 뒤에 다시 해 주세요'), 'ws-error');
+    if (!d || d.ok === false) return note(String(d?.error || r?.data?.error || r?.error || t('settings.ws_fail')), 'ws-error');
     cache.set(key, d.items ?? []);
     show(d.items ?? []);
   }

@@ -277,7 +277,7 @@ test('설정 저장·IPC: 사용자 캐릭터 id 를 고를 수 있고, 만들�
   assert.match(html, /＋ 새 캐릭터/);
   const sjs = readFileSync(new URL('../renderer/settings.js', import.meta.url), 'utf8');
   assert.match(sjs, /add\.id = 'char-new'/, '새 캐릭터도 같은 크기 카드');
-  assert.match(sjs, /fl\.append\(fc, document\.createTextNode\('테두리'\)\)/, '칸마다 테두리');
+  assert.match(sjs, /fl\.append\(fc, document\.createTextNode\(t\('settings\.frame'\)\)\)/, '칸마다 테두리');
   assert.match(html, /media-src blob: cy-asset:/);
   const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
   assert.match(main, /if \(event === 'characters'\) loadCharacters\(\)/);

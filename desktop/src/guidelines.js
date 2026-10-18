@@ -2,8 +2,11 @@
 // 순수 로직(IPC 인자 거르기·목록 다듬기) + 그리기(document 를 받아서 — 시험은 가짜 DOM).
 // 데몬 GET/POST /guidelines · PUT/DELETE /guidelines/:id (docs/contract.md "행동 지침").
 
+import { t } from './i18n.js';
+
 export const SCOPES = ['all', 'chat', 'briefing', 'code'];
-export const SCOPE_LABEL = { all: '어디서나', chat: '대화', briefing: '브리핑', code: '코드 작업' };
+// 범위 이름(지금 언어): 어디서나·대화·브리핑·코드 작업
+export const SCOPE_LABEL = Object.defineProperties({}, Object.fromEntries(SCOPES.map((s) => [s, { get: () => t(`settings.scope_${s}`), enumerable: true }])));
 
 const str = (v) => (typeof v === 'string' ? v : '');
 const oneLine = (v) => str(v).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -51,7 +54,7 @@ export function shapeGuidelines(list) {
 
 export function countText(list) {
   const on = list.filter((g) => g.active).length;
-  return list.length ? (on === list.length ? `${on}개` : `${on}/${list.length}개 켜짐`) : '';
+  return list.length ? (on === list.length ? t('settings.items_n', { n: on }) : t('settings.gl_on_count', { on, total: list.length })) : '';
 }
 
 // ---- 그리기 ----
@@ -84,7 +87,7 @@ export function mountGuidelines(doc, cy, flash = () => {}) {
   async function apply(promise, okText) {
     const r = await promise.catch(() => null);
     if (!r?.ok) {
-      flash(r?.data?.error ? `저장 못 했어요: ${r.data.error}` : '저장 못 했어요 — 시사에 연결되지 않았어요', true);
+      flash(r?.data?.error ? t('settings.save_fail_err', { error: r.data.error }) : t('settings.gl_save_off'), true);
       render();
       return false;
     }
@@ -100,47 +103,47 @@ export function mountGuidelines(doc, cy, flash = () => {}) {
     const cb = el('input', 'gl-active');
     cb.type = 'checkbox';
     cb.checked = g.active;
-    cb.title = g.active ? '켜짐 — 끄면 프롬프트에 안 넣어요' : '꺼짐';
-    cb.setAttribute('aria-label', `${g.text} 켜기`);
-    cb.addEventListener('change', () => { cb.disabled = true; apply(cy.editGuideline(g.id, { active: cb.checked }), cb.checked ? '켰어요' : '껐어요'); });
+    cb.title = g.active ? t('settings.gl_on_tip') : t('settings.gl_off_tip');
+    cb.setAttribute('aria-label', t('settings.gl_toggle_aria', { text: g.text }));
+    cb.addEventListener('change', () => { cb.disabled = true; apply(cy.editGuideline(g.id, { active: cb.checked }), cb.checked ? t('settings.gl_turned_on') : t('settings.gl_turned_off')); });
     const main = el('div', 'gl-main');
     if (editing === g.id) {
       const input = el('input', 'gl-edit');
       input.type = 'text';
       input.value = g.text;
-      input.setAttribute('aria-label', '지침 고치기');
+      input.setAttribute('aria-label', t('settings.gl_edit_aria'));
       const save = () => {
         const p = sanitizeGuidelinePatch({ text: input.value });
-        if (!p) { flash('지침을 적어 주세요', true); return; }
+        if (!p) { flash(t('settings.gl_need'), true); return; }
         editing = null;
-        apply(cy.editGuideline(g.id, p), '고쳤어요');
+        apply(cy.editGuideline(g.id, p), t('settings.gl_edited'));
       };
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(); }
         else if (e.key === 'Escape') { editing = null; render(); }
       });
-      const ok = el('button', 'small primary', '저장');
+      const ok = el('button', 'small primary', t('settings.save'));
       ok.type = 'button';
       ok.addEventListener('click', save);
-      const cancel = el('button', 'small ghost', '취소');
+      const cancel = el('button', 'small ghost', t('settings.cancel'));
       cancel.type = 'button';
       cancel.addEventListener('click', () => { editing = null; render(); });
       main.append(input, ok, cancel);
     } else {
       const text = el('span', 'gl-text', g.text);
-      text.title = '눌러서 고치기';
+      text.title = t('settings.gl_click_edit');
       text.tabIndex = 0;
       const startEdit = () => { editing = g.id; render(); };
       text.addEventListener('click', startEdit);
       text.addEventListener('keydown', (e) => { if (e.key === 'Enter') startEdit(); });
       main.append(text);
-      if (g.fromChat) main.append(el('span', 'gl-src', '대화에서'));
+      if (g.fromChat) main.append(el('span', 'gl-src', t('settings.gl_from_chat')));
     }
-    const scope = scopeSelect(g.scope, (v) => apply(cy.editGuideline(g.id, { scope: v }), `${SCOPE_LABEL[v]}에 적용해요`));
-    scope.setAttribute('aria-label', '적용 범위');
-    const del = el('button', 'small ghost gl-del', '삭제');
+    const scope = scopeSelect(g.scope, (v) => apply(cy.editGuideline(g.id, { scope: v }), t('settings.gl_scope_set', { scope: SCOPE_LABEL[v] })));
+    scope.setAttribute('aria-label', t('settings.gl_scope_aria'));
+    const del = el('button', 'small ghost gl-del', t('settings.gl_delete'));
     del.type = 'button';
-    del.addEventListener('click', () => { del.disabled = true; apply(cy.deleteGuideline(g.id), '지웠어요'); });
+    del.addEventListener('click', () => { del.disabled = true; apply(cy.deleteGuideline(g.id), t('settings.gl_deleted')); });
     row.append(cb, main, scope, del);
     return row;
   }
@@ -148,9 +151,11 @@ export function mountGuidelines(doc, cy, flash = () => {}) {
   function render() {
     const box = $('gl-list');
     if (!box) return;
-    box.replaceChildren(...(list.length ? list.map(rowEl) : [el('div', 'gl-empty', '아직 없어요. 채팅에서 "앞으로 답은 짧게 해"처럼 말하거나 아래에서 직접 넣어요.')]));
+    box.replaceChildren(...(list.length ? list.map(rowEl) : [el('div', 'gl-empty', t('settings.gl_empty'))]));
     const c = $('gl-count');
     if (c) c.textContent = countText(list);
+    // 추가 칸의 범위 이름도 지금 언어로(언어를 바꾸면 render 를 다시 부른다)
+    for (const o of $('gl-add-scope')?.querySelectorAll?.('option') ?? []) if (SCOPE_LABEL[o.value]) o.textContent = SCOPE_LABEL[o.value];
     if (editing) box.querySelector?.('.gl-edit')?.focus?.();
   }
 
@@ -164,9 +169,9 @@ export function mountGuidelines(doc, cy, flash = () => {}) {
   if (addScope && !addScope.children?.length) for (const s of SCOPES) { const o = el('option', null, SCOPE_LABEL[s]); o.value = s; addScope.append(o); }
   async function add() {
     const p = sanitizeGuidelineAdd({ text: addText?.value ?? '', scope: addScope?.value || 'all' });
-    if (!p) { flash('지침을 적어 주세요', true); return; }
+    if (!p) { flash(t('settings.gl_need'), true); return; }
     if (addBtn) addBtn.disabled = true;
-    const ok = await apply(cy.addGuideline(p), '지침에 넣었어요 — 다음 대화부터 따라요');
+    const ok = await apply(cy.addGuideline(p), t('settings.gl_added'));
     if (addBtn) addBtn.disabled = false;
     if (ok && addText) addText.value = '';
   }

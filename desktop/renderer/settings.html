@@ -4,74 +4,74 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: cy-asset:; media-src blob: cy-asset:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>설정</title>
+  <title data-i18n="settings.title">설정</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
   <main id="app">
     <header id="top">
-      <h1>설정</h1>
+      <h1 data-i18n="settings.title">설정</h1>
       <span id="saved" role="status" aria-live="polite"></span>
       <span class="spacer"></span>
-      <button id="open-setup" type="button" class="small ghost" title="이름·뇌·캘린더·Slack·레포 폴더를 다시 연결해요">설치 화면 열기</button>
-      <button id="start-tour" type="button" class="small ghost" title="캐릭터가 사용법을 하나씩 보여 줘요">사용법 다시 보기</button>
+      <button id="open-setup" type="button" class="small ghost" data-i18n="settings.open_setup" data-i18n-title="settings.open_setup_tip" title="이름·뇌·캘린더·Slack·레포 폴더를 다시 연결해요">설치 화면 열기</button>
+      <button id="start-tour" type="button" class="small ghost" data-i18n="settings.start_tour" data-i18n-title="settings.start_tour_tip" title="캐릭터가 사용법을 하나씩 보여 줘요">사용법 다시 보기</button>
     </header>
     <div id="banner" role="alert" hidden></div>
 
     <section class="card" aria-labelledby="h-char">
-      <h2 id="h-char">캐릭터</h2>
-      <p class="hint">고른 캐릭터가 화면에 나오고, 말투와 정해진 말도 그 캐릭터대로 바뀌어요. 아래 「문구」에서 고친 문구는 그대로 써요.</p>
-      <div id="char-pick" class="char-pick" role="radiogroup" aria-label="캐릭터"></div>
-      <p class="hint char-new-hint">「＋ 새 캐릭터」로 이름·그림·말투를 직접 정해요. 카드의 ✎ 를 누르면 대사를 전부 고칠 수 있어요.</p>
+      <h2 id="h-char" data-i18n="settings.h_char">캐릭터</h2>
+      <p class="hint" data-i18n="settings.char_hint">고른 캐릭터가 화면에 나오고, 말투와 정해진 말도 그 캐릭터대로 바뀌어요. 아래 「문구」에서 고친 문구는 그대로 써요.</p>
+      <div id="char-pick" class="char-pick" role="radiogroup" data-i18n-aria-label="settings.h_char" aria-label="캐릭터"></div>
+      <p class="hint char-new-hint" data-i18n="settings.char_new_hint">「＋ 새 캐릭터」로 이름·그림·말투를 직접 정해요. 카드의 ✎ 를 누르면 대사를 전부 고칠 수 있어요.</p>
       <div id="char-editor" class="char-editor" hidden></div>
     </section>
 
     <section class="card" aria-labelledby="h-models">
-      <h2 id="h-models">AI·모델</h2>
-      <p class="hint">대화·브리핑에 쓸 AI(Gemini·GPT·Claude Code 등)는 패널의 [모델] 탭에서 골라요. <button id="open-models" type="button" class="small ghost">AI 고르기</button></p>
-      <h3>연결된 AI</h3>
-      <p class="hint">끊으면 <span class="who">시사</span>가 그 AI를 더 쓰지 않아요. 지금 쓰던 AI면 「AI 없이 쓰기」로 바뀌어요. 바로 적용돼요.</p>
+      <h2 id="h-models" data-i18n="settings.h_models">AI·모델</h2>
+      <p class="hint"><span data-i18n="settings.models_hint">대화·브리핑에 쓸 AI(Gemini·GPT·Claude Code 등)는 패널의 [모델] 탭에서 골라요. </span><button id="open-models" type="button" class="small ghost" data-i18n="settings.open_models">AI 고르기</button></p>
+      <h3 data-i18n="settings.h_brains">연결된 AI</h3>
+      <p class="hint" data-i18n="settings.brains_hint">끊으면 <span class="who">시사</span>가 그 AI를 더 쓰지 않아요. 지금 쓰던 AI면 「AI 없이 쓰기」로 바뀌어요. 바로 적용돼요.</p>
       <div id="brains" class="conn-list"></div>
       <p id="models-hint" class="hint" hidden></p>
-      <p id="models-note" class="hint"><span id="models-title">세부 모델</span>: 바꾸면 바로 적용돼요. <span id="config-path"></span></p>
+      <p id="models-note" class="hint"><span id="models-title" data-i18n="settings.models_title">세부 모델</span><span data-i18n="settings.models_note">: 바꾸면 바로 적용돼요. </span><span id="config-path"></span></p>
       <div id="models" class="rows"></div>
     </section>
 
     <section class="card" aria-labelledby="h-app">
-      <h2 id="h-app">이 앱</h2>
+      <h2 id="h-app" data-i18n="settings.h_app">이 앱</h2>
       <p class="hint" id="app-version"></p>
       <div id="app-prefs" class="toggles"></div>
       <p id="app-hint" class="hint" hidden></p>
       <div class="subsec">
-        <h3>언어</h3>
-        <p class="hint">캐릭터 이름·대사와 AI 답이 이 언어로 바뀌어요. 바로 적용돼요(설정·패널 메뉴 글은 아직 한국어예요).</p>
-        <div id="app-lang" class="toggles" role="radiogroup" aria-label="언어"></div>
+        <h3 data-i18n="settings.h_lang">언어</h3>
+        <p class="hint" data-i18n="settings.lang_hint">화면 글·캐릭터 이름·대사와 AI 답이 이 언어로 바뀌어요. 바로 적용돼요.</p>
+        <div id="app-lang" class="toggles" role="radiogroup" data-i18n-aria-label="settings.h_lang" aria-label="언어"></div>
       </div>
     </section>
 
     <section class="card" aria-labelledby="h-brief">
-      <h2 id="h-brief">브리핑에 넣을 출처</h2>
-      <p class="hint">끈 출처는 정기 브리핑에서 확인하지도, 말하지도 않아요.</p>
+      <h2 id="h-brief" data-i18n="settings.h_brief">브리핑에 넣을 출처</h2>
+      <p class="hint" data-i18n="settings.brief_hint">끈 출처는 정기 브리핑에서 확인하지도, 말하지도 않아요.</p>
       <div id="sources" class="toggles"></div>
     </section>
 
     <section class="card" aria-labelledby="h-local">
-      <h2 id="h-local">이 맥에서 읽는 것</h2>
-      <p class="hint">켠 것과 고른 폴더만 읽어요. 처음 설치하면 모두 꺼져 있어요.</p>
+      <h2 id="h-local" data-i18n="settings.h_local">이 맥에서 읽는 것</h2>
+      <p class="hint" data-i18n="settings.local_hint">켠 것과 고른 폴더만 읽어요. 처음 설치하면 모두 꺼져 있어요.</p>
       <div id="local-read" class="toggles"></div>
       <p id="local-repos" class="hint"></p>
-      <p class="hint"><button id="open-repos" type="button" class="small ghost">레포 폴더 고치기</button></p>
+      <p class="hint"><button id="open-repos" type="button" class="small ghost" data-i18n="settings.open_repos">레포 폴더 고치기</button></p>
     </section>
 
     <section class="card" aria-labelledby="h-rem">
-      <h2 id="h-rem">오늘 할 일 알림</h2>
-      <p class="hint">오늘 할 일을 적어 달라거나, 남은 게 있다고 캐릭터가 알려 줘요. AI 연결 없이도 정해진 말로 알려요.</p>
-      <div id="rem-mode" class="toggles" role="radiogroup" aria-label="오늘 할 일 알림"></div>
+      <h2 id="h-rem" data-i18n="settings.h_rem">오늘 할 일 알림</h2>
+      <p class="hint" data-i18n="settings.rem_hint">오늘 할 일을 적어 달라거나, 남은 게 있다고 캐릭터가 알려 줘요. AI 연결 없이도 정해진 말로 알려요.</p>
+      <div id="rem-mode" class="toggles" role="radiogroup" data-i18n-aria-label="settings.h_rem" aria-label="오늘 할 일 알림"></div>
       <div id="rem-auto" class="rem-auto">
-        <label class="rem-line">그 뒤 <select id="rem-every" aria-label="몇 시간마다"></select> 마다 다시 알리기</label>
+        <label class="rem-line"><span data-i18n="settings.rem_then">그 뒤 </span><select id="rem-every" data-i18n-aria-label="settings.rem_every_aria" aria-label="몇 시간마다"></select><span data-i18n="settings.rem_again"> 마다 다시 알리기</span></label>
         <div class="gl-add">
-          <input id="rem-times" type="text" placeholder="정한 시각에도 알리기 (예: 10:00, 15:30)" aria-label="알릴 시각">
-          <button id="rem-times-save" type="button" class="primary">저장</button>
+          <input id="rem-times" type="text" data-i18n-placeholder="settings.rem_times_ph" data-i18n-aria-label="settings.rem_times_aria" placeholder="정한 시각에도 알리기 (예: 10:00, 15:30)" aria-label="알릴 시각">
+          <button id="rem-times-save" type="button" class="primary" data-i18n="settings.save">저장</button>
         </div>
       </div>
       <p id="rem-summary" class="hint"></p>
@@ -79,117 +79,117 @@
     </section>
 
     <section class="card" aria-labelledby="h-cal">
-      <h2 id="h-cal">일정 알림</h2>
-      <p class="hint">캘린더를 연결하면 일정 몇 분 전에 캐릭터가 춤추며 알려 줘요. 여러 개 고르면 그때마다 한 번씩 알려요.</p>
+      <h2 id="h-cal" data-i18n="settings.h_cal">일정 알림</h2>
+      <p class="hint" data-i18n="settings.cal_hint">캘린더를 연결하면 일정 몇 분 전에 캐릭터가 춤추며 알려 줘요. 여러 개 고르면 그때마다 한 번씩 알려요.</p>
       <div id="cal-on" class="rem-auto">
-        <div id="cal-mins" class="toggles" role="group" aria-label="몇 분 전에 알릴지"></div>
+        <div id="cal-mins" class="toggles" role="group" data-i18n-aria-label="settings.cal_mins_aria" aria-label="몇 분 전에 알릴지"></div>
         <div class="gl-add">
-          <input id="cal-custom" type="text" inputmode="numeric" placeholder="직접 적기 (분, 예: 20 · 하루 전 1440)" aria-label="몇 분 전(직접)">
-          <button id="cal-custom-add" type="button" class="primary">추가</button>
+          <input id="cal-custom" type="text" inputmode="numeric" data-i18n-placeholder="settings.cal_custom_ph" data-i18n-aria-label="settings.cal_custom_aria" placeholder="직접 적기 (분, 예: 20 · 하루 전 1440)" aria-label="몇 분 전(직접)">
+          <button id="cal-custom-add" type="button" class="primary" data-i18n="settings.add">추가</button>
         </div>
       </div>
-      <label class="toggle cal-off-line"><input id="cal-off" type="checkbox">알림 끄기</label>
+      <label class="toggle cal-off-line"><input id="cal-off" type="checkbox"><span data-i18n="settings.cal_off">알림 끄기</span></label>
       <p id="cal-summary" class="hint"></p>
       <div id="cal-err" class="ph-err" role="status"></div>
     </section>
 
     <section class="card" aria-labelledby="h-work">
-      <h2 id="h-work">근무 시간</h2>
-      <p class="hint">정한 시각에 맞춰 <span class="who">시사</span>가 인사해요. 근무 요일에 하루 한 번씩만 떠요.</p>
+      <h2 id="h-work" data-i18n="settings.h_work">근무 시간</h2>
+      <p class="hint" data-i18n="settings.work_hint">정한 시각에 맞춰 <span class="who">시사</span>가 인사해요. 근무 요일에 하루 한 번씩만 떠요.</p>
       <div class="work-times">
-        <label class="work-time">출근 <input id="work-start" type="time" required aria-label="출근 시각"></label>
-        <label class="work-time">점심 <input id="work-lunch" type="time" required aria-label="점심 시각"></label>
-        <label class="work-time">퇴근 <input id="work-end" type="time" required aria-label="퇴근 시각"></label>
+        <label class="work-time"><span data-i18n="settings.work_start">출근</span> <input id="work-start" type="time" required data-i18n-aria-label="settings.work_start_aria" aria-label="출근 시각"></label>
+        <label class="work-time"><span data-i18n="settings.work_lunch">점심</span> <input id="work-lunch" type="time" required data-i18n-aria-label="settings.work_lunch_aria" aria-label="점심 시각"></label>
+        <label class="work-time"><span data-i18n="settings.work_end">퇴근</span> <input id="work-end" type="time" required data-i18n-aria-label="settings.work_end_aria" aria-label="퇴근 시각"></label>
       </div>
-      <div id="work-days" class="toggles work-days" role="group" aria-label="근무 요일"></div>
+      <div id="work-days" class="toggles work-days" role="group" data-i18n-aria-label="settings.work_days_aria" aria-label="근무 요일"></div>
       <div class="toggles work-alerts">
-        <label class="toggle"><input id="start-on" type="checkbox">출근 인사</label>
-        <label class="toggle"><input id="lunch-on" type="checkbox">점심시간 알림</label>
-        <label class="toggle"><input id="leave-on" type="checkbox">퇴근 인사</label>
+        <label class="toggle"><input id="start-on" type="checkbox"><span data-i18n="settings.start_on">출근 인사</span></label>
+        <label class="toggle"><input id="lunch-on" type="checkbox"><span data-i18n="settings.lunch_on">점심시간 알림</span></label>
+        <label class="toggle"><input id="leave-on" type="checkbox"><span data-i18n="settings.leave_on">퇴근 인사</span></label>
       </div>
-      <p class="hint">출근 시각이 지나면 아침 인사를 해요. 점심은 점심 시각부터 한 시간 안에 점심 영상과 함께, 퇴근 10분 전에는 일정 알림 영상과 함께 인사해요. 같은 날 앱을 다시 켜도 또 뜨지 않아요.</p>
+      <p class="hint" data-i18n="settings.work_note">출근 시각이 지나면 아침 인사를 해요. 점심은 점심 시각부터 한 시간 안에 점심 영상과 함께, 퇴근 10분 전에는 일정 알림 영상과 함께 인사해요. 같은 날 앱을 다시 켜도 또 뜨지 않아요.</p>
       <div id="work-err" class="ph-err" role="status"></div>
     </section>
 
     <section class="card" aria-labelledby="h-weather">
-      <h2 id="h-weather">날씨</h2>
-      <p class="hint">지역을 고르면 <span class="who">시사</span>가 그 지역 날씨를 알려 줘요. AI 연결 없이도 돼요. 지역을 고르기 전에는 꺼져 있어요.</p>
+      <h2 id="h-weather" data-i18n="settings.h_weather">날씨</h2>
+      <p class="hint" data-i18n="settings.weather_hint">지역을 고르면 <span class="who">시사</span>가 그 지역 날씨를 알려 줘요. AI 연결 없이도 돼요. 지역을 고르기 전에는 꺼져 있어요.</p>
       <div id="weather-picked" class="weather-picked" hidden>
         <span class="weather-place"><b id="weather-name"></b> <span id="weather-label" class="faint"></span></span>
-        <button id="weather-change" type="button" class="small">바꾸기</button>
-        <button id="weather-clear" type="button" class="small ghost">지우기</button>
+        <button id="weather-change" type="button" class="small" data-i18n="settings.change">바꾸기</button>
+        <button id="weather-clear" type="button" class="small ghost" data-i18n="settings.clear">지우기</button>
       </div>
       <div id="weather-find" class="weather-find">
-        <input id="weather-q" type="text" placeholder="지역 이름 (예: 서울, 성남시, 부산)" aria-label="날씨 지역 찾기" role="combobox" aria-autocomplete="list" aria-controls="weather-list" aria-expanded="false" autocomplete="off" spellcheck="false">
-        <ul id="weather-list" class="weather-list" role="listbox" aria-label="찾은 지역" hidden></ul>
+        <input id="weather-q" type="text" data-i18n-placeholder="settings.weather_q_ph" data-i18n-aria-label="settings.weather_q_aria" placeholder="지역 이름 (예: 서울, 성남시, 부산)" aria-label="날씨 지역 찾기" role="combobox" aria-autocomplete="list" aria-controls="weather-list" aria-expanded="false" autocomplete="off" spellcheck="false">
+        <ul id="weather-list" class="weather-list" role="listbox" data-i18n-aria-label="settings.weather_list_aria" aria-label="찾은 지역" hidden></ul>
       </div>
       <div id="weather-when" class="weather-when">
         <div class="toggles">
-          <label class="toggle"><input id="weather-morning" type="checkbox">출근 후 브리핑 다음</label>
-          <label class="toggle"><input id="weather-leave" type="checkbox"><span id="weather-leave-label">퇴근 20분 전</span></label>
+          <label class="toggle"><input id="weather-morning" type="checkbox"><span data-i18n="settings.weather_morning">출근 후 브리핑 다음</span></label>
+          <label class="toggle"><input id="weather-leave" type="checkbox"><span id="weather-leave-label" data-i18n="settings.weather_leave">퇴근 20분 전</span></label>
         </div>
         <div class="weather-times-row">
-          <span class="weather-times-head">정한 시각에도</span>
-          <span id="weather-times" class="weather-chips" role="list" aria-label="정한 날씨 알림 시각"></span>
+          <span class="weather-times-head" data-i18n="settings.weather_times_head">정한 시각에도</span>
+          <span id="weather-times" class="weather-chips" role="list" data-i18n-aria-label="settings.weather_times_aria" aria-label="정한 날씨 알림 시각"></span>
           <span class="weather-add">
-            <input id="weather-time" type="time" aria-label="날씨 알림 시각">
-            <button id="weather-time-add" type="button" class="primary">추가</button>
+            <input id="weather-time" type="time" data-i18n-aria-label="settings.weather_time_aria" aria-label="날씨 알림 시각">
+            <button id="weather-time-add" type="button" class="primary" data-i18n="settings.add">추가</button>
           </span>
         </div>
       </div>
       <p id="weather-summary" class="hint"></p>
-      <p class="hint">캐릭터를 더블클릭하거나 입력창 ＋ 에서 「오늘 날씨?」를 눌러도 알려 줘요. Open-Meteo 에는 고른 지역의 위치(위도·경도)만 보내고, 찾을 때는 친 글자만 보내요. 위치 정보(GPS)는 쓰지 않아요.</p>
-      <p class="hint weather-src"><a href="#" id="weather-src">날씨: Open-Meteo</a> · 데이터 <a href="#" id="weather-license">CC BY 4.0</a></p>
+      <p class="hint" data-i18n="settings.weather_note">캐릭터를 더블클릭하거나 입력창 ＋ 에서 「오늘 날씨?」를 눌러도 알려 줘요. Open-Meteo 에는 고른 지역의 위치(위도·경도)만 보내고, 찾을 때는 친 글자만 보내요. 위치 정보(GPS)는 쓰지 않아요.</p>
+      <p class="hint weather-src"><a href="#" id="weather-src" data-i18n="settings.weather_src">날씨: Open-Meteo</a><span data-i18n="settings.weather_data"> · 데이터 </span><a href="#" id="weather-license">CC BY 4.0</a></p>
       <div id="weather-err" class="ph-err" role="status"></div>
     </section>
 
     <section id="am-card" class="card" aria-labelledby="h-am">
-      <h2 id="h-am">자동 머지</h2>
-      <p class="hint">여기 있는 레포는 ✓ 없이 머지까지 해요 — 채팅에서 시킨 머지, <span class="who">시사</span>가 고친 코드로 올린 PR 이 검사(실패·대기 중 검사·충돌·초안)를 통과하면 바로 머지해요. 채팅에서 「이 레포는 알아서 머지까지 해」·「X는 이제 머지 묻고 해」로도 바꿀 수 있어요.</p>
-      <p id="am-hint" class="hint" hidden>코드 고치기·머지는 Claude Code가 있어야 해요. 설치 탭에서 Claude Code를 연결하면 여기서 고를 수 있어요.</p>
+      <h2 id="h-am" data-i18n="settings.h_am">자동 머지</h2>
+      <p class="hint" data-i18n="settings.am_hint">여기 있는 레포는 ✓ 없이 머지까지 해요 — 채팅에서 시킨 머지, <span class="who">시사</span>가 고친 코드로 올린 PR 이 검사(실패·대기 중 검사·충돌·초안)를 통과하면 바로 머지해요. 채팅에서 「이 레포는 알아서 머지까지 해」·「X는 이제 머지 묻고 해」로도 바꿀 수 있어요.</p>
+      <p id="am-hint" class="hint" hidden data-i18n="settings.am_need">코드 고치기·머지는 Claude Code가 있어야 해요. 설치 탭에서 Claude Code를 연결하면 여기서 고를 수 있어요.</p>
       <div id="am-list" class="gl-list"></div>
       <div class="gl-add">
-        <input id="am-add-text" type="text" placeholder="owner/name (예: my-name/my-app)" aria-label="자동 머지할 레포">
-        <button id="am-add" type="button" class="primary">넣기</button>
+        <input id="am-add-text" type="text" data-i18n-placeholder="settings.am_add_ph" data-i18n-aria-label="settings.am_add_aria" placeholder="owner/name (예: my-name/my-app)" aria-label="자동 머지할 레포">
+        <button id="am-add" type="button" class="primary" data-i18n="settings.put">넣기</button>
       </div>
       <div id="am-err" class="ph-err" role="status"></div>
     </section>
 
     <section class="card" aria-labelledby="h-phrases">
-      <h2 id="h-phrases">문구</h2>
-      <p class="hint">캐릭터가 정해진 때 하는 말이에요. 여러 줄이면 그중 하나를 골라요. <code>{title}</code> 같은 자리표시는 그 문구에 적힌 것만 쓸 수 있어요. 비우면 기본값 — 저장하면 바로 적용돼요.</p>
+      <h2 id="h-phrases" data-i18n="settings.h_phrases">문구</h2>
+      <p class="hint"><span data-i18n="settings.phrases_hint_a">캐릭터가 정해진 때 하는 말이에요. 여러 줄이면 그중 하나를 골라요. </span><code>{title}</code><span data-i18n="settings.phrases_hint_b"> 같은 자리표시는 그 문구에 적힌 것만 쓸 수 있어요. 비우면 기본값 — 저장하면 바로 적용돼요.</span></p>
       <div id="phrases" class="ph-groups"></div>
     </section>
 
     <section class="card" aria-labelledby="h-gl">
       <div class="card-head">
-        <h2 id="h-gl">행동 지침</h2>
+        <h2 id="h-gl" data-i18n="settings.h_gl">행동 지침</h2>
         <span id="gl-count" class="faint"></span>
       </div>
-      <p class="hint">내가 정한 말투·답 모양·일하는 법이에요. 켜 둔 지침은 대화·브리핑·코드 작업 프롬프트에 늘 붙어요(범위대로). 부딪치면 아래쪽(최근) 것이 이겨요. 나에 대해 배운 사실(프로필·지식그래프)과는 따로예요.</p>
+      <p class="hint" data-i18n="settings.gl_hint">내가 정한 말투·답 모양·일하는 법이에요. 켜 둔 지침은 대화·브리핑·코드 작업 프롬프트에 늘 붙어요(범위대로). 부딪치면 아래쪽(최근) 것이 이겨요. 나에 대해 배운 사실(프로필·지식그래프)과는 따로예요.</p>
       <div id="gl-list" class="gl-list"></div>
       <div class="gl-add">
-        <input id="gl-add-text" type="text" placeholder="예: 답은 짧게, 표는 쓰지 않기" aria-label="새 지침">
-        <select id="gl-add-scope" aria-label="적용 범위"></select>
-        <button id="gl-add" type="button" class="primary">넣기</button>
+        <input id="gl-add-text" type="text" data-i18n-placeholder="settings.gl_add_ph" data-i18n-aria-label="settings.gl_add_aria" placeholder="예: 답은 짧게, 표는 쓰지 않기" aria-label="새 지침">
+        <select id="gl-add-scope" data-i18n-aria-label="settings.gl_scope_aria" aria-label="적용 범위"></select>
+        <button id="gl-add" type="button" class="primary" data-i18n="settings.put">넣기</button>
       </div>
     </section>
 
     <section class="card" aria-labelledby="h-conn">
       <div class="card-head">
-        <h2 id="h-conn">연결 상태</h2>
+        <h2 id="h-conn" data-i18n="settings.h_conn">연결 상태</h2>
         <span id="conn-at" class="faint"></span>
-        <button id="check-all" type="button" class="ghost">모두 다시 확인</button>
+        <button id="check-all" type="button" class="ghost" data-i18n="settings.check_all">모두 다시 확인</button>
       </div>
-      <p class="hint">안 되는 게 있으면 [설치 안내], 꺼져 있으면 [연결하기]를 눌러 패널의 설치 탭에서 차근차근 연결해요. 비밀번호·토큰은 여기서 받지 않아요. [연결 해제]는 <span class="who">시사</span> 설정에서 그 연결과 저장된 토큰·주소를 지워요. Claude Code에 등록한 MCP 서버(claude mcp add)는 그대로 남아요.</p>
+      <p class="hint" data-i18n="settings.conn_hint">안 되는 게 있으면 [설치 안내], 꺼져 있으면 [연결하기]를 눌러 패널의 설치 탭에서 차근차근 연결해요. 비밀번호·토큰은 여기서 받지 않아요. [연결 해제]는 <span class="who">시사</span> 설정에서 그 연결과 저장된 토큰·주소를 지워요. Claude Code에 등록한 MCP 서버(claude mcp add)는 그대로 남아요.</p>
       <div id="conn-core" class="conn-list"></div>
-      <h3>연결한 서비스</h3>
+      <h3 data-i18n="settings.h_used">연결한 서비스</h3>
       <div id="conn-used" class="conn-list"></div>
       <details id="conn-other-wrap" hidden>
-        <summary id="conn-other-sum">그 밖의 서비스</summary>
+        <summary id="conn-other-sum" data-i18n="settings.conn_other">그 밖의 서비스</summary>
         <div id="conn-other" class="conn-list"></div>
       </details>
-      <h3>이 컴퓨터</h3>
+      <h3 data-i18n="settings.h_this_pc">이 컴퓨터</h3>
       <div id="conn-local" class="conn-list"></div>
     </section>
   </main>

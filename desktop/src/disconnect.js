@@ -2,17 +2,18 @@
 // 패널(모델 탭·개요 연결 카드·설치 마법사)과 설정 창(AI·연결 상태)이 같이 쓴다. 파일·데몬 호출은 main 이 한다.
 
 import { ALL_PROVIDERS, CLI_PROVIDERS, DAEMON_BRAIN, KEY_PROVIDERS } from './sisa-store.js';
+import { t } from './i18n.js';
 
 export const CONNECTOR_CAPS = ['slack', 'calendar', 'mail', 'issues'];
 export const okCap = (cap) => typeof cap === 'string' && CONNECTOR_CAPS.includes(cap);
 export const okBrainId = (p) => typeof p === 'string' && ALL_PROVIDERS.includes(p);
-const CAP_LABEL = { slack: 'Slack', calendar: '캘린더', mail: '메일', issues: '이슈' };
+const CAP_LABEL = { slack: 'Slack', get calendar() { return t('settings.cap_calendar'); }, get mail() { return t('settings.cap_mail'); }, get issues() { return t('settings.cap_issues'); } };
 
 // 설치 마법사 항목(sisa-ai.json done) ↔ 데몬 커넥터
 export const HUB_CAP = { gcal: 'calendar', outlook: 'calendar', slack: 'slack', jira: 'issues' };
 export const hubsOf = (cap) => Object.keys(HUB_CAP).filter((id) => HUB_CAP[id] === cap);
 
-export const BRAIN_TITLE = { claudecode: 'Claude Code', codexcli: 'Codex', gemini: 'Gemini', openai: 'OpenAI(GPT)', claude: 'Claude API 키', genspark: 'Genspark' };
+export const BRAIN_TITLE = { claudecode: 'Claude Code', codexcli: 'Codex', gemini: 'Gemini', openai: 'OpenAI(GPT)', get claude() { return t('settings.brain_claude_key'); }, genspark: 'Genspark' };
 // 데몬 provider → 앱 id
 const FROM_DAEMON = Object.fromEntries(Object.entries(DAEMON_BRAIN).map(([k, v]) => [v, k]));
 // 데몬 brain.keys 이름 → 앱 id
@@ -50,13 +51,13 @@ export function withBrainBody(cfg, body) {
 export function brainDisconnectCopy(p, active) {
   const title = BRAIN_TITLE[p] ?? p;
   const cli = CLI_PROVIDERS.includes(p);
-  const ask = `${title} 연결을 끊을까요?`;
+  const ask = t('settings.dc_ask', { title });
   const what = cli
-    ? `시사에서 ${title}를 더 쓰지 않아요. ${title} 로그인은 이 맥에 그대로 남아요.`
-    : p === 'genspark' ? '저장해 둔 키를 시사에서 지우고 Genspark 를 더 쓰지 않아요. gsk login 키 파일은 그대로 남아요.'
-    : '저장해 둔 키를 시사에서 지워요.';
-  const after = active ? ' 지금 쓰는 AI라서 끊으면 「AI 없이 쓰기」로 바뀌어요.' : '';
-  return { ask, note: `${what}${after}`, done: `${title} 연결을 끊었어요.` };
+    ? t('settings.dc_cli_what', { title })
+    : p === 'genspark' ? t('settings.dc_gsk_what')
+    : t('settings.dc_key_what');
+  const after = active ? t('settings.dc_active') : '';
+  return { ask, note: `${what}${after}`, done: t('settings.dc_done_title', { title }) };
 }
 
 // 설정 창 AI 칸: 연결된 AI 줄. sisa = 앱 저장(publicView), brain = GET /settings brain({ provider, keys: { gemini, openai, anthropic } })
@@ -90,17 +91,13 @@ export function withoutHubDone(done, cap) {
 
 export function connectorDisconnectCopy(cap, server) {
   const label = CAP_LABEL[cap] ?? cap;
-  const what = cap === 'calendar'
-    ? '붙여 넣은 캘린더 주소(구글·Outlook 모두)를 시사 설정에서 지워요.'
-    : cap === 'slack' ? '저장해 둔 Slack 토큰과 연결 설정을 시사 설정에서 지워요.'
-      : cap === 'mail' ? '저장해 둔 메일 비밀번호와 가져온 메일을 시사에서 지워요(모든 계정). 메일함의 메일은 그대로예요.'
-        : '연결 설정을 시사 설정에서 지워요.';
+  const what = t(cap === 'calendar' ? 'settings.dc_cal_what' : cap === 'slack' ? 'settings.dc_slack_what' : cap === 'mail' ? 'settings.dc_mail_what' : 'settings.dc_other_what');
   const cmd = mcpRemoveCommand(server);
   return {
-    ask: `${label} 연결을 끊을까요?`,
-    note: `${what}${cmd ? ` Claude Code에 등록한 MCP 서버 「${server}」는 그대로 남아요. 그것까지 지우려면 터미널에서 아래 명령을 실행해요.` : ''}`,
+    ask: t('settings.dc_ask', { title: label }),
+    note: `${what}${cmd ? t('settings.dc_mcp_left', { server }) : ''}`,
     cmd,
-    done: `${label} 연결을 끊었어요.`,
+    done: t('settings.dc_done_title', { title: label }),
   };
 }
 
@@ -108,9 +105,9 @@ export function connectorDisconnectCopy(cap, server) {
 export function reloadNote(r) {
   if (!r || r.ok === false) return '';
   const reload = r.reload;
-  if (reload?.restarting) return '시사가 잠깐 다시 켜지며 적용돼요.';
-  if (r.offline) return '시사가 꺼져 있어서 다음에 켤 때 적용돼요.';
-  return '바로 적용돼요.';
+  if (reload?.restarting) return t('settings.reload_restart');
+  if (r.offline) return t('settings.reload_offline');
+  return t('settings.reload_now');
 }
 
 // 줄마다 맞는 주 동작: 꺼져 있으면 연결하기, 켜져 있으면(준비 안 됐어도) 연결 해제
@@ -128,7 +125,7 @@ export const capOfRow = (row) => (typeof row?.id === 'string' && row.id.startsWi
 // onConfirm() → { ok, error?, note? }. 잘 끊기면 done 글을 보여 주고(부르는 쪽이 보통 다시 그린다), 실패하면 오류와 함께 다시 물을 수 있게.
 // doc 은 document(시험은 가짜), copy 는 (text) => Promise
 // open: 처음부터 묻는 상태로(다시 그려도 열어 둔 확인이 닫히지 않게) · onOpen/onClose: 열고 닫힐 때 알림
-export function disconnectControl(doc, { ask, note, cmd, done, label = '연결 해제', onConfirm, copy, onOpen, onClose, open = false } = {}) {
+export function disconnectControl(doc, { ask, note, cmd, done, label = t('settings.dc_label'), onConfirm, copy, onOpen, onClose, open = false } = {}) {
   const el = (tag, cls, text) => {
     const n = doc.createElement(tag);
     if (cls) n.className = cls;
@@ -150,21 +147,21 @@ export function disconnectControl(doc, { ask, note, cmd, done, label = '연결 �
   }
   function asking() {
     box.className = 'dc asking';
-    const kids = [el('p', 'dc-ask', ask || `${label}할까요?`)];
+    const kids = [el('p', 'dc-ask', ask || t('settings.dc_ask_label', { label }))];
     if (note) kids.push(el('p', 'dc-note', note));
     if (cmd) {
       const row = el('div', 'dc-cmd');
-      const b = button('ghost small dc-copy', '복사', async () => {
+      const b = button('ghost small dc-copy', t('settings.copy'), async () => {
         let r = null;
         try { r = await copy?.(cmd); } catch { r = null; }
-        b.textContent = r?.ok ? '복사됨' : '복사 실패';
+        b.textContent = r?.ok ? t('settings.copied') : t('settings.copy_fail');
       });
       row.append(el('code', null, cmd), b);
       kids.push(row);
     }
     if (error) kids.push(el('p', 'dc-err', error));
     const yes = button('small danger dc-yes', label, confirm);
-    const no = button('ghost small dc-no', '취소', () => { error = ''; idle(); onClose?.(); });
+    const no = button('ghost small dc-no', t('settings.cancel'), () => { error = ''; idle(); onClose?.(); });
     const acts = el('div', 'dc-acts');
     acts.append(yes, no);
     kids.push(acts);
@@ -179,11 +176,11 @@ export function disconnectControl(doc, { ask, note, cmd, done, label = '연결 �
     if (r?.ok) {
       error = '';
       box.className = 'dc done';
-      box.replaceChildren(el('p', 'dc-done', [done || '끊었어요.', r.note].filter(Boolean).join(' ')));
+      box.replaceChildren(el('p', 'dc-done', [done || t('settings.dc_done'), r.note].filter(Boolean).join(' ')));
       onClose?.();
       return;
     }
-    error = r?.error || '끊지 못했어요. 잠시 뒤에 다시 해 주세요.';
+    error = r?.error || t('settings.dc_fail');
     asking();
   }
   if (open) asking();

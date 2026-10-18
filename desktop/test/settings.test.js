@@ -160,7 +160,7 @@ test('문구: 저장 본문(키 → 글|null)·묶기·보일 글·저장 값·�
 
 test('설정 창: 문구 칸 · 저장은 그 문구 하나만 PUT', async () => {
   const html = readFileSync(new URL('../renderer/settings.html', import.meta.url), 'utf8');
-  assert.match(html, /id="h-phrases">문구</);
+  assert.match(html, /id="h-phrases" data-i18n="settings.h_phrases">문구</);
   assert.match(html, /id="phrases"/);
   const r = readFileSync(new URL('../renderer/settings.js', import.meta.url), 'utf8');
   assert.match(r, /save\(\{ phrases: \{ \[p\.key\]: value \} \}\)/);

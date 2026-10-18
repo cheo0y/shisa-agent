@@ -3,6 +3,7 @@
 
 import { okCharacterId, MEDIA_SLOTS } from './character.js';
 import { isLang } from './lang.js';
+import { t, weekdays } from './i18n.js';
 
 export const CHECK_IDS = ['net', 'claude', 'services', 'gh', 'local'];
 export const okCheckId = (id) => typeof id === 'string' && CHECK_IDS.includes(id);
@@ -139,7 +140,8 @@ export function sanitizeSettingsPatch(p) {
 export const WORK_KEYS = ['workStart', 'lunchTime', 'workEnd', 'workDays', 'startAlert', 'leaveAlert'];
 export const WORK_DEFAULT = { workStart: '09:00', lunchTime: '12:00', workEnd: '18:00', workDays: [1, 2, 3, 4, 5], startAlert: true, lunchAlert: true, leaveAlert: true };
 export const WORK_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-export const DAY_LABEL = ['일', '월', '화', '수', '목', '금', '토'];
+// 요일 칩 글(0 = 일요일, 지금 언어). 읽을 때마다 그 언어로
+export const DAY_LABEL = Object.defineProperties([], Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((i) => [i, { get: () => weekdays()[i], enumerable: true }])));
 export const okHhmm = (v) => typeof v === 'string' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(v);
 export function cleanWorkDays(v) {
   if (!Array.isArray(v) || !v.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return null;
@@ -160,20 +162,20 @@ export function workHoursView(s) {
 export function workDaysNext(list, day, on) {
   const cur = cleanWorkDays(list) ?? [...WORK_DEFAULT.workDays];
   const next = cleanWorkDays(on ? [...cur, day] : cur.filter((d) => d !== day));
-  if (!next.length) return { error: '근무 요일을 하나 이상 골라 주세요' };
+  if (!next.length) return { error: t('settings.work_days_err') };
   return { workDays: next };
 }
 // 시각 하나 바꾸기 → { patch } | { error }. 출근은 퇴근보다 앞
 export function workTimeNext(view, key, value) {
-  if (!okHhmm(value)) return { error: '시각을 HH:MM(예: 09:00)으로 골라 주세요' };
+  if (!okHhmm(value)) return { error: t('settings.work_time_err') };
   const v = { ...workHoursView(view), [key]: value };
-  if (v.workStart >= v.workEnd) return { error: '출근 시각은 퇴근 시각보다 앞이어야 해요' };
+  if (v.workStart >= v.workEnd) return { error: t('settings.work_order_err') };
   return { patch: { [key]: value } };
 }
 
 // ---- 날씨 알리미(GET /settings weather — 데몬 agent/src/weather.ts 와 같은 규칙) ----
 export const WEATHER_DEFAULT = { place: null, morning: true, leave: true, times: [] };
-export const WEATHER_ATTRIBUTION = { label: '날씨: Open-Meteo', url: 'https://open-meteo.com/', license: 'CC BY 4.0', licenseUrl: 'https://creativecommons.org/licenses/by/4.0/' };
+export const WEATHER_ATTRIBUTION = { get label() { return t('settings.weather_src'); }, url: 'https://open-meteo.com/', license: 'CC BY 4.0', licenseUrl: 'https://creativecommons.org/licenses/by/4.0/' };
 const okPlace = (p) => !!p && typeof p === 'object' && !Array.isArray(p) && typeof p.name === 'string' && !!p.name.trim() && p.name.length <= 80
   && Number.isFinite(p.latitude) && Math.abs(p.latitude) <= 90 && Number.isFinite(p.longitude) && Math.abs(p.longitude) <= 180
   && (p.label === undefined || (typeof p.label === 'string' && p.label.length <= 200)) && (p.timezone === undefined || (typeof p.timezone === 'string' && /^[\w/+-]{1,64}$/.test(p.timezone)));
@@ -209,20 +211,20 @@ export function weatherView(s) {
 // 시각 넣기·빼기 → { times } | { error }
 export function weatherTimesNext(list, time, on) {
   const cur = Array.isArray(list) ? list.filter(okHhmm) : [];
-  if (on && !okHhmm(time)) return { error: '시각을 HH:MM(예: 13:00)으로 골라 주세요' };
+  if (on && !okHhmm(time)) return { error: t('settings.weather_time_err') };
   const next = sortTimes(on ? [...cur, time] : cur.filter((t) => t !== time));
   return { times: next };
 }
 // 지금 설정을 한 줄로(근무 시간의 퇴근 시각으로 「17:40」을 보여 준다)
 export function weatherSummary(view, work) {
   const v = view ?? WEATHER_DEFAULT;
-  if (!v.place) return '지역을 고르면 날씨를 알려 줘요. 고르기 전에는 아무 데도 묻지 않아요.';
+  if (!v.place) return t('settings.weather_sum_none');
   const end = workHoursView(work).workEnd;
   const m = Number(end.slice(0, 2)) * 60 + Number(end.slice(3)) - 20;
   const leaveAt = `${String(Math.floor(Math.max(0, m) / 60)).padStart(2, '0')}:${String(Math.max(0, m) % 60).padStart(2, '0')}`;
-  const when = [v.morning ? '출근 후 브리핑 다음' : '', v.leave ? `퇴근 20분 전(${leaveAt})` : '', ...v.times].filter(Boolean);
-  if (!when.length) return `${v.place.name} 날씨는 알림 없이 「오늘 날씨?」 칩으로만 알려 줘요.`;
-  return `${v.place.name} 날씨를 근무 요일에 ${when.join(', ')}에 하루 한 번씩 알려 줘요.`;
+  const when = [v.morning ? t('settings.weather_morning') : '', v.leave ? t('settings.weather_leave_at', { time: leaveAt }) : '', ...v.times].filter(Boolean);
+  if (!when.length) return t('settings.weather_sum_chip', { place: v.place.name });
+  return t('settings.weather_sum', { place: v.place.name, when: when.join(t('settings.list_sep')) });
 }
 
 // ---- 일정 알림(GET /settings calendarAlert) ----
@@ -246,9 +248,9 @@ export function alertMinutesNext(list, mins, on) {
 }
 // 직접 적은 분 → 숫자. 못 읽으면 { error }
 export function parseAlertMinutes(text) {
-  const t = String(text ?? '').trim().replace(/\s*분(\s*전)?$/, '');
-  const n = /^\d+$/.test(t) ? Number(t) : NaN;
-  if (!okAlertMin(n)) return { error: '1 이상 숫자(분)로 적어 주세요. 예: 20, 하루 전은 1440' };
+  const s = String(text ?? '').trim().replace(/\s*(분(\s*전)?|分前?)$/, '');
+  const n = /^\d+$/.test(s) ? Number(s) : NaN;
+  if (!okAlertMin(n)) return { error: t('settings.alert_bad') };
   return { mins: n };
 }
 // 칩으로 보일 분들: 기본 다섯 + 지금 고른 것 중 그 밖의 것
@@ -256,8 +258,8 @@ export const alertChoices = (list) => sortMins([...ALERT_PRESETS, ...(Array.isAr
 // 지금 설정을 한 줄로
 export function calendarAlertSummary(c) {
   const xs = (cleanCalendarAlert(c ?? ALERT_DEFAULT) ?? ALERT_DEFAULT).minutesBefore;
-  if (!xs.length) return '일정 알림을 껐어요. 일정은 그대로 가져와 브리핑·오늘 일정에 보여요.';
-  return `일정 ${xs.map((x) => `${x}분`).join(', ')} 전에 춤추며 알려요.${xs.length > 1 ? ' 일정마다 그때그때 한 번씩이에요.' : ''}`;
+  if (!xs.length) return t('settings.cal_sum_off');
+  return `${t('settings.cal_sum', { list: xs.map((x) => t('settings.cal_sum_min', { n: x })).join(t('settings.list_sep')) })}${xs.length > 1 ? t('settings.cal_sum_multi') : ''}`;
 }
 
 // ---- 오늘 할 일 알림(GET /settings todayReminder) ----
@@ -280,9 +282,9 @@ export function parseTimes(text) {
   const parts = String(text ?? '').split(/[\s,，、]+/).filter(Boolean);
   const out = [];
   for (const x of parts) {
-    const m = /^(\d{1,2})(?::(\d{1,2}))?$/.exec(x.replace(/시$/, ''));
+    const m = /^(\d{1,2})(?::(\d{1,2}))?$/.exec(x.replace(/[시時]$/, ''));
     const hh = m ? Number(m[1]) : NaN, mm = m ? Number(m[2] ?? 0) : NaN;
-    if (!m || hh > 23 || mm > 59) return { error: `"${x}"를 시각으로 못 읽었어요. 10:00 처럼 적어 주세요` };
+    if (!m || hh > 23 || mm > 59) return { error: t('settings.times_bad', { x }) };
     out.push(`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`);
   }
   return { times: [...new Set(out)].sort() };
@@ -290,11 +292,11 @@ export function parseTimes(text) {
 // 지금 설정을 한 줄로
 export function reminderSummary(r) {
   const c = cleanReminder(r ?? REMINDER_DEFAULT) ?? REMINDER_DEFAULT;
-  if (c.mode === 'off') return '알리지 않아요. 오늘 할 일 탭은 그대로 쓸 수 있어요.';
-  const parts = ['영업일 아침 첫 실행 때 한 번'];
-  if (c.everyHours > 0) parts.push(`그 뒤 ${c.everyHours}시간마다(8시~21시)`);
-  if (c.times.length) parts.push(`${c.times.join(', ')}에`);
-  return `${parts.join(', ')} 알려요. 다 끝냈으면 조용히 있어요.`;
+  if (c.mode === 'off') return t('settings.rem_sum_off');
+  const parts = [t('settings.rem_sum_first')];
+  if (c.everyHours > 0) parts.push(t('settings.rem_sum_every', { n: c.everyHours }));
+  if (c.times.length) parts.push(t('settings.rem_sum_times', { times: c.times.join(', ') }));
+  return t('settings.rem_sum', { parts: parts.join(t('settings.list_sep')) });
 }
 
 // ---- 문구(GET /settings phrases: [{ key, group, label, vars, default: [줄], value: [줄] | null }]) ----
@@ -324,7 +326,7 @@ export function phraseProblem(p, text) {
   const l = lines(text);
   const vars = Array.isArray(p?.vars) ? p.vars : [];
   const bad = [...new Set(l.flatMap((x) => [...x.matchAll(/\{([^{}\s]*)\}/g)].map((m) => m[1])))].filter((v) => !vars.includes(v));
-  if (bad.length) return `모르는 자리표시 ${bad.map((v) => `{${v}}`).join(' ')}${vars.length ? ` — 쓸 수 있는 것: ${vars.map((v) => `{${v}}`).join(' ')}` : ' — 이 문구는 자리표시를 못 써요'}`;
+  if (bad.length) return `${t('settings.phrase_bad', { bad: bad.map((v) => `{${v}}`).join(' ') })}${vars.length ? t('settings.phrase_can', { vars: vars.map((v) => `{${v}}`).join(' ') }) : t('settings.phrase_none')}`;
   return '';
 }
 
@@ -373,30 +375,31 @@ export function localReadView(st) {
   return {
     sessions: st?.readSessions === true,
     repos,
-    reposText: repos.length ? `레포 폴더 ${repos.length}개: ${repos.join(', ')}` : '레포 폴더: 고른 폴더가 없어서 커밋을 읽지 않아요',
+    reposText: repos.length ? t('settings.repos_text', { n: repos.length, list: repos.join(', ') }) : t('settings.repos_none'),
   };
 }
 export const needsSetupHint = (row) => row?.state === 'error' || row?.state === 'warn';
 
 export const DOT = { ok: 'ok', warn: 'warn', error: 'err', off: 'off', unknown: 'unknown' };
 export const dotClass = (state) => DOT[state] ?? 'unknown';
-export const STATE_LABEL = { ok: '정상', warn: '확인 필요', error: '문제 있음', off: '안 씀', unknown: '모름' };
+// 상태 이름(지금 언어)
+export const STATE_LABEL = Object.defineProperties({}, Object.fromEntries(['ok', 'warn', 'error', 'off', 'unknown'].map((k) => [k, { get: () => t(`settings.state_${k}`), enumerable: true }])));
 
 export function agoText(iso, now = new Date()) {
-  const t = Date.parse(iso ?? '');
-  if (Number.isNaN(t)) return '';
-  const s = Math.max(0, Math.round((now.getTime() - t) / 1000));
-  if (s < 10) return '방금';
-  if (s < 60) return `${s}초 전`;
+  const at = Date.parse(iso ?? '');
+  if (Number.isNaN(at)) return '';
+  const s = Math.max(0, Math.round((now.getTime() - at) / 1000));
+  if (s < 10) return t('date.just_now');
+  if (s < 60) return t('settings.sec_ago', { n: s });
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}분 전`;
+  if (m < 60) return t('date.min_ago', { n: m });
   const h = Math.round(m / 60);
-  return h < 48 ? `${h}시간 전` : `${Math.round(h / 24)}일 전`;
+  return h < 48 ? t('date.hour_ago', { n: h }) : t('date.day_ago', { n: Math.round(h / 24) });
 }
 
 export function latencyText(ms) {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`;
+  return ms < 1000 ? `${Math.round(ms)}ms` : t('settings.secs', { n: (ms / 1000).toFixed(ms < 10000 ? 1 : 0) });
 }
 
 // 줄 묶기: 핵심(AI·네트워크) · 연결한 서비스(쓰는 것 / 그 밖) · 로컬
@@ -435,7 +438,7 @@ export function toggleExclude(exclude, source, included) {
 
 // 줄에 붙일 꼬리 글: "응답 120ms · 3분 전 확인"
 export function metaText(row, now = new Date()) {
-  return [latencyText(row?.latencyMs), row?.checkedAt ? `${agoText(row.checkedAt, now)} 확인` : ''].filter(Boolean).join(' · ');
+  return [latencyText(row?.latencyMs), row?.checkedAt ? t('settings.checked_at', { ago: agoText(row.checkedAt, now) }) : ''].filter(Boolean).join(' · ');
 }
 
 // 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean, panelOverlay?: boolean } — 그 밖의 키·모양이면 null

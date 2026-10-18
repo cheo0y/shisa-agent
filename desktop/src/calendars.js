@@ -2,47 +2,48 @@
 // 저장 모양: { mode: 'api', calendars: [{ id, name, url, enabled, color? }], timeZone }. color 는 캘린더 탭에서 고른 색(팔레트 이름). 예전 모양(icsUrl 하나 · icsUrls 배열, 이름 없음)도 그대로 읽고,
 // 이 파일이 고쳐 쓸 때 새 모양으로 옮긴다. 더하기는 데몬이 한다(그 캘린더만 시험으로 읽어 본 뒤 저장, POST /connectors/calendar).
 // 주소는 비밀번호와 같아서 화면에는 알아볼 수 있는 부분(캘린더 id 앞부분·도메인)만 보이고, 고를 땐 주소 대신 id(sha-256 앞 16글자)를 쓴다.
-// 개수 상한은 없다. 파일 읽기·쓰기와 데몬 호출은 main 이 한다. 화면 글은 아래 CAL_TEXT 한 곳에 모았다(언어 옮기기 쉽게).
+// 개수 상한은 없다. 파일 읽기·쓰기와 데몬 호출은 main 이 한다. 화면 글은 아래 CAL_TEXT 한 곳(글은 src/i18n/settings.js cal_*).
 
 import { okCalendarColor } from './calendar-tab.js';
+import { t, onLanguage } from './i18n.js';
 
 const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : null);
 const okId = (x) => typeof x === 'string' && /^[0-9a-f]{16}$/.test(x);
 const cleanName = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 80) : '');
 
-// 화면 글(해요체). 캘린더 카드·설정 창이 같이 쓴다
+// 화면 글(해요체 · 일본어는 src/i18n/settings.js cal_*). 캘린더 카드·설정 창이 같이 쓴다. 부를 때마다 지금 언어로(게터·함수)
 export const CAL_TEXT = {
-  listTitle: (n) => `연결된 캘린더 · ${n}개`,
-  listBlurb: '주소는 비밀이라 앞부분만 보여 줘요. 켜 둔 캘린더의 일정만 읽어요.',
-  saved: (n) => `저장됨 · 캘린더 ${n}개`,
-  add: '＋ 캘린더 추가',
-  addTitle: '캘린더 추가',
-  nameLabel: '별칭',
-  namePlaceholder: '예: 회사, 개인, 가족',
-  nameHint: '비워 두면 캘린더 이름을 써요.',
-  urlLabel: 'iCal 비공개 주소',
+  listTitle: (n) => t('settings.cal_list_title', { n }),
+  get listBlurb() { return t('settings.cal_list_blurb'); },
+  saved: (n) => t('settings.cal_saved', { n }),
+  get add() { return t('settings.cal_add'); },
+  get addTitle() { return t('settings.cal_add_title'); },
+  get nameLabel() { return t('settings.cal_name_label'); },
+  get namePlaceholder() { return t('settings.cal_name_ph'); },
+  get nameHint() { return t('settings.cal_name_hint'); },
+  get urlLabel() { return t('settings.cal_url_label'); },
   urlPlaceholder: { gcal: 'https://calendar.google.com/calendar/ical/...', outlook: 'https://outlook.office365.com/owa/calendar/...ics', ics: 'https://... (.ics)' },
-  connect: '연결',
-  connecting: '확인하는 중…',
-  cancel: '닫기',
-  note: '주소는 이 맥의 시사 설정 파일에만 저장해요. 연결을 누르면 그 캘린더를 한 번 읽어 보고, 되면 저장해요.',
-  badUrl: '주소가 **https://** 로 시작해야 해요. **iCal 형식의 비공개 주소**(ICS)를 복사해 붙여 주세요.',
-  added: (name, n) => `**「${name}」 캘린더를 연결했어요.** 오늘·내일 일정 ${n}개를 찾았어요.`,
-  offline: (who) => `${who}가 꺼져 있어서 확인할 수 없어요. ${who}를 켜고 다시 해 주세요.`,
-  failed: '연결하지 못했어요. 잠시 뒤에 다시 해 주세요.',
-  rename: '별칭 고치기',
-  save: '저장',
-  renamed: '별칭을 바꿨어요.',
-  on: '켜짐',
-  off: '꺼 둠',
-  turnOn: '켜기',
-  turnOff: '끄기',
-  turnedOn: (name) => `「${name}」 캘린더를 켰어요. 일정을 다시 가져와요.`,
-  turnedOff: (name) => `「${name}」 캘린더를 껐어요. 그 캘린더 일정은 알림·브리핑에서 빠져요.`,
-  pending: '가져오는 중',
-  meetings: (n) => `오늘·내일 일정 ${n}개`,
-  fail: '못 가져옴',
-  offState: '꺼 둠 · 가져오지 않아요',
+  get connect() { return t('settings.cal_connect'); },
+  get connecting() { return t('settings.cal_connecting'); },
+  get cancel() { return t('settings.close'); },
+  get note() { return t('settings.cal_note'); },
+  get badUrl() { return t('settings.cal_bad_url'); },
+  added: (name, n) => t('settings.cal_added', { name, n }),
+  offline: (who) => t('settings.cal_offline', { who }),
+  get failed() { return t('settings.cal_failed'); },
+  get rename() { return t('settings.cal_rename'); },
+  get save() { return t('settings.save'); },
+  get renamed() { return t('settings.cal_renamed'); },
+  get on() { return t('settings.cal_on'); },
+  get off() { return t('settings.cal_off_state_short'); },
+  get turnOn() { return t('settings.cal_turn_on'); },
+  get turnOff() { return t('settings.cal_turn_off'); },
+  turnedOn: (name) => t('settings.cal_turned_on', { name }),
+  turnedOff: (name) => t('settings.cal_turned_off', { name }),
+  get pending() { return t('settings.cal_pending'); },
+  meetings: (n) => t('settings.cal_meetings', { n }),
+  get fail() { return t('settings.cal_fail'); },
+  get offState() { return t('settings.cal_off_state'); },
 };
 
 // 설정의 캘린더 원본(새 모양 calendars 먼저, 그다음 예전 icsUrl · icsUrls). 빈 주소·같은 주소는 뺀다. id 는 저장된 것(모양이 맞을 때)만
@@ -122,7 +123,7 @@ export function calendarKind(url) {
   if (/(^|\.)(outlook\.(office365|office|live)\.com|office365\.com|outlook\.com)$/.test(host)) return 'outlook';
   return 'ics';
 }
-export const CALENDAR_TITLE = { gcal: '구글 캘린더', outlook: 'Outlook 캘린더', ics: 'ICS 캘린더' };
+export const CALENDAR_TITLE = { get gcal() { return t('settings.cal_title_gcal'); }, get outlook() { return t('settings.cal_title_outlook'); }, get ics() { return t('settings.cal_title_ics'); } };
 // 설치 카드(gcal·outlook)가 세는 종류: 구글 카드는 구글 주소, Outlook 카드는 그 밖(Outlook·다른 ICS)
 export const cardOfKind = (kind) => (kind === 'gcal' ? 'gcal' : 'outlook');
 
@@ -134,7 +135,7 @@ const head = (s) => `${s.slice(0, Math.max(1, Math.min(4, Math.ceil(s.length / 2
 // 그 밖: 호스트만
 export function maskCalendarUrl(url) {
   let u;
-  try { u = new URL(url); } catch { return '알 수 없는 주소'; }
+  try { u = new URL(url); } catch { return t('settings.cal_unknown_url'); }
   const parts = u.pathname.split('/').filter(Boolean).map((p) => { try { return decodeURIComponent(p); } catch { return p; } });
   const id = calendarKind(url) === 'gcal'
     ? (parts[0] === 'calendar' && parts[1] === 'ical' ? parts[2] : '')
@@ -149,7 +150,7 @@ export function maskCalendarUrl(url) {
 export function calendarRows(cfg, hash) {
   return calendarEntries(cfg).map((e, i) => {
     const kind = calendarKind(e.url);
-    return { id: idOf(e, hash), kind, title: CALENDAR_TITLE[kind], label: maskCalendarUrl(e.url), name: e.name || `캘린더 ${i + 1}`, named: !!e.name, enabled: e.enabled };
+    return { id: idOf(e, hash), kind, title: CALENDAR_TITLE[kind], label: maskCalendarUrl(e.url), name: e.name || t('settings.cal_n', { n: i + 1 }), named: !!e.name, enabled: e.enabled };
   });
 }
 
@@ -215,23 +216,25 @@ export function hubDoneFor(done, urls) {
   return next;
 }
 
-export const CALENDAR_DUP = '이미 연결된 캘린더예요. 다른 주소를 붙여 주세요.';
+// 같은 주소 오류(main 이 데몬 409 에 쓴다). 언어가 바뀌면 다시 짓는다(live binding)
+export let CALENDAR_DUP = t('settings.cal_dup');
+onLanguage(() => { CALENDAR_DUP = t('settings.cal_dup'); });
 
 // [빼기] 확인 문구. last = 마지막 하나(빼면 캘린더 연결이 꺼진다)
 export function calendarRemoveCopy(row, last) {
   return {
-    ask: `${row?.name ? `「${row.name}」` : `${row?.title ?? '캘린더'} 「${row?.label ?? ''}」`} 캘린더를 뺄까요?`,
-    note: last ? '마지막 캘린더라서 빼면 캘린더 연결이 꺼져요.' : '이 캘린더만 시사 설정에서 지워요. 다른 캘린더는 그대로예요.',
-    done: '캘린더를 뺐어요.',
-    label: '빼기',
+    ask: row?.name ? t('settings.cal_rm_ask_named', { name: row.name }) : t('settings.cal_rm_ask', { title: row?.title ?? t('settings.cal_word'), label: row?.label ?? '' }),
+    note: t(last ? 'settings.cal_rm_last' : 'settings.cal_rm_note'),
+    done: t('settings.cal_rm_done'),
+    label: t('settings.remove'),
   };
 }
 
 // 데몬 응답(POST /connectors/reload) → 한 줄 안내. 꺼져 있으면 다음에 켤 때, 바뀌었는데 다시 켜지지 않으면 다시 켜야 한다고
 export function calendarReloadNote(reload, offline) {
-  if (offline) return '시사가 꺼져 있어서 다음에 켤 때 적용돼요.';
-  if (reload?.applied && !reload.restarting) return '바로 적용했어요. 일정을 가져오는 중이에요.'; // 캘린더만 바뀜: 데몬이 다시 켜지지 않고 바로 가져온다
-  if (reload?.restarting) return '시사가 잠깐 다시 켜지며 적용돼요.';
-  if (reload?.changed) return '시사를 다시 켜면 적용돼요.';
+  if (offline) return t('settings.reload_offline');
+  if (reload?.applied && !reload.restarting) return t('settings.reload_applied'); // 캘린더만 바뀜: 데몬이 다시 켜지지 않고 바로 가져온다
+  if (reload?.restarting) return t('settings.reload_restart');
+  if (reload?.changed) return t('settings.reload_changed');
   return '';
 }
