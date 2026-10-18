@@ -221,8 +221,8 @@ function todayPlan(store: Store): string {
 // 캘린더 동기화(calendar-sync.ts)가 남긴 회의(아직 안 끝난 것). 테이블이 없으면 빈 문자열
 function upcomingMeetings(store: Store, now: Date): string {
   try {
-    const rows = store.db.prepare("SELECT subject, start, end FROM meetings WHERE end > ? ORDER BY start LIMIT 20").all(now.toISOString()) as any[];
-    return rows.map((r) => `- ${fmtTime(r.start)} ~ ${fmtTime(r.end).split(" ").pop()} ${r.subject}`).join("\n");
+    const rows = store.db.prepare("SELECT * FROM meetings WHERE end > ? ORDER BY start LIMIT 20").all(now.toISOString()) as any[];
+    return rows.map((r) => `- ${fmtTime(r.start)} ~ ${fmtTime(r.end).split(" ").pop()} ${r.subject}${r.calendar ? ` (캘린더: ${r.calendar})` : ""}`).join("\n");
   } catch { return ""; }
 }
 

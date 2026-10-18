@@ -140,6 +140,10 @@ export type BusHandlers = {
   // 메일(앱 비밀번호) 계정 추가: 로그인해 보고(LOGIN → EXAMINE INBOX) 되면 config.json 의 accounts 에 붙인다(같은 주소면 그 계정을 바꾼다, mail-connect.ts).
   // POST /connectors/mail. 비밀번호는 응답에 없다
   mailConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  // 캘린더(iCal 주소) 하나 더하기: 그 캘린더만 시험으로 읽어 보고 되면 config.json 의 calendars 에 붙인다(calendar-connect.ts). POST /connectors/calendar { url, name? }.
+  // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
+  calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  calendarList?: () => unknown;
   // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
   mailRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
@@ -559,6 +563,9 @@ export class Bus {
       const r = h.characters.handle(method, parts, body, upload);
       return json(res, r.status, r.body);
     }
+    if (req.method === "GET" && url.pathname === "/connectors/calendar") {
+      return h.calendarList ? json(res, 200, h.calendarList()) : json(res, 503, { error: "calendar list unavailable" });
+    }
     // 직접 만든 프로젝트 — 쓰기(POST·PATCH·DELETE)는 POST 와 같은 헤더 규칙
     if (req.method === "GET" && url.pathname === "/projects/calendar-events") {
       if (!h.calendarPick) return json(res, 503, { error: "calendar pick unavailable" });
@@ -610,6 +617,11 @@ export class Bus {
         for (const k of Object.keys(body)) if (k !== "cap") throw new BadRequest(`unknown key: ${k}`);
         const r = h.connectorDisconnect(body.cap);
         return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
+      }
+      if (url.pathname === "/connectors/calendar") {
+        if (!h.calendarAdd) return json(res, 503, { error: "calendar add unavailable" });
+        const r = await h.calendarAdd(await readJson(req));
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
       }
       if (url.pathname === "/connectors/mail") {
         if (!h.mailConnect) return json(res, 503, { error: "mail connect unavailable" });

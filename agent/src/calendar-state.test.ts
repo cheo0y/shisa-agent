@@ -125,14 +125,14 @@ test("setConnector: 데몬이 켜진 뒤 설정에서 ICS 주소를 넣으면 �
     assert.equal(cal.enabled, false);
     assert.equal(cal.state().phase, "off");
     // 잘못 넣은 주소(공개 주소): 바로 실패하고 이유가 남는다
-    const bad = { cap: "calendar", mode: "api", icsUrls: [`${base}/calendar/ical/me/public/basic.ics`], timeZone: "Asia/Seoul" } as CalendarApiConn;
+    const bad = { cap: "calendar", mode: "api", calendars: [{ id: "a", name: "", url: `${base}/calendar/ical/me/public/basic.ics`, enabled: true }], timeZone: "Asia/Seoul" } as CalendarApiConn;
     cfg.connectors.calendar = bad;
     cal.setConnector(bad);
     assert.equal(cal.state().phase, "pending");
     await until(() => cal.state().phase === "failed");
     assert.match(cal.state().reason!, /찾지 못했어요\(HTTP 404\)/);
     // 비공개 주소로 고침: 바로 다시 가져와 일정이 생긴다
-    const good = { cap: "calendar", mode: "api", icsUrls: [`${base}/calendar/ical/me/private-abc/basic.ics`], timeZone: "Asia/Seoul" } as CalendarApiConn;
+    const good = { cap: "calendar", mode: "api", calendars: [{ id: "b", name: "", url: `${base}/calendar/ical/me/private-abc/basic.ics`, enabled: true }], timeZone: "Asia/Seoul" } as CalendarApiConn;
     cfg.connectors.calendar = good;
     cal.setConnector(good);
     await until(() => cal.state().phase === "ok");
@@ -191,7 +191,7 @@ test("연결 상태 줄·패널 카드: 실제 동기화 결과를 따른다(「
   let st: CalendarState = { phase: "pending", mode: "api" };
   const c = new Connections(cfg, { now: () => NOW, env: {}, hasServer: () => false, calendar: () => st });
   const row = (id: string) => c.rows().find((r: ConnRow) => r.id === id)!;
-  assert.match(row("connector:calendar").detail ?? "", /ICS 1개 · 일정 가져오는 중/);
+  assert.match(row("connector:calendar").detail ?? "", /ICS 캘린더 1개 · 일정 가져오는 중/);
   assert.deepEqual([row("calendar").state, row("calendar").detail], ["unknown", "일정을 가져오는 중이에요"]);
   st = { phase: "failed", mode: "api", at: NOW.toISOString(), reason: "구글 캘린더의 「공개 주소」를 넣으셨어요", code: "http" };
   assert.equal(row("connector:calendar").state, "error");

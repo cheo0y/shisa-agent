@@ -4,6 +4,8 @@
 import type { Store } from "./store.ts";
 
 export type CalendarPhase = "off" | "pending" | "ok" | "failed";
+// ICS 캘린더 하나의 결과(별칭 · 오늘·내일 회의 수 · 못 가져온 이유 · 꺼 둠)
+export type CalendarPartState = { id: string; name: string; phase: "ok" | "failed" | "off"; meetings?: number; events?: number; reason?: string; code?: string };
 export type CalendarState = {
   phase: CalendarPhase;
   mode?: "api" | "mcp";
@@ -14,7 +16,15 @@ export type CalendarState = {
   events?: number;     // 마지막 성공 때 받은 일정 수(거르기 전)
   reason?: string;     // 실패 이유(사람이 읽는 말)
   code?: string;       // 실패 종류(brain·http·html·network·tls·timeout·url·mcp)
+  calendars?: CalendarPartState[]; // ICS 캘린더마다(여럿일 때 「회사: 일정 5개 / 개인: 못 가져옴(이유)」)
 };
+
+// 캘린더마다 한 줄: 「회사: 일정 5개 / 개인: 못 가져옴(이유) / 가족: 꺼 둠」. 캘린더 결과가 없으면 ""
+export function calendarPartsLine(s: Pick<CalendarState, "calendars"> | null | undefined, withReason = true): string {
+  const list = s?.calendars ?? [];
+  if (!list.length || (list.length === 1 && list[0].name === "캘린더" && list[0].phase !== "off")) return ""; // 이름 없는 캘린더 하나뿐이면 예전 말 그대로
+  return list.map((c) => `${c.name}: ${c.phase === "off" ? "꺼 둠" : c.phase === "failed" ? `못 가져옴${withReason && c.reason ? `(${c.reason})` : ""}` : `일정 ${c.meetings ?? 0}개`}`).join(" / ");
+}
 
 const SCHEMA = "CREATE TABLE IF NOT EXISTS calendar_state (k TEXT PRIMARY KEY, v TEXT NOT NULL)";
 
@@ -49,15 +59,18 @@ export function calendarNote(s: CalendarState | null): string {
 // 일정이 있는데 마지막 가져오기가 실패했으면 덧붙일 한 줄(없으면 "")
 export function calendarStaleNote(s: CalendarState | null): string {
   if (!s || s.phase !== "failed") return "";
+  const failed = (s.calendars ?? []).filter((c) => c.phase === "failed");
+  if (failed.length && failed.length < (s.calendars ?? []).filter((c) => c.phase !== "off").length) // 일부 캘린더만 실패: 나머지는 방금 가져왔다
+    return `(캘린더 중 ${failed.map((c) => `「${c.name}」`).join(", ")}은 이번에 가져오지 못했다: ${failed[0].reason ?? "이유를 모른다"}. 그 캘린더 일정은 ${s.lastOkAt ? `${kstHm(s.lastOkAt)}(KST)에` : "예전에"} 가져온 것이고, 다른 캘린더는 방금 가져왔다)`;
   return `(마지막 가져오기는 실패했다: ${s.reason ?? "이유를 모른다"}. 아래는 ${s.lastOkAt ? `${kstHm(s.lastOkAt)}(KST)에` : "예전에"} 가져온 것이다)`;
 }
 
 // 패널 연결 카드(GET /dashboard connectors): 캘린더 줄에 실제 동기화 결과를 붙인다(sync). 「연결됨」만 보고 일정이 빈 까닭을 모르는 일이 없게
-export type CalendarSyncView = { phase: CalendarPhase; at?: string; meetings?: number; reason?: string };
+export type CalendarSyncView = { phase: CalendarPhase; at?: string; meetings?: number; reason?: string; calendars?: CalendarPartState[] };
 export function withCalendarSync<T extends { cap: string; mode: string; ready: boolean }>(list: T[], s: CalendarState): (T & { sync?: CalendarSyncView })[] {
   return list.map((c) => {
     if (c.cap !== "calendar" || c.mode === "off" || !c.ready || s.phase === "off") return c;
-    const sync: CalendarSyncView = { phase: s.phase, ...(s.at ? { at: s.at } : {}), ...(s.meetings !== undefined ? { meetings: s.meetings } : {}), ...(s.phase === "failed" && s.reason ? { reason: s.reason } : {}) };
+    const sync: CalendarSyncView = { phase: s.phase, ...(s.at ? { at: s.at } : {}), ...(s.meetings !== undefined ? { meetings: s.meetings } : {}), ...(s.phase === "failed" && s.reason ? { reason: s.reason } : {}), ...(s.calendars?.length ? { calendars: s.calendars } : {}) };
     return { ...c, sync };
   });
 }

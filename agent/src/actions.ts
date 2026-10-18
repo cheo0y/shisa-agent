@@ -170,7 +170,7 @@ export function meetingsContext(store: Store, now = new Date(), limit = 15): str
   if (!rows.length) return ["## 다가오는 회의 (오늘·내일)", calendarNote(cal)].join("\n");
   const stale = calendarStaleNote(cal);
   return ["## 다가오는 회의 (오늘·내일, 시작 순 — 회의 응답 도구의 일정 id 는 여기 eventId)", ...(stale ? [stale] : []),
-    ...rows.map((r) => `- eventId=${r.id} | ${kstWhen(r.start)}–${new Date(Date.parse(r.end) + 9 * 3600e3).toISOString().slice(11, 16)} | 〈${r.subject}〉${r.location ? ` | 장소: ${r.location}` : ""}${r.response ? ` | 내 응답: ${RESPONSE_KO[String(r.response).toLowerCase()] ?? r.response}` : ""}`),
+    ...rows.map((r) => `- eventId=${r.id} | ${kstWhen(r.start)}–${new Date(Date.parse(r.end) + 9 * 3600e3).toISOString().slice(11, 16)} | 〈${r.subject}〉${r.calendar ? ` | 캘린더: ${r.calendar}` : ""}${r.location ? ` | 장소: ${r.location}` : ""}${r.response ? ` | 내 응답: ${RESPONSE_KO[String(r.response).toLowerCase()] ?? r.response}` : ""}`),
   ].join("\n");
 }
 

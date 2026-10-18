@@ -28,10 +28,11 @@ import { existsSync } from "node:fs";
 import { WAIT_SETUP, markFreshInstall, modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
 import { execFile } from "node:child_process";
 import { openSpec } from "./plat.ts";
-import { CalendarSync, alertDetail, alertVars } from "./calendar-sync.ts";
+import { CalendarSync, alertDetail, alertVars, probeIcs } from "./calendar-sync.ts";
 import { withCalendarSync } from "./calendar-state.ts";
 import { MailSync, withMailSync } from "./mail-sync.ts";
 import { connectMail, removeMailAccount } from "./mail-connect.ts";
+import { addCalendar, calendarList as calendarListOf } from "./calendar-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { withRun, asRoutine } from "./runs.ts";
 import { KgBackfill } from "./kg/backfill.ts";
@@ -352,6 +353,17 @@ await bus.listen(cfg.port, {
     return status();
   },
   connectorsReload: () => reloadConnectors(),
+  // 캘린더 하나 더하기: 그 캘린더만 시험으로 읽고 되면 저장 → 다시 읽어 전체 동기화(reloadConnectors → calendar.setConnector)
+  calendarAdd: (body) => addCalendar(body, {
+    path: join(HOME_DIR, "config.json"), current: () => cfg.connectors.calendar,
+    probe: (url) => {
+      const conn = cfg.connectors.calendar;
+      const tz = conn.mode === "api" && conn.cap === "calendar" ? conn.timeZone : "Asia/Seoul";
+      return probeIcs(url, calendar.window(), { timeZone: tz });
+    },
+    apply: () => { reloadConnectors(); },
+  }),
+  calendarList: () => calendarListOf(join(HOME_DIR, "config.json"), calendar.state()),
   // 메일(앱 비밀번호) 계정 추가·바꾸기: 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 그 계정의 동기화 결과로)
   mailConnect: (body) => connectMail(body, {
     path: join(HOME_DIR, "config.json"), current: () => cfg.connectors.mail,

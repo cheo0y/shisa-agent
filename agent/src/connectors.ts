@@ -2,7 +2,9 @@
 //
 //   mode = "api"     — MCP 없이 우리 코드가 직접 읽는다(결정적, 모델 중계 없음).
 //                       slack: 내 Slack 앱의 사용자 토큰(xoxp-…, 읽기 스코프만)으로 Web API
-//                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더")
+//                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더").
+//                       calendars = [{ id, name, url, enabled }] 여러 개(상한 없음). name = 별칭(비면 ICS 의 X-WR-CALNAME, 그것도 없으면 「캘린더 N」),
+//                       enabled = false 면 저장은 두고 가져오지 않는다. 예전 모양(icsUrl 하나 · icsUrls 배열)도 calendars 로 읽는다
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
 //   mode = "imap"    — 메일만. 메일 주소 + 앱 비밀번호로 받은편지함을 읽기 전용으로 연다(mail-imap.ts: EXAMINE·BODY.PEEK, 쓰기 명령 없음).
@@ -80,7 +82,9 @@ export const PRESETS: Partial<Record<Capability, Record<string, Preset>>> = {
 export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
-export type CalendarApiConn = { cap: "calendar"; mode: "api"; icsUrls: string[]; timeZone: string; email?: string };
+// 캘린더 하나(ICS 주소 + 별칭). url 은 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다). id = sha-256(주소) 앞 16글자(데스크톱과 같은 값)
+export type CalendarEntry = { id: string; name: string; url: string; enabled: boolean };
+export type CalendarApiConn = { cap: "calendar"; mode: "api"; calendars: CalendarEntry[]; timeZone: string; email?: string };
 // 메일 IMAP: 계정 여러 개(accounts). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다).
 // sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24, 모든 계정 같이). skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬)
 // id: 계정마다 고정 이름(설정에 없으면 주소로 만든다 — 예전 한 계정 모양도 같은 id). 같은 주소는 한 번만
@@ -128,7 +132,7 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
     if (cap === "slack") return { cap, mode: "api", userToken: secret(env.CY_AGENT_SLACK_USER_TOKEN) || secret(c?.userToken) };
     return {
       cap: "calendar", mode: "api",
-      icsUrls: env.CY_AGENT_CALENDAR_ICS_URL ? strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)) : [...strs(c?.icsUrl), ...strs(c?.icsUrls)].filter((u) => secret(u)),
+      calendars: env.CY_AGENT_CALENDAR_ICS_URL ? calendarEntries(strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)).map((url) => ({ url }))) : calendarEntries(rawCalendars(c)),
       timeZone: str(c?.timeZone) ?? "Asia/Seoul",
       ...(str(c?.email) ? { email: str(c?.email)!.toLowerCase() } : {}),
     };
@@ -137,6 +141,32 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
     slack: one("slack") as Connectors["slack"], calendar: one("calendar") as Connectors["calendar"],
     mail: one("mail") as Connectors["mail"], issues: one("issues") as Connectors["issues"],
   };
+}
+
+// ── 캘린더 목록 ──────────────────────────────────────────────
+
+export const calendarId = (url: string) => createHash("sha256").update(url).digest("hex").slice(0, 16);
+const okCalId = (x: unknown): x is string => typeof x === "string" && /^[0-9a-f]{16}$/.test(x);
+
+// connectors.calendar 원본 → 캘린더 원본 목록: 새 모양(calendars) 먼저, 그다음 예전 icsUrl · icsUrls(이름 없음)
+export function rawCalendars(c: Record<string, any> | undefined): Record<string, any>[] {
+  if (!c || typeof c !== "object") return [];
+  const out: Record<string, any>[] = [];
+  if (Array.isArray(c.calendars)) for (const x of c.calendars) if (x && typeof x === "object" && !Array.isArray(x)) out.push(x);
+  for (const u of [...strs(c.icsUrl), ...strs(c.icsUrls)]) out.push({ url: u });
+  return out;
+}
+
+// 원본 → 캘린더(빈·자리표시자 주소는 빼고, 같은 주소는 앞의 것만). 별칭은 앞뒤 공백·줄바꿈 정리, 80자까지. enabled 는 false 일 때만 꺼짐
+export function calendarEntries(list: Record<string, any>[]): CalendarEntry[] {
+  const out: CalendarEntry[] = [];
+  for (const x of list) {
+    const url = secret(x?.url);
+    if (!url || out.some((e) => e.url === url)) continue;
+    const name = typeof x?.name === "string" ? x.name.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    out.push({ id: okCalId(x?.id) ? x.id : calendarId(url), name, url, enabled: x?.enabled !== false });
+  }
+  return out;
 }
 
 // 주소 → 계정 id(대소문자 무시, 늘 같은 값). 예전 한 계정 모양을 읽을 때·새로 추가할 때 같은 걸 쓴다
@@ -247,7 +277,9 @@ export function slackIngestMode(c: Connectors = CONNECTORS): "api" | null {
 // server: mcp 모드일 때 Claude Code 에 등록한 서버 이름([연결 해제] 뒤 `claude mcp remove <이름>` 안내에 쓴다)
 // account·preset: imap 메일이면 첫 계정의 주소와 서비스(gmail·naver·daum·custom). accounts: 계정 전부(id·주소·서비스·비밀번호 있나). 비밀번호는 넣지 않는다
 export type MailAccountStatus = { id: string; user: string; preset: string; ready: boolean };
-export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string; account?: string; preset?: string; accounts?: MailAccountStatus[] };
+// calendars: ICS 캘린더면 캘린더마다 id·별칭·켜짐(주소는 넣지 않는다)
+export type CalendarStatusItem = { id: string; name: string; enabled: boolean };
+export type ConnectorStatus = { cap: Capability; label: string; mode: Mode; ready: boolean; detail: string; doc: string; server?: string; account?: string; preset?: string; accounts?: MailAccountStatus[]; calendars?: CalendarStatusItem[] };
 
 export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string) => boolean = hasUserMcpServer): ConnectorStatus[] {
   return CAPABILITIES.map((cap) => {
@@ -270,7 +302,12 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
       }
       case "api":
         if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: "Slack Web API (사용자 토큰)" } : { ...base, ready: false, detail: "userToken(xoxp-…)이 없어요" };
-        return x.icsUrls.length ? { ...base, ready: true, detail: `ICS ${x.icsUrls.length}개` } : { ...base, ready: false, detail: "icsUrl이 없어요" };
+        if (!x.calendars.length) return { ...base, ready: false, detail: "캘린더 주소가 없어요" };
+        {
+          const off = x.calendars.filter((e) => !e.enabled).length;
+          const calendars = x.calendars.map(({ id, name, enabled }) => ({ id, name, enabled }));
+          return { ...base, ready: true, calendars, detail: `ICS 캘린더 ${x.calendars.length}개${off ? ` (${off}개 꺼 둠)` : ""}` };
+        }
     }
   });
 }

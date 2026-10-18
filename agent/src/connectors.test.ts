@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PRESETS, connectorStatus, connectorsChanged, resolveConnectors, slackIngestMode } from "./connectors.ts";
+import { PRESETS, calendarId, connectorStatus, connectorsChanged, resolveConnectors, slackIngestMode } from "./connectors.ts";
 import { briefingTask, systemPrompt } from "./brain.ts";
 
 test("connectors 없음 → 전부 off", () => {
@@ -27,7 +27,10 @@ test("개인 설정: api·프리셋·도구 덮어쓰기·모르는 값", () => 
     },
   });
   assert.deepEqual(c.slack, { cap: "slack", mode: "api", userToken: "xoxp-1" });
-  assert.deepEqual(c.calendar, { cap: "calendar", mode: "api", icsUrls: ["https://example.com/a.ics", "https://example.com/b.ics"], timeZone: "Asia/Seoul", email: "me@example.com" });
+  assert.deepEqual(c.calendar, { cap: "calendar", mode: "api", calendars: [
+    { id: calendarId("https://example.com/a.ics"), name: "", url: "https://example.com/a.ics", enabled: true },
+    { id: calendarId("https://example.com/b.ics"), name: "", url: "https://example.com/b.ics", enabled: true },
+  ], timeZone: "Asia/Seoul", email: "me@example.com" });
   assert.equal(c.mail.mode, "off");
   assert.match((c.mail as any).reason, /지원하지 않아요/);
   assert.equal(c.issues.mode, "mcp");
@@ -42,7 +45,7 @@ test("비밀값은 환경변수로도", () => {
   const c = resolveConnectors({ CY_AGENT_SLACK_USER_TOKEN: "xoxp-env", CY_AGENT_CALENDAR_ICS_URL: "https://x/1.ics https://x/2.ics" },
     { connectors: { slack: "api", calendar: "api" } });
   assert.equal((c.slack as any).userToken, "xoxp-env");
-  assert.deepEqual((c.calendar as any).icsUrls, ["https://x/1.ics", "https://x/2.ics"]);
+  assert.deepEqual((c.calendar as any).calendars.map((e: any) => [e.url, e.name, e.enabled]), [["https://x/1.ics", "", true], ["https://x/2.ics", "", true]]);
   assert.equal(slackIngestMode(c), "api");
 });
 
@@ -77,7 +80,7 @@ test("브리핑·시스템 프롬프트는 연결된 기능만 말한다", () =>
 test("예시 설정의 자리표시자는 값이 없는 것으로", () => {
   const c = resolveConnectors({}, { connectors: { slack: { mode: "api", userToken: "xoxp-..." }, calendar: { mode: "api", icsUrl: "https://calendar.google.com/calendar/ical/.../basic.ics" } } });
   assert.equal((c.slack as any).userToken, undefined);
-  assert.deepEqual((c.calendar as any).icsUrls, []);
+  assert.deepEqual((c.calendar as any).calendars, []);
   assert.equal(slackIngestMode(c), null);
 });
 

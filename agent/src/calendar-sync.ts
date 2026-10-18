@@ -12,11 +12,12 @@ import { join } from "node:path";
 import { HOME_DIR, type Config } from "./config.ts";
 import type { Store } from "./store.ts";
 import { addDays, kstDate } from "./calendar.ts";
-import { CONNECTORS, isWriteName, mcpTool, type Conn } from "./connectors.ts";
+import { CONNECTORS, calendarId, isWriteName, mcpTool, type Conn } from "./connectors.ts";
+import { addLogSecret } from "./log.ts";
 import { calendarName, eventsInWindow, fetchIcsText, type FetchText } from "./ics.ts";
 import { phrase } from "./phrases.ts";
 import { calendarAlertOf } from "./calendar-alert.ts";
-import { readCalendarState, writeCalendarState, type CalendarState } from "./calendar-state.ts";
+import { readCalendarState, writeCalendarState, type CalendarPartState, type CalendarState } from "./calendar-state.ts";
 
 export const SYNC_EVERY_MS = 30 * 60e3;   // 30분마다 다시 가져온다
 export const DANCE_MS = 8000;
@@ -29,9 +30,12 @@ export type CalEvent = {
   location?: string; // 회의실·장소 이름(여러 곳이면 ", " 로 이음)
   attendees?: number; // 나 말고 참석자 수(응답에 attendees 가 있을 때만)
   description?: string; attendeeNames?: string[]; // 설명·참석자 이름(일정에서 프로젝트 만들기 — manual-projects.ts)
-  calendar?: string; // 어느 캘린더(ICS 의 X-WR-CALNAME, 없으면 「캘린더 N」)
+  calendar?: string; // 어느 캘린더(별칭, 없으면 ICS 의 X-WR-CALNAME, 그것도 없으면 「캘린더 N」)
+  tag?: string;      // 알림·AI 맥락에 붙일 캘린더 이름(별칭이 있거나 캘린더가 여럿일 때만. 하나뿐이면 매번 붙이지 않는다)
+  calId?: string;    // ICS 캘린더 id(connectors.ts calendarId). 캘린더마다 일정을 바꾸고 뺄 때 쓴다
 };
-export type Meeting = { id: string; subject: string; start: string; end: string; link?: string; webLink?: string; response?: string; location?: string }; // response: 내 응답(accepted·notresponded·organizer…), location: 회의실·장소
+// response: 내 응답(accepted·notresponded·organizer…), location: 회의실·장소, calendar: 어느 캘린더(별칭), calId: 그 캘린더 id
+export type Meeting = { id: string; subject: string; start: string; end: string; link?: string; webLink?: string; response?: string; location?: string; calendar?: string; calId?: string };
 
 // ── 파싱 ─────────────────────────────────────────────────────
 
@@ -126,6 +130,8 @@ export function toMeetings(events: CalEvent[]): Meeting[] {
     if (e.webLink) m.webLink = e.webLink;
     if (e.response && e.response !== "none") m.response = e.response;
     if (e.location) m.location = e.location;
+    if (e.tag) m.calendar = e.tag;
+    if (e.calId) m.calId = e.calId;
     out.push(m);
   }
   return out;
@@ -168,10 +174,10 @@ export function onlineLabel(link?: string): string | undefined {
   try { return /(^|\.)teams\.(microsoft|live)\.com$/.test(new URL(link).hostname) ? "온라인(Teams)" : "온라인"; } catch { return undefined; }
 }
 
-// 말풍선 한 줄: "일정 10분 전이에요! 〈제목〉 13:00 · 📍 회의실 · 온라인(Teams)". 장소·링크가 없으면 그 부분만 뺀다(문구는 설정 창 meeting_alert).
+// 말풍선 한 줄: "일정 10분 전이에요! 〈제목〉 13:00 · 🗓 회사 · 📍 회의실 · 온라인(Teams)". 캘린더 별칭·장소·링크가 없으면 그 부분만 뺀다(문구는 설정 창 meeting_alert).
 // mins: 몇 분 전({mins}). 사용자가 고친 문구에 {mins} 가 없으면 그 글 그대로
 export function alertVars(m: Meeting, mins = 10): { mins: number; title: string; time: string; where: string } {
-  const where = [m.location ? `📍 ${clip(m.location, LOCATION_MAX)}` : "", onlineLabel(m.link) ?? ""].filter(Boolean).join(" · ");
+  const where = [m.calendar ? `🗓 ${clip(m.calendar, 20)}` : "", m.location ? `📍 ${clip(m.location, LOCATION_MAX)}` : "", onlineLabel(m.link) ?? ""].filter(Boolean).join(" · ");
   return { mins, title: clip(m.subject, 40), time: kstHHMM(m.start), where: where ? ` · ${where}` : "" };
 }
 export function alertText(m: Meeting, mins = 10): string {
@@ -186,7 +192,8 @@ export function alertDetail(m: Meeting): string | undefined {
 // ── 원천(커넥터) ─────────────────────────────────────────────
 
 // reason·code: 못 가져왔을 때 사람이 읽는 이유와 종류(calendar-state.ts). 성공이면 없다
-export type SourceResult = { ok: boolean; events: CalEvent[]; calls: number; errors: number; costUsd: number; reason?: string; code?: string };
+// parts: ICS 캘린더마다 결과(MCP 는 없음)
+export type SourceResult = { ok: boolean; events: CalEvent[]; calls: number; errors: number; costUsd: number; reason?: string; code?: string; parts?: CalendarPart[] };
 export type CalendarSource = (cfg: Config, w: { from: string; to: string }) => Promise<SourceResult>;
 
 // ICS 주소를 읽다 난 오류 → 사람이 알 수 있는 이유. 주소(비밀)는 넣지 않는다
@@ -214,27 +221,55 @@ export function icsFailReason(e: any, url: string): { code: string; reason: stri
   return { code: "other", reason: `캘린더를 읽지 못했어요(${msg.slice(0, 60) || "알 수 없는 오류"}).` };
 }
 
-// api: 비공개 ICS 주소들(여러 캘린더면 여러 개). 하나라도 실패하면 ok=false(예전 것 유지), 이유는 처음 실패한 것
-export function icsSource(urls: string[], opts: { timeZone: string; email?: string }, fetchText: FetchText = fetchIcsText): CalendarSource {
+// 캘린더 하나의 가져오기 결과(ICS). off = 꺼 둔 캘린더(가져오지 않음). name = 화면·맥락에 쓰는 이름(별칭 → X-WR-CALNAME → 「캘린더 N」)
+export type CalendarPart = { id: string; name: string; ok: boolean; off?: boolean; events: number; reason?: string; code?: string };
+export type IcsCalendar = string | { id?: string; name?: string; url: string; enabled?: boolean };
+
+// api: 비공개 ICS 주소들(여러 캘린더면 여러 개, 별칭·켜짐과 함께). 하나라도 실패하면 ok=false, 이유는 처음 실패한 것(「별칭: 이유」).
+// parts: 캘린더마다 결과(성공한 캘린더의 일정은 바로 바꾸고, 실패한 캘린더는 예전 것을 둔다. CalendarSync.replaceParts). 꺼 둔 캘린더는 읽지 않는다
+export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?: string }, fetchText: FetchText = fetchIcsText): CalendarSource {
+  const cals = list.map((x, i) => (typeof x === "string" ? { id: calendarId(x), name: "", url: x, enabled: true, n: i + 1 } : { id: x.id ?? calendarId(x.url), name: x.name?.trim() ?? "", url: x.url, enabled: x.enabled !== false, n: i + 1 }));
+  for (const c of cals) addLogSecret(c.url); // 주소가 어떤 모양이든 데몬 로그에 그대로 나오지 않게
+  const on = cals.filter((c) => c.enabled);
   return async (_cfg, w) => {
     const events: CalEvent[] = [];
+    const parts: CalendarPart[] = [];
     let errors = 0;
     let fail: { code: string; reason: string } | undefined;
-    for (const [i, url] of urls.entries()) {
+    for (const c of cals) {
+      const fallback = c.name || (cals.length > 1 ? `캘린더 ${c.n}` : "");
+      if (!c.enabled) { parts.push({ id: c.id, name: fallback || "캘린더", ok: true, off: true, events: 0 }); continue; }
       try {
-        const text = await fetchText(url);
-        const name = calendarName(text) || (urls.length > 1 ? `캘린더 ${i + 1}` : "");
-        events.push(...eventsInWindow(text, Date.parse(w.from), Date.parse(w.to), opts).map((e) => (name ? { ...e, calendar: name } : e)));
+        const text = await fetchText(c.url);
+        const name = c.name || calendarName(text) || fallback;
+        const got = eventsInWindow(text, Date.parse(w.from), Date.parse(w.to), opts).map((e) => ({ ...e, calId: c.id, ...(name ? { calendar: name } : {}), ...(name && (c.name || cals.length > 1) ? { tag: name } : {}) }));
+        events.push(...got);
+        parts.push({ id: c.id, name: name || "캘린더", ok: true, events: got.length });
       }
       catch (e: any) {
         errors++;
-        const r = icsFailReason(e, url);
-        fail ??= urls.length > 1 ? { code: r.code, reason: `${i + 1}번째 캘린더: ${r.reason}` } : r;
-        console.warn(`[calendar] ICS 실패(${i + 1}/${urls.length}, ${r.code}):`, String(e?.message ?? e).slice(0, 80), e?.cause?.code ? `(${e.cause.code})` : "");
+        const r = icsFailReason(e, c.url);
+        const label = c.name || (cals.length > 1 ? `${c.n}번째 캘린더` : "");
+        fail ??= label ? { code: r.code, reason: `${label}: ${r.reason}` } : r;
+        parts.push({ id: c.id, name: fallback || "캘린더", ok: false, events: 0, reason: r.reason, code: r.code });
+        console.warn(`[calendar] ICS 실패(${c.n}/${cals.length}, ${r.code}):`, String(e?.message ?? e).slice(0, 80), e?.cause?.code ? `(${e.cause.code})` : "");
       }
     }
-    return { ok: !errors && urls.length > 0, events, calls: urls.length, errors, costUsd: 0, ...(fail ? fail : {}) };
+    return { ok: !errors && cals.length > 0, events, calls: on.length, errors, costUsd: 0, parts, ...(fail ? fail : {}) };
   };
+}
+
+// 캘린더 하나만 시험으로 읽기(패널 「＋ 캘린더 추가」 → [연결]): 저장 전에. 되면 ICS 이름·창 안 일정 수, 안 되면 이유
+export async function probeIcs(url: string, w: { from: string; to: string }, opts: { timeZone: string; email?: string }, fetchText: FetchText = fetchIcsText): Promise<{ ok: true; calName: string; events: number } | { ok: false; code: string; reason: string }> {
+  addLogSecret(url);
+  try {
+    const text = await fetchText(url);
+    return { ok: true, calName: calendarName(text), events: eventsInWindow(text, Date.parse(w.from), Date.parse(w.to), opts).length };
+  } catch (e: any) {
+    const r = icsFailReason(e, url);
+    console.warn(`[calendar] 시험 가져오기 실패(${r.code}):`, String(e?.message ?? e).slice(0, 80));
+    return { ok: false, ...r };
+  }
 }
 
 const MCP_EVENTS_SCHEMA = {
@@ -337,7 +372,7 @@ export const connKey = (conn: Conn | undefined): string => createHash("sha256").
 
 // 커넥터 설정 → 원천. off·준비 안 됨은 null
 export function sourceFor(conn: Conn): CalendarSource | null {
-  if (conn.mode === "api" && conn.cap === "calendar") return conn.icsUrls.length ? icsSource(conn.icsUrls, { timeZone: conn.timeZone, email: conn.email }) : null;
+  if (conn.mode === "api" && conn.cap === "calendar") return conn.calendars.length ? icsSource(conn.calendars, { timeZone: conn.timeZone, email: conn.email }) : null;
   if (conn.mode === "mcp") return mcpCalendarSource(conn);
   return null;
 }
@@ -349,7 +384,7 @@ CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, subject TEXT NOT NULL,
 CREATE INDEX IF NOT EXISTS meetings_start ON meetings(start);
 CREATE TABLE IF NOT EXISTS meeting_alerts (key TEXT PRIMARY KEY, at TEXT NOT NULL);
 `;
-const COLUMNS: [string, string][] = [["link", "TEXT"], ["web_link", "TEXT"], ["fetched_at", "TEXT NOT NULL DEFAULT ''"], ["response", "TEXT"], ["location", "TEXT"]];
+const COLUMNS: [string, string][] = [["link", "TEXT"], ["web_link", "TEXT"], ["fetched_at", "TEXT NOT NULL DEFAULT ''"], ["response", "TEXT"], ["location", "TEXT"], ["calendar", "TEXT"], ["cal_id", "TEXT"]];
 
 type Timer = ReturnType<typeof setTimeout>;
 export type CalendarDeps = {
@@ -487,28 +522,67 @@ export class CalendarSync {
     const meetings = toMeetings(events);
     const out = { events: events.length, meetings: meetings.length, calls: r.calls, errors: r.errors, costUsd: r.costUsd, skipped, ...(ok ? {} : { reason: r.reason ?? "캘린더를 가져오지 못했어요" }) };
     if (gen !== this.gen) return out; // 그사이 연결이 바뀌었다(끊었거나 다른 주소): 예전 설정의 결과는 버린다
-    // 한 번이라도 받았고 오류가 없을 때만 그 창을 통째로 바꾼다(취소된 회의가 사라지게). 실패면 예전 것 유지
-    if (ok) this.replace(w, meetings);
+    // 한 번이라도 받았고 오류가 없을 때만 그 창을 통째로 바꾼다(취소된 회의가 사라지게). 실패면 예전 것 유지.
+    // ICS 캘린더별 결과(parts)가 있으면 캘린더마다: 받은 캘린더는 바꾸고, 못 받은 캘린더는 예전 것 유지, 꺼 두었거나 빠진 캘린더 것은 지운다
+    if (r.parts) this.replaceParts(w, meetings, r.parts);
+    else if (ok) this.replace(w, meetings);
     const at = this.deps.now().toISOString();
     const prev = this.st;
+    const calendars = r.parts ? this.partStates(r.parts, prev, meetings) : undefined;
+    const kept = r.parts ? this.countWindow(w) : undefined; // 실패한 캘린더의 예전 일정까지 지금 남은 회의 수
     this.setState(ok
-      ? { phase: "ok", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, lastOkAt: at, meetings: meetings.length, events: events.length }
-      : { phase: "failed", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, ...(prev.lastOkAt ? { lastOkAt: prev.lastOkAt, meetings: prev.meetings, events: prev.events } : {}), reason: r.reason ?? "캘린더를 가져오지 못했어요", ...(r.code ? { code: r.code } : {}) });
+      ? { phase: "ok", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, lastOkAt: at, meetings: meetings.length, events: events.length, ...(calendars ? { calendars } : {}) }
+      : { phase: "failed", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, ...(prev.lastOkAt ? { lastOkAt: prev.lastOkAt, meetings: kept ?? prev.meetings, events: prev.events } : {}), reason: r.reason ?? "캘린더를 가져오지 못했어요", ...(r.code ? { code: r.code } : {}), ...(calendars ? { calendars } : {}) });
     this.lastSync = this.deps.now().getTime();
     this.onChange?.();
     this.check();
     return out;
   }
 
-  private replace(w: { from: string; to: string }, meetings: Meeting[]) {
+  // 캘린더마다 결과 → 상태 줄(별칭 · 오늘·내일 회의 수 · 못 가져온 이유 · 꺼 둠). 못 가져온 캘린더는 예전 이름을 이어 쓴다
+  private partStates(parts: CalendarPart[], prev: CalendarState, meetings: Meeting[]): CalendarPartState[] {
+    return parts.map((p) => {
+      const old = prev.calendars?.find((c) => c.id === p.id);
+      const name = !p.ok && old?.name && /^캘린더( \d+)?$/.test(p.name) ? old.name : p.name;
+      if (p.off) return { id: p.id, name, phase: "off" as const };
+      if (!p.ok) return { id: p.id, name, phase: "failed" as const, reason: p.reason ?? "캘린더를 가져오지 못했어요", ...(p.code ? { code: p.code } : {}) };
+      return { id: p.id, name, phase: "ok" as const, meetings: meetings.filter((m) => m.calId === p.id).length, events: p.events };
+    });
+  }
+
+  private countWindow(w: { from: string; to: string }): number {
+    const from = new Date(w.from).toISOString(), to = new Date(w.to).toISOString();
+    return (this.store.db.prepare("SELECT COUNT(*) AS n FROM meetings WHERE start >= ? AND start < ?").get(from, to) as { n: number }).n;
+  }
+
+  // ICS 캘린더별로 바꾸기: 받은 캘린더(ok)의 창 안 일정을 새로, 지금 켜 둔 캘린더가 아닌 것(꺼 둠·뺌·예전 id 없는 줄)은 지운다. 못 받은 캘린더는 그대로
+  private replaceParts(w: { from: string; to: string }, meetings: Meeting[], parts: CalendarPart[]) {
+    const okIds = parts.filter((p) => p.ok && !p.off).map((p) => p.id);
+    const live = new Set(parts.filter((p) => !p.off).map((p) => p.id));
     const db = this.store.db;
     const from = new Date(w.from).toISOString(), to = new Date(w.to).toISOString();
+    const rows = db.prepare("SELECT id, cal_id FROM meetings WHERE start >= ? AND start < ?").all(from, to) as { id: string; cal_id: string | null }[];
+    const anyOk = okIds.length > 0;
+    const drop = rows.filter((r) => (r.cal_id ? okIds.includes(r.cal_id) || !live.has(r.cal_id) : anyOk || !live.size)).map((r) => r.id);
+    this.write(w, meetings, drop);
+  }
+
+  private replace(w: { from: string; to: string }, meetings: Meeting[]) {
+    const from = new Date(w.from).toISOString(), to = new Date(w.to).toISOString();
+    const ids = (this.store.db.prepare("SELECT id FROM meetings WHERE start >= ? AND start < ?").all(from, to) as { id: string }[]).map((r) => r.id);
+    this.write(w, meetings, ids);
+  }
+
+  // drop 의 회의를 지우고 meetings 를 넣는다(한 트랜잭션)
+  private write(_w: { from: string; to: string }, meetings: Meeting[], drop: string[]) {
+    const db = this.store.db;
     const at = this.deps.now().toISOString();
     db.exec("BEGIN");
     try {
-      db.prepare("DELETE FROM meetings WHERE start >= ? AND start < ?").run(from, to);
-      const ins = db.prepare("INSERT OR REPLACE INTO meetings (id, subject, start, end, link, web_link, fetched_at, response, location) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-      for (const m of meetings) ins.run(m.id, m.subject, m.start, m.end, m.link ?? null, m.webLink ?? null, at, m.response ?? null, m.location ?? null);
+      const del = db.prepare("DELETE FROM meetings WHERE id = ?");
+      for (const id of drop) del.run(id);
+      const ins = db.prepare("INSERT OR REPLACE INTO meetings (id, subject, start, end, link, web_link, fetched_at, response, location, calendar, cal_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+      for (const m of meetings) ins.run(m.id, m.subject, m.start, m.end, m.link ?? null, m.webLink ?? null, at, m.response ?? null, m.location ?? null, m.calendar ?? null, m.calId ?? null);
       // 지난 회의·오래된 알림 기록 정리
       const old = new Date(this.deps.now().getTime() - 7 * 864e5).toISOString();
       db.prepare("DELETE FROM meetings WHERE end < ?").run(old);
@@ -528,8 +602,8 @@ export class CalendarSync {
 
   // 아직 안 끝난 회의(오늘·내일), 시작 순
   upcoming(now = this.deps.now()): Meeting[] {
-    const rows = this.store.db.prepare("SELECT id, subject, start, end, link, web_link, response, location FROM meetings WHERE end > ? ORDER BY start LIMIT 50").all(now.toISOString()) as any[];
-    return rows.map((r) => ({ id: r.id, subject: r.subject, start: r.start, end: r.end, ...(r.link ? { link: r.link } : {}), ...(r.web_link ? { webLink: r.web_link } : {}), ...(r.response ? { response: r.response } : {}), ...(r.location ? { location: r.location } : {}) }));
+    const rows = this.store.db.prepare("SELECT id, subject, start, end, link, web_link, response, location, calendar FROM meetings WHERE end > ? ORDER BY start LIMIT 50").all(now.toISOString()) as any[];
+    return rows.map((r) => ({ id: r.id, subject: r.subject, start: r.start, end: r.end, ...(r.link ? { link: r.link } : {}), ...(r.web_link ? { webLink: r.web_link } : {}), ...(r.response ? { response: r.response } : {}), ...(r.location ? { location: r.location } : {}), ...(r.calendar ? { calendar: r.calendar } : {}) }));
   }
 
   alerted(key: string): boolean {

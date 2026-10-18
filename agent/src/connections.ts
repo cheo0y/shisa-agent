@@ -14,7 +14,7 @@ import { HOME_DIR, type Config } from "./config.ts";
 import { classify, connectorServerUrls } from "./mcp-health.ts";
 import { argv as ghArgv, runGh } from "./gh.ts";
 import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./connectors.ts";
-import type { CalendarState } from "./calendar-state.ts";
+import { calendarPartsLine, type CalendarState } from "./calendar-state.ts";
 import type { MailState } from "./mail-sync.ts";
 import { hasUserMcpServer } from "./mcp.ts";
 import { authFailText, brainAuthFailed, brainCreditNeeded, brainKeyReady, creditFailText, type KeyProvider } from "./providers.ts";
@@ -246,9 +246,11 @@ export class Connections {
       }
       // 캘린더: 설정만 보고 「연결됨」이라 하지 않는다. 가져오는 중·못 가져온 이유를 같은 줄에
       const cs = cap === "calendar" && x.mode !== "off" && st.ready ? this.d.calendar?.() : undefined;
+      // ICS 캘린더가 여럿이거나 별칭이 있으면 캘린더마다: 「회사: 일정 5개 / 개인: 못 가져옴 / 가족: 꺼 둠」(이유는 error 칸에)
+      const parts = cs && cs.phase !== "pending" ? calendarPartsLine(cs, false) : "";
       if (cs?.phase === "pending") row.detail = `${row.detail} · 일정 가져오는 중`;
-      else if (cs?.phase === "ok") row.detail = `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
-      else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
+      else if (cs?.phase === "ok") row.detail = parts ? `${row.detail} · ${parts}` : `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
+      else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = parts ? `${row.detail} · ${parts}` : `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
       // 메일(IMAP): 설정만 보고 「연결됨」이라 하지 않는다. 가져온 메일 수·못 가져온 이유를 같은 줄에. AI 가 없으면 할 일로는 못 뽑는다
       // 계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통」, 일부만 못 가져오면 주황(warn) + 「주소: 이유」, 다 못 가져오면 빨강
       const ms = cap === "mail" && x.mode === "imap" && st.ready ? this.d.mail?.() : undefined;
@@ -309,9 +311,10 @@ export class Connections {
     const base = { id: "calendar", label: "캘린더 동기화", group: "local" as const, check: "local" as CheckId, checkedAt: now.toISOString() };
     if (s.phase === "off") return { ...base, state: "off", detail: "캘린더 연결 안 함" };
     if (s.phase === "pending") return { ...base, state: "unknown", detail: "일정을 가져오는 중이에요" };
-    if (s.phase === "failed") return { ...base, state: s.code === "brain" ? "warn" : "error", detail: `가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}`, error: s.reason ?? "이유를 몰라요" };
+    const parts = calendarPartsLine(s, false);
+    if (s.phase === "failed") return { ...base, state: s.code === "brain" ? "warn" : "error", detail: `가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}${parts ? ` · ${parts}` : ""}`, error: s.reason ?? "이유를 몰라요" };
     const stale = s.at ? now.getTime() - Date.parse(s.at) > 90 * 60e3 : false;
-    return { ...base, state: stale ? "warn" : "ok", detail: `마지막 성공 ${ago(s.at, now)} · 오늘·내일 일정 ${s.meetings ?? 0}개${stale ? " · 오래됐어요" : ""}` };
+    return { ...base, state: stale ? "warn" : "ok", detail: `마지막 성공 ${ago(s.at, now)} · 오늘·내일 일정 ${s.meetings ?? 0}개${parts ? ` (${parts})` : ""}${stale ? " · 오래됐어요" : ""}` };
   }
 
   // 마지막 run 으로 본 정기 작업 상태: 실패면 빨강, staleMin 넘게 성공이 없으면 주황
