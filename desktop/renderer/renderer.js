@@ -14,6 +14,7 @@ import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
 import { BubbleExpiry } from '../src/bubble-expiry.js';
+import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -818,38 +819,51 @@ function showReply(r) {
 }
 
 cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
-// 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」(기본 켜짐) · 지금 패널이 보이는지(메인이 알려 줌)
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐) · 지금 패널이 보이는지(메인이 알려 줌)
 let overlay = { panelOverlay: false, panelOpen: false };
 cy.onOverlayPrefs?.((p) => {
   overlay = { panelOverlay: p?.panelOverlay === true, panelOpen: p?.panelOpen === true };
   dispatchChat({ type: 'all', on: overlay.panelOverlay }); // 켜면 패널에서 한 대화의 답도 머리 위 말풍선으로
+  if (!hoverAskAllowed(hoverAskState())) hoverAsk.cancel(); // 끄거나 패널을 닫으면 재던 호버 입력창도 취소
 });
 cy.onAgents?.((p) => { agentsRunning = Math.max(0, Number(p?.running) || 0); syncChat(); });
 
 // ids: 먼저 올려 둔 첨부 id(있으면 글 없이도)
 async function sendChat(text, ids = []) {
+  // 이 창에서 보낸 말 id — 답이 POST 응답보다 먼저 와도(SSE thinking 에 clientId) 내 답으로 알아본다(패널 섹션 열기까지)
+  const clientId = `ov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  dispatchChat({ type: 'sending', clientId });
   let r;
   try {
-    r = await (ids.length ? cy.chatSend(text, ids) : cy.chatSend(text));
+    r = await cy.chatSend(text, ids, clientId);
   } catch {
     r = { ok: false };
   }
   // 캐릭터 대화방을 따라간다 — 패널에서 이어 말해도 답은 머리 위 말풍선으로
-  if (r?.ok && r.chatId) dispatchChat({ type: 'accepted', chatId: r.chatId, ...(r.threadId ? { threadId: r.threadId, follow: true } : {}) });
-  else showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? `못 보냈어요: ${r.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`, error: true });
+  if (r?.ok && r.chatId) dispatchChat({ type: 'accepted', chatId: r.chatId, clientId, ...(r.threadId ? { threadId: r.threadId, follow: true } : {}) });
+  else {
+    dispatchChat({ type: 'unsent', clientId });
+    showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? `못 보냈어요: ${r.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`, error: true });
+  }
 }
 
 // ---- 호버 입력창: 캐릭터 위에 잠깐 머물면 뜬다 ----
 const ask = document.getElementById('ask');
 const askInput = document.getElementById('ask-input');
 const LEAVE_HIDE = 1800;
-const HOVER_ASK_MS = 700; // 패널이 열려 있을 때 캐릭터에 이만큼 머물면 입력창
-let hoverTimer = null;
 let leaveTimer = null;
 let askOpen = false;
 let askFocused = false; // 메인이 창을 포커스 가능하게 바꾼 뒤에만 blur 로 닫는다
 let askPauseTimer = null; // 칩 행동 동안 입력창을 잠깐 숨긴 타이머(pauseAsk)
 let hoverArmed = true; // 닫은 뒤엔 마우스가 캐릭터를 한 번 벗어나야 다시 뜬다
+// 설정이 켜져 있고 패널이 열려 있으면 캐릭터 위에 2초 머물 때 입력창(hover-ask.js) — 더블클릭으로 연 것과 같다(talk)
+function hoverAskState() {
+  return {
+    panelOverlay: overlay.panelOverlay, panelOpen: overlay.panelOpen, armed: hoverArmed, pressing: !!down, dragging,
+    touring: queue.visible().some((x) => x.tour), askOpen, ready: brain.ready,
+  };
+}
+const hoverAsk = createHoverAsk({ gate: () => hoverAskAllowed(hoverAskState()), open: () => talk() });
 
 async function showAsk() {
   if (askOpen) return;
@@ -943,17 +957,8 @@ function updateHover(el) {
   const onChar = !!el?.closest('#char-wrap');
   const onAsk = !!el?.closest('#ask, #char-wrap, #stack .item'); // 말풍선(＋ 로 띄운 칩·그 답) 위에 있는 동안도 입력창을 닫지 않는다
   if (el && !onChar) hoverArmed = true;
-  // 입력창은 더블클릭으로 연다. 다만 설정이 켜져 있고 패널이 열려 있으면 캐릭터에 잠깐 머물러도 뜬다(패널을 안 건드리고 말 걸기)
-  if (onChar && hoverArmed && !askOpen && !hoverTimer && overlay.panelOverlay && overlay.panelOpen && !down && brain.ready !== false) {
-    hoverTimer = setTimeout(() => {
-      hoverTimer = null;
-      if (overlay.panelOverlay && overlay.panelOpen && hoverArmed && !down && !askOpen) talk();
-    }, HOVER_ASK_MS);
-  }
-  if (!onChar && hoverTimer) {
-    clearTimeout(hoverTimer);
-    hoverTimer = null;
-  }
+  // 입력창은 더블클릭으로 연다. 다만 설정이 켜져 있고 패널이 열려 있으면 캐릭터 위에 2초 머물러도 뜬다(패널을 안 건드리고 말 걸기)
+  hoverAsk.move(onChar);
   // 입력 안 했는데 마우스가 떠나면 잠시 뒤 닫는다
   if (askOpen && !onAsk && !askInput.value && !tray.has() && !picking && !leaveTimer && !askPauseTimer) { // 잠깐 숨긴 동안은 닫지 않는다
     leaveTimer = setTimeout(() => { leaveTimer = null; if (!askInput.value && !tray.has() && !picking && !askPauseTimer) hideAsk(); }, LEAVE_HIDE);
@@ -1026,8 +1031,7 @@ document.addEventListener('mouseleave', (e) => {
 wrap.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || e.ctrlKey) return; // Ctrl+클릭은 macOS 에서 오른쪽 클릭(메뉴) — 드래그로 치지 않는다
   down = { x: e.screenX, y: e.screenY };
-  clearTimeout(hoverTimer);
-  hoverTimer = null;
+  hoverAsk.cancel(); // 누르면(끌기·클릭) 재던 호버 입력창은 취소
   e.preventDefault();
 });
 

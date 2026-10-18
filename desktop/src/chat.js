@@ -19,6 +19,9 @@
 //   { type: 'consumed' }                   replies 를 다 꺼내 씀
 //   accepted 에 follow: true 면 그 threadId 를 따라간다 — 그 대화방의 답은 어느 창에서 보냈든 이 창의 replies 로
 //   { type: 'all', on }                    on 이면 다른 창(패널)에서 보낸 말의 답도 이 창의 replies 로(others: true 를 붙여)
+//   { type: 'sending', clientId }          이 창이 POST /chat 을 보내는 중(그 말에 붙인 id). SSE 이벤트에 그 clientId 가 오면
+//                                          POST 응답 전이라도 이 창의 말(mine) — all 이어도 others 가 아니라 내 답(섹션 열기까지)
+//   { type: 'unsent', clientId }           보내기 실패 — 기다리던 clientId 를 걷는다(accepted 에 clientId 가 와도 걷힌다)
 import { normalizeSection } from './dashboard.js';
 import { normAttachments } from './attachments.js';
 
@@ -36,7 +39,9 @@ export function initialChat() {
     finished: [], // 최근 끝난 { chatId, text, show, error, stopped?, threadId? } — accepted 가 늦게 와도 짝 맞추기
     replies: [], // 이 창이 보여줘야 할 답 (mine ∩ finished, 또는 follow 대화방의 답)
     follow: null, // 이 창이 따라가는 대화방 id — 다른 창(패널)에서 보낸 말의 답도 이 창이 보여준다(캐릭터 대화방)
-    all: false, // 켜면 어느 창에서 보냈든 모든 답을 replies 로(설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선」)
+    all: false, // 켜면 어느 창에서 보냈든 모든 답을 replies 로(설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」)
+    sending: [], // 이 창이 보내는 중인 말의 clientId — POST 응답보다 SSE 가 먼저 와도 내 말로 알아본다
+    shown: [], // replies 로 이미 내보낸 chatId — 늦게 온 accepted 가 같은 답을 또 내보내지 않게
   };
 }
 
@@ -71,13 +76,15 @@ export function chatReducer(state, action) {
     }
     case 'accepted': {
       const id = action.chatId;
-      if (typeof id !== 'string' || !id || state.mine.includes(id)) return state;
+      if (typeof id !== 'string' || !id) return state;
+      state = unsend(state, action.clientId);
+      if (state.mine.includes(id)) return state;
       const done = state.finished.find((f) => f.chatId === id);
       // 답이 POST 응답보다 먼저 와버린 경우 바로 replies 로
       const tid = typeof action.threadId === 'string' && action.threadId ? action.threadId : state.pending[id]?.threadId;
       const follow = action.follow === true && tid ? tid : state.follow ?? null;
-      // (따라가던 대화방의 답이거나 all 이면 이미 replies 로 나갔다)
-      if (done) return { ...state, follow, replies: wants(state, null, done.threadId) || state.all ? state.replies : [...state.replies, done] };
+      // (따라가던 대화방의 답이거나 clientId 로 알아본 내 답이거나 all 이면 이미 replies 로 나갔다)
+      if (done) return { ...state, follow, ...(state.shown.includes(id) ? {} : emit(state, done)) };
       const prev = state.pending[id] ?? { step: null };
       // POST 응답의 queued 를 믿는다 — SSE queued 가 늦게 와도 대기 중. 이미 thinking 을 받았으면(running) 그대로
       const queued = !prev.running && (prev.queued || action.queued === true);
@@ -104,6 +111,11 @@ export function chatReducer(state, action) {
       const ev = action.ev;
       if (!ev || typeof ev.chatId !== 'string' || !ev.chatId) return state;
       const id = ev.chatId;
+      // 이 창이 보내는 중인 말(clientId)이면 POST 응답 전이라도 내 말로
+      if (typeof ev.clientId === 'string' && state.sending.includes(ev.clientId)) {
+        state = unsend(state, ev.clientId);
+        if (!state.mine.includes(id) && !state.finished.some((f) => f.chatId === id)) state = { ...state, mine: cap([...state.mine, id], MAX_FINISHED) };
+      }
       const tid = typeof ev.threadId === 'string' && ev.threadId ? ev.threadId : state.pending[id]?.threadId;
       if (ev.status === 'queued') {
         if (state.finished.some((f) => f.chatId === id)) return state;
@@ -148,7 +160,7 @@ export function chatReducer(state, action) {
           pending,
           finished: cap([...state.finished, fin], MAX_FINISHED),
           mine: state.mine.filter((x) => x !== id),
-          replies: addReply(state, fin),
+          ...addReply(state, fin),
         };
       }
       if (ev.status === 'done' || ev.status === 'error') {
@@ -166,13 +178,20 @@ export function chatReducer(state, action) {
           messages: cap([...state.messages, msg], MAX_MESSAGES),
           finished: cap([...state.finished, fin], MAX_FINISHED),
           mine: state.mine.filter((x) => x !== id),
-          replies: addReply(state, fin),
+          ...addReply(state, fin),
         };
       }
       return state;
     }
     case 'all':
       return state.all === (action.on === true) ? state : { ...state, all: action.on === true };
+    case 'sending': {
+      const c = action.clientId;
+      if (typeof c !== 'string' || !c || state.sending.includes(c)) return state;
+      return { ...state, sending: cap([...state.sending, c], MAX_FINISHED) };
+    }
+    case 'unsent':
+      return unsend(state, action.clientId);
     case 'consumed':
       return state.replies.length ? { ...state, replies: [] } : state;
     default:
@@ -183,10 +202,14 @@ export function chatReducer(state, action) {
 // 이 창이 보여줄 답인가: 이 창에서 보냈거나, 이 창이 따라가는 대화방의 답
 const wants = (state, id, tid) => state.mine.includes(id) || (!!tid && !!state.follow && tid === state.follow);
 // 끝난 답을 replies 에: 이 창 것이면 그대로, all 이면 다른 창 것도 others 를 붙여(그 창이 이미 보여주니 섹션을 열진 않는다)
+// 돌려주는 건 { replies, shown } 조각(안 내보내면 빈 조각)
 function addReply(state, fin) {
-  if (wants(state, fin.chatId, fin.threadId)) return [...state.replies, fin];
-  return state.all ? [...state.replies, { ...fin, others: true }] : state.replies;
+  if (wants(state, fin.chatId, fin.threadId)) return emit(state, fin);
+  return state.all ? emit(state, { ...fin, others: true }) : {};
 }
+const emit = (state, r) => ({ replies: [...state.replies, r], shown: cap([...state.shown, r.chatId], MAX_FINISHED) });
+// all 로 others 로 먼저 나간 답은 accepted 가 와도 다시 안 낸다(말풍선 두 번 방지) — 그래서 clientId 로 미리 알아봐야 섹션이 열린다
+const unsend = (state, c) => (typeof c === 'string' && state.sending.includes(c) ? { ...state, sending: state.sending.filter((x) => x !== c) } : state);
 
 // 레포 잠금 대기 정보(이벤트·GET /chat/queue running[].held): 데몬이 지은 이유 글 그대로
 function heldOf(x) {

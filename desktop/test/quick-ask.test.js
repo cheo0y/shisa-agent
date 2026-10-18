@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { QUICK_CHIPS, QUICK_ID, ASK_IDS, isAskId, quickBubble, normQuick, chipsOf, chipAction, answerBubble } from '../src/quick-ask.js';
 import { normalizeBubble, clickTarget } from '../src/bubbles.js';
 import { brainView, connectCard, chatLock } from '../src/brain-state.js';
+import { createHoverAsk, hoverAskAllowed, HOVER_ASK_MS } from '../src/hover-ask.js';
 
 const noAi = brainView({ status: { brain: { provider: 'local', label: '로컬', ready: true, local: true }, chat: false, coder: {}, connectors: [] } });
 
@@ -167,4 +168,40 @@ test('렌더러: Esc 는 입력창과 ＋ 칩을 같이 닫고, 창이 키를 �
   assert.match(RENDERER, /quickGen\+\+;\n    dismiss\(QUICK_ID\); \/\/ ＋ 로 띄운 칩도 같이 닫는다\n    return hideAsk\(\);/);
   assert.match(RENDERER, /if \(e\.key !== 'Escape' \|\| e\.defaultPrevented\) return;\n  if \(queue\.visible\(\)\.some\(\(x\) => x\.id === QUICK_ID\)\) \{ e\.preventDefault\(\); closeQuick\(\); \}/);
   assert.match(RENDERER, /if \(seq === chipSeq && gen === quickGen\) showBubble\(quickBubble/);
+});
+
+test('렌더러(가짜 DOM): 캐릭터 위 2초로 연 입력창도 더블클릭으로 연 것과 같다 — 다시 더블클릭·Esc 로 닫고, 쓰던 글은 남는다', async () => {
+  const { ctx, ids, dbl } = overlay({ ready: true });
+  const t = [];
+  const timers = { setTimeout: (fn, ms) => { t.push({ fn, ms }); return t.length; }, clearTimeout: (i) => { if (t[i - 1]) t[i - 1].fn = null; } };
+  const fire = (ms) => { for (const x of t.splice(0)) if (x.fn && x.ms <= ms) x.fn(); };
+  const st = () => ({ panelOverlay: true, panelOpen: true, armed: ctx.hoverArmed, askOpen: ctx.askOpen, ready: ctx.brain.ready, touring: ctx.queue.visible().some((x) => x.tour) });
+  const h = createHoverAsk({ gate: () => hoverAskAllowed(st()), open: () => ctx.talk(), timers });
+  h.move(true);
+  fire(HOVER_ASK_MS);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ctx.askOpen, true);
+  assert.equal(ctx.askInput.focused, true);
+  ctx.askInput.value = '오늘 뭐 해';
+  await dbl(); // 다시 더블클릭 = 닫기(#55)
+  assert.equal(ctx.askOpen, false);
+  assert.equal(ctx.askInput.value, '오늘 뭐 해');
+  assert.equal(ctx.panelToggles, 0);
+  h.move(true); // 닫은 뒤엔 한 번 벗어나야 다시
+  fire(HOVER_ASK_MS);
+  assert.equal(ctx.askOpen, false);
+  ctx.hoverArmed = true;
+  h.move(true);
+  fire(HOVER_ASK_MS);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ctx.askOpen, true);
+  assert.equal(ctx.askInput.value, '오늘 뭐 해');
+  // 둘러보기 말풍선이 떠 있으면 안 뜬다
+  ctx.hideAsk();
+  ctx.hoverArmed = true;
+  ctx.showBubble({ id: 'local-tour', text: '둘러보기', kind: 'info', ttlMs: 600000, tour: { step: 1, total: 5 } });
+  h.move(true);
+  fire(HOVER_ASK_MS);
+  assert.equal(ctx.askOpen, false);
+  assert.deepEqual(ids(), ['local-tour']);
 });

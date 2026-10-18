@@ -539,7 +539,7 @@ function send(channel, payload) {
   win.webContents.send(channel, payload);
 }
 
-// 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」(기본 켜짐)과 지금 패널이 보이는지 — 캐릭터 창이 답·호버 입력창을 정한다
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐)와 지금 패널이 보이는지. 캐릭터 창이 다른 창 답 말풍선·2초 호버 입력창을 정한다
 function sendOverlayPrefs() {
   send('overlay-prefs', { panelOverlay: state.panelOverlay !== false, panelOpen: !!(panel && !panel.isDestroyed() && panel.isVisible()) });
 }

@@ -373,7 +373,7 @@ export function metaText(row, now = new Date()) {
 }
 
 // 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean, panelOverlay?: boolean } — 그 밖의 키·모양이면 null
-// panelOverlay: 패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창(기본 켜짐)
+// panelOverlay: 패널이 열려 있어도 캐릭터 위에 답 띄우기 · 2초 호버 입력창(기본 켜짐)
 export function sanitizeAppPrefs(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const keys = Object.keys(p);

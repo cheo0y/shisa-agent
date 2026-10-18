@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('cy', {
   onConnection: on('connection'),
   onVisibility: on('visibility'),
   onChat: on('chat'),
-  // { panelOverlay, panelOpen } — 설정 「패널이 열려 있어도 캐릭터 위에 답 말풍선·입력창」 · 지금 패널이 보이는지
+  // { panelOverlay, panelOpen } — 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」 · 지금 패널이 보이는지
   onOverlayPrefs: on('overlay-prefs'),
   onAgents: on('agents'), // { running } — 돌고 있는 서브에이전트 수(캡션 "에이전트 N개 실행 중")
   setInteractive: (v) => ipcRenderer.send('set-interactive', !!v),
@@ -29,7 +29,11 @@ contextBridge.exposeInMainWorld('cy', {
   togglePanel: () => ipcRenderer.send('toggle-panel'),
   openPanel: (section) => ipcRenderer.send('open-panel', section == null ? null : String(section)),
   // attachments: 먼저 올려 둔 첨부 id(chatAttach) — 있으면 글 없이도 보낸다
-  chatSend: (text, attachments) => ipcRenderer.invoke('chat-send', String(text), Array.isArray(attachments) ? { attachments: attachments.map(String) } : {}),
+  // clientId(선택): 이 말에 붙인 id — SSE thinking 에 그대로 와서, 답이 POST 응답보다 먼저 와도 내 말의 답으로 알아본다
+  chatSend: (text, attachments, clientId) => ipcRenderer.invoke('chat-send', String(text), {
+    ...(Array.isArray(attachments) && attachments.length ? { attachments: attachments.map(String) } : {}),
+    ...(typeof clientId === 'string' && clientId ? { clientId } : {}),
+  }),
   chatAttach: (name, mime, bytes) => ipcRenderer.invoke('chat-attach', String(name), String(mime ?? ''), bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)),
   chatStop: (chatId) => ipcRenderer.invoke('chat-stop', String(chatId)), // 답하던 것 멈추기 → POST /chat/:chatId/stop
   chatFocus: (on) => ipcRenderer.invoke('chat-focus', !!on),
