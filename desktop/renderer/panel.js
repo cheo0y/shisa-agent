@@ -11,6 +11,9 @@ import { mailConnected, mailConnectedText, withMailAccount, withoutMailAccount }
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
 import { createProjectsView } from './projects-view.js';
+import { createCalendarView } from './calendar-view.js';
+import { CALTAB_TEXT, cardRowOn, cardFolded } from '../src/calendar-tab.js';
+import { calendarRowState } from '../src/calendars.js';
 import { connectorAction, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { CANNED, cannedReply, connectSteps, hubItem, slotOk, EXTRAS } from '../src/ai-onboard.js';
 import { SETUP_FLOW_VERSION, isSetupPhase, phaseAfterBrain, backPhase, restorePhase, agentFrom, NO_AI } from '../src/setup-plan.js';
@@ -108,6 +111,8 @@ function h(sel, props, ...kids) {
 const focusView = createFocusView({ h, cy });
 // 직접 만든 프로젝트: 프로젝트 탭 위쪽 카드와 ＋ 만들기 창(새로 만들기·일정에서 가져오기)
 const projectsView = createProjectsView({ h, cy, fill: (el, ...k) => fill(el, ...k), onChanged: () => loadSoon(), openSettings: () => cy.openSettings() });
+// 캘린더 탭: 주·월·일 보기와 일정 카드(일정 → 프로젝트·할 일)
+const calendarView = createCalendarView({ h, cy, fill: (el, ...k) => fill(el, ...k), el: $('sec-calendar'), openSetup: () => openSetup(stepForCap('calendar')), openProject: (ev) => projectsView.openFromPick(ev), onChanged: () => loadSoon() });
 
 // replaceChildren 에 null 을 넣으면 화면에 "null" 글자가 찍힌다
 function fill(el, ...kids) {
@@ -274,7 +279,7 @@ function goto(s) {
   try { localStorage.setItem('section', section); } catch { /* 무시 */ }
   for (const b of nav.children) b.setAttribute('aria-selected', String(b.dataset.section === section));
   for (const x of SECTIONS) $(`sec-${x}`).hidden = x !== section;
-  $('content').classList.toggle('fill', section === 'chat');
+  $('content').classList.toggle('fill', section === 'chat' || section === 'calendar');
   $('content').classList.toggle('chat-on', section === 'chat');
   $('content').classList.toggle('setup-on', section === 'setup'); // 설치: 버튼 줄은 맨 아래 고정, 내용만 스크롤
   $('title').textContent = SECTION_LABELS[section];
@@ -284,6 +289,8 @@ function goto(s) {
     if (setupPhase === 'brain') detectAgents();
   }
   if (section === 'models') loadSisa();
+  if (section === 'calendar') calendarView.show();
+  else if (prevSection === 'calendar') calendarView.hide();
   if (section === 'chat') {
     scrollChat(true);
     renderChatLock();
@@ -487,6 +494,43 @@ function connectorActions(c) {
     }),
   ];
 }
+// 캘린더 카드: 캘린더마다 줄(색 점 · 별칭 · 결과 · 켜기/끄기). 끄고 켜는 건 설치 탭·설정 창과 같은 연결 켜기/끄기(바로 적용)
+let cardWant = {}; // 캘린더 id → 누른 값(응답·새 대시보드가 오기 전까지)
+let cardOpen = null; // 사용자가 펼치거나 접었나(null = 캘린더 수로)
+try { const v = localStorage.getItem('conn.calendarsOpen'); cardOpen = v === null ? null : v === '1'; } catch { /* 저장소 없음 */ }
+let cardNote = '';
+function calendarCardRows(rows) {
+  for (const r of rows) if (Object.hasOwn(cardWant, r.id) && cardWant[r.id] === r.enabled) delete cardWant[r.id]; // 반영됐다
+  const folded = cardFolded(rows.length, cardOpen);
+  const fold = h('button.ghost.small.conn-cal-fold', {
+    type: 'button', 'aria-expanded': String(!folded),
+    onclick: () => { cardOpen = folded; try { localStorage.setItem('conn.calendarsOpen', cardOpen ? '1' : '0'); } catch { /* 저장소 없음 */ } renderAll(); },
+  }, `${CALTAB_TEXT.cardFold(rows.length)} ${folded ? '▸' : '▾'}`);
+  return h('div.conn-cals', null, fold,
+    folded ? null : h('ul.conn-cal-list', null, rows.map((r) => {
+      const on = cardRowOn(r, cardWant);
+      const st = calendarRowState({ ...r, enabled: on, phase: on && !r.enabled ? 'pending' : r.phase });
+      return h(`li.conn-cal${on ? '' : '.off'}${st.tone === 'fail' ? '.fail' : ''}.c-${r.color}`, { dataset: { cal: r.id } },
+        h('span.cal-dot', { 'aria-hidden': 'true' }),
+        h('span.conn-cal-name', { text: r.name }),
+        h('span.conn-cal-state.small', { text: st.text, title: st.text }),
+        h('button.conn-cal-switch', {
+          type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': CALTAB_TEXT.cardToggle(r.name, on), title: CALTAB_TEXT.cardToggle(r.name, on),
+          onclick: async () => {
+            cardWant = { ...cardWant, [r.id]: !on };
+            cardNote = '';
+            renderAll();
+            let res;
+            try { res = await cy.calendarToggle(r.id, !on); } catch { res = null; }
+            if (!res?.ok) { delete cardWant[r.id]; cardNote = res?.error || CALTAB_TEXT.cardToggleFail; }
+            if (Array.isArray(res?.items)) setupCalendars = res.items; // 설치 탭 목록도 같이
+            setupKey = '';
+            loadSoon();
+          },
+        }, h('span.knob', { 'aria-hidden': 'true' })));
+    })),
+    cardNote ? h('div.small.conn-sync-fail', { role: 'status', text: cardNote }) : null);
+}
 function renderConnectors(list) {
   if (!list?.length) return null; // 예전 데몬: 필드가 없으면 카드도 없다
   return [
@@ -496,7 +540,8 @@ function renderConnectors(list) {
         c.ready && c.detail ? h('span.muted.small.conn-detail', { text: c.detail }) : null,
         h('span.spacer'),
         ...connectorActions(c)),
-      c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
+      c.cap === 'calendar' && c.calendars?.length ? calendarCardRows(c.calendars)
+      : c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
       c.ready || c.mode === 'off' ? null : h('div.conn-hint.muted.small', null,
         h('span', { text: !c.detail || c.detail === '연결 안 됨' ? '연결 안 됨' : `연결 안 됨. ${c.detail}` }))))),
     connNote ? h('p.small.conn-note', { role: 'status', text: connNote }) : null,
@@ -3183,7 +3228,7 @@ cy.onChat(onChatEvent);
 cy.onThreads?.(onThreadsEvent);
 cy.onAgents?.((p) => { if (p?.threadId && p.threadId === selectedId) loadAgentsSoon(); });
 cy.onAction?.(onActionEvent);
-cy.onDashboard(loadSoon);
+cy.onDashboard(() => { loadSoon(); calendarView.changed(); });
 // id(선택): 오버레이 말풍선(새 할 일)에서 연 그 할 일을 펼친다
 cy.onSection(({ section: s, id } = {}) => {
   if (s === 'chat' && typeof id === 'string' && id) { openThread(id); return; } // 말풍선(호버 답) → 그 대화
@@ -3254,7 +3299,7 @@ cy.onConnection(({ connected: c }) => {
 });
 
 // ↻ 새로고침: 화면 다시 그리기 + 데몬이 슬랙·메일을 지금 다시 읽어 새 할 일을 넣는다(결과는 캐릭터 말풍선)
-$('refresh').addEventListener('click', () => { cy.refreshSources?.(); load(); loadThreads(); if (selectedId) { loadMessages(); loadAgents(); } });
+$('refresh').addEventListener('click', () => { cy.refreshSources?.(); load(); if (section === 'calendar') calendarView.reload(true); loadThreads(); if (selectedId) { loadMessages(); loadAgents(); } });
 $('open-session')?.addEventListener('click', () => cy.openSession?.());
 // 코드 작업 AI(Claude Code·Codex)가 준비되지 않았으면(Gemini·GPT 키·로컬) 코드 관련 버튼(작업 세션)은 숨긴다
 function applyCoderButtons() {

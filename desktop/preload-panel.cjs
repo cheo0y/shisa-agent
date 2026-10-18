@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('cy', {
   // 프로젝트 안 할 일 순서: 그 프로젝트의 열린 할 일 id 를 원하는 순서로 모두
   projectOrder: (id, todoIds) => ipcRenderer.invoke('project-order', String(id), Array.isArray(todoIds) ? todoIds.map(String) : null),
   projectCalendarEvents: () => ipcRenderer.invoke('project-calendar-events'),
+  // 캘린더 탭: 보는 기간 일정 · 캘린더 색 바꾸기(null = 자동)
+  calendarEvents: (q) => ipcRenderer.invoke('calendar-events', { from: String(q?.from ?? ''), to: String(q?.to ?? ''), fresh: !!q?.fresh }),
+  calendarColor: (id, color) => ipcRenderer.invoke('calendar-color', String(id || ''), color === null ? null : String(color ?? '')),
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기({ enabled?, text? }) · 지우기
   todoRules: () => ipcRenderer.invoke('todo-rules'),
   todoRuleEdit: (id, patch) => ipcRenderer.invoke('todo-rule-edit', String(id), patch),

@@ -46,7 +46,8 @@ import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, daemonArgs, loginIt
 import { createDaemonHost, portFree } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } from './src/update-check.js';
 import { denied } from './src/denied.js';
-import { withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
+import { okCalendarColor, okEventsQuery } from './src/calendar-tab.js';
+import { withCalendarColor, withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
@@ -247,6 +248,13 @@ async function editCalendar(id, fn) {
   }
   sendPanel('dashboard', {});
   return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
+}
+// 캘린더 탭 색 바꾸기: config.json 의 그 캘린더 color 만 고친다(일정을 다시 가져올 일은 없어서 데몬에 알리지 않는다. 다음에 받을 때 새 색)
+function colorCalendar(id, color) {
+  if (!calendarUrlById(readDaemonConfig(), id, calendarId)) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.' };
+  const wrote = editDaemonConfig((cfg) => withCalendarColor(cfg, id, color, calendarId));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.` };
+  return { ok: true };
 }
 const renameCalendar = (id, name) => editCalendar(id, (cfg) => withCalendarRenamed(cfg, id, name, calendarId));
 const toggleCalendar = (id, on) => editCalendar(id, (cfg) => withCalendarEnabled(cfg, id, on, calendarId));
@@ -1713,6 +1721,12 @@ function setupIPC() {
     return request('DELETE', `/projects/manual/${encodeURIComponent(id)}`);
   });
   // MCP 캘린더는 모델이 중계해서 오래 걸릴 수 있다
+  // 캘린더 탭: 보는 기간의 일정(GET /calendar/events). from·to 는 ISO 시각, fresh 는 새로 받기
+  ipcMain.handle('calendar-events', (e, q) => {
+    if (!fromOurs(e) || !okEventsQuery(q)) return denied();
+    return request('GET', `/calendar/events?from=${encodeURIComponent(q.from)}&to=${encodeURIComponent(q.to)}${q.fresh ? '&fresh=1' : ''}`, undefined, 60_000);
+  });
+  ipcMain.handle('calendar-color', (e, id, color) => (fromOurs(e) && okCalendarId(id) && (color === null || okCalendarColor(color)) ? colorCalendar(id, color) : denied()));
   ipcMain.handle('project-calendar-events', (e) => (fromOurs(e) ? request('GET', '/projects/calendar-events', undefined, 120_000) : denied()));
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기 · 지우기
   ipcMain.handle('todo-rules', (e) => (fromOurs(e) ? request('GET', '/todo-rules') : denied()));
