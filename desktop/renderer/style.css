@@ -464,6 +464,10 @@ body.char-hidden #stage { visibility: hidden; }
 #char-wrap[data-character="usagi"] #char, #char-wrap[data-character="usagi"] #char-closed { transform: scale(1.2); transform-origin: 50% 100%; }
 /* 키운 만큼(상자 140px × 0.2 = 28px) 귀가 위로 나가니, 위의 말풍선·입력창·집중 말풍선도 그만큼 올린다 */
 #char-wrap[data-character="usagi"] { margin-top: 30px; }
+/* 영상도 같이: 영상 속 우사기는 예전 그림 크기(키 약 410/512)라 정지 그림(471 × 1.2)에 맞춰 1.38배, 발이 정지 그림과 같은 높이에 오게 아래로.
+   점심(먹는 장면)은 원본이 커서 1.25배 */
+#char-wrap[data-character="usagi"] .char-video { transform: translateY(11px) scale(1.38); transform-origin: 50% 100%; }
+#char-wrap[data-character="usagi"] .char-video[data-clip*="usagi/lunch"] { transform: scale(1.25); }
 /* 깜빡임: 감은 그림은 늘 디코드된 채 숨어 있다가 잠깐 위로 — src 를 바꾸지 않아 깜빡임 없음 */
 #char-closed { visibility: hidden; }
 #char-wrap.blink-ready.blink #char-closed { visibility: visible; }
