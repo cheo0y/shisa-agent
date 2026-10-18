@@ -179,7 +179,12 @@ export const CHARACTER_LINES_JA = {
       "calLoading": "カレンダーはつながりました。いま予定を取ってきているので、少ししてからもう一度聞いてください。",
       "calFail": "カレンダーはつながっていますが、予定を取ってこられませんでした。理由は下に書いておきますね。",
       "calNow": "いま〈{title}〉の予定中です。{end}に終わります{where}。",
-      "calNext": "次の予定は〈{title}〉、{when}です{where}。"
+      "calNext": "次の予定は〈{title}〉、{when}です{where}。",
+      "focusStart": "いいですね、いまから一緒に集中しましょう。そばで静かに応援しています！",
+      "focusStartTodo": "'{title}' の集中をはじめます。ひとつずつやっていきましょう！",
+      "focusAlready": "もう{mins}分集中しています。このまま続けましょう。",
+      "focusStop": "{duration}集中しました。ちょっと休みましょう！",
+      "focusIdle": "いまは集中していません。"
     },
     "cheer": [
       "今日もちゃんとできています。そばで応援していますね！",
@@ -515,7 +520,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "今日と明日は予定が入ってないよ。のんびりいこ！",
       "calNow": "いま〈{title}〉の予定中だよ。{end}に終わる{where}。",
       "calNext": "次の予定は〈{title}〉、{when}だよ{where}。",
-      "calThen": "そのあとは〈{title}〉、{when}だよ。"
+      "calThen": "そのあとは〈{title}〉、{when}だよ。",
+      "focusStart": "よーし、いまから一緒に集中しよ。ファイト！",
+      "focusStartTodo": "'{title}' の集中スタート！一緒にがんばろ！",
+      "focusAlready": "もう{mins}分も集中してるよ！このままいこ。",
+      "focusStop": "{duration}も集中したの？すごいじゃん！ちょっと休も。",
+      "focusIdle": "いまは集中してないよ。"
     },
     "cheer": [
       "やっほー！今日もがんばろ！",
@@ -815,7 +825,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "今日と明日は予定が入っていないな。",
       "calNow": "いまは〈{title}〉の予定中だ。{end}に終わる{where}。",
       "calNext": "次の予定は〈{title}〉、{when}だ{where}。",
-      "calThen": "その次は〈{title}〉、{when}だ。"
+      "calThen": "その次は〈{title}〉、{when}だ。",
+      "focusStart": "よし、集中開始だ。気を抜くなよ。",
+      "focusStartTodo": "'{title}' に集中する時間か。はじめるとしよう。",
+      "focusAlready": "もう{mins}分集中しているぞ。そのまま続けろ。",
+      "focusStop": "{duration}集中したか。少し息を整えるといい。",
+      "focusIdle": "いまは集中していないぞ。"
     },
     "cheer": [
       "来たか。さあ、今日も走るとしよう。",
@@ -1127,7 +1142,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "今日と明日は予定なし。ヒマそうだね。",
       "calNow": "いまは〈{title}〉の予定中だよ。{end}に終わる{where}。",
       "calNext": "次の予定は〈{title}〉、{when}だよ{where}。",
-      "calThen": "その次は〈{title}〉、{when}ね。"
+      "calThen": "その次は〈{title}〉、{when}ね。",
+      "focusStart": "集中するって？どこまでもつか見ててあげる。",
+      "focusStartTodo": "'{title}' やるの？ふーん、サボったらすぐわかるからね。",
+      "focusAlready": "もう{mins}分も集中してるじゃん。また押すの？",
+      "focusStop": "{duration}集中したの？ふん、まあまあだね。",
+      "focusIdle": "集中してないじゃん。なにをやめるの？"
     },
     "cheer": [
       "もぐもぐ、あっ、なに。応援してほしいの？ はいはい、ちゃんとやれてるよ。(もぐ～もぐ)",
@@ -1410,7 +1430,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "ウラ ヤハ(今日と明日は入ってる予定がないよ。)",
       "calNow": "ウラ(いま〈{title}〉の予定中だよ。{end}までだよ{where}。)",
       "calNext": "ウラ(次の予定は〈{title}〉、{when}だよ{where}。)",
-      "calThen": "ウラ(その次は〈{title}〉、{when}だよ。)"
+      "calThen": "ウラ(その次は〈{title}〉、{when}だよ。)",
+      "focusStart": "ヤハッ！(集中スタート！一緒にいこう！)",
+      "focusStartTodo": "ウラ ヤハ(「{title}」の集中スタート！)",
+      "focusAlready": "ウラ({mins}分集中してるよ。このままいこう！)",
+      "focusStop": "プルルルルルル({duration}の集中おしまい！伸びしよ)",
+      "focusIdle": "ハァ～？(いまは集中してないよ。)"
     },
     "cheer": [
       "ウラ ヤハ(ひとマスだけ一緒に進んでみよう！)",
@@ -1695,7 +1720,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "へへへ (今日と明日は予定が入ってないよ。)",
       "calNow": "ん？ (いま〈{title}〉の予定中だよ。{end}に終わるよ{where}。)",
       "calNext": "ん？ (次の予定は〈{title}〉、{when}だよ{where}。)",
-      "calThen": "ん？ (その次は〈{title}〉、{when}だよ。)"
+      "calThen": "ん？ (その次は〈{title}〉、{when}だよ。)",
+      "focusStart": "わぁぁ！！ (集中スタートだよ。一緒にがんばろう！)",
+      "focusStartTodo": "へへ ('{title}' の集中スタートだよ！)",
+      "focusAlready": "ん？ (もう{mins}分集中してるよ！)",
+      "focusStop": "へへへ… ({duration}集中したよ。ちょっと休もう！)",
+      "focusIdle": "ん？ (いまは集中してないよ。)"
     },
     "cheer": [
       "あっ？ へへへ (じゅうぶんがんばってるよ！)",
@@ -1981,7 +2011,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "エヘヘ (今日と明日は入ってる予定がないよ。)",
       "calNow": "エッ？ (いま〈{title}〉の予定中だよ。{end}までだよ{where}。)",
       "calNext": "フンッ！ (次の予定は〈{title}〉、{when}だよ{where}。)",
-      "calThen": "フンッ！ (その次は〈{title}〉、{when}だよ。)"
+      "calThen": "フンッ！ (その次は〈{title}〉、{when}だよ。)",
+      "focusStart": "フンッ！ (集中スタートだよ。一緒にやろ！)",
+      "focusStartTodo": "エヘヘ (「{title}」の集中スタートだよ！)",
+      "focusAlready": "エッ？ (もう{mins}分集中してるよ！)",
+      "focusStop": "ワッ！！ ({duration}集中したよ。ちょっと休も！)",
+      "focusIdle": "エッ？ (いまは集中してないよ。)"
     },
     "cheer": [
       "ワッ！！ (ちゃんとできてるよ、ほんとに！)",
@@ -2268,7 +2303,12 @@ export const CHARACTER_LINES_JA = {
       "calNone": "ふぅーむ。 (今日と明日は予定が入ってないよ。)",
       "calNow": "おーい～ (いま〈{title}〉の予定中だよ。{end}に終わるな{where}。)",
       "calNext": "うーむ～ (次の予定は〈{title}〉、{when}だよ{where}。)",
-      "calThen": "うーむ～ (その次は〈{title}〉、{when}だ。)"
+      "calThen": "うーむ～ (その次は〈{title}〉、{when}だ。)",
+      "focusStart": "うーん～ (集中スタートだ。のんびりいこう。)",
+      "focusStartTodo": "おーい～ ('{title}' の集中スタートだ。)",
+      "focusAlready": "ほっほ (もう{mins}分集中してるぞ。そのままいこう。)",
+      "focusStop": "カーッ ({duration}集中したな。ひと息つこう！)",
+      "focusIdle": "おーい～ (いまは集中してないぞ。)"
     },
     "cheer": [
       "ハーーーッ (よくやってるよ、乾杯！)",
