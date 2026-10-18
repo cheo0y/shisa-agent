@@ -13,7 +13,7 @@ import type { BrainProvider, Config } from "./config.ts";
 import { BRAIN_LABEL, CHAT_PROVIDERS, CLAUDE_MODELS, modelLabel, roleModel, usesClaudeModels } from "./models.ts";
 import {
   ANTHROPIC_URL, ANTHROPIC_VERSION, GEMINI_DEFAULT_MODEL, GEMINI_URL, GENSPARK_NO_CREDIT, OPENAI_DEFAULT_MODEL,
-  anthropicKey, commandOnPath, geminiKey, gensparkKey, gensparkModels, keyTrouble, openaiKey, authFailText, type FetchLike,
+  AI_LIST_TIMEOUT_MS, BrainTimeoutError, timedFetch, anthropicKey, commandOnPath, geminiKey, gensparkKey, gensparkModels, keyTrouble, openaiKey, authFailText, type FetchLike,
 } from "./providers.ts";
 
 export type ModelRow = { id: string; label: string };
@@ -33,7 +33,7 @@ export type BrainModels = {
 };
 
 export type ChatModelsDeps = {
-  fetch?: FetchLike; env?: NodeJS.ProcessEnv; now?: () => number;
+  fetch?: FetchLike; env?: NodeJS.ProcessEnv; now?: () => number; listTimeoutMs?: number; // 목록 요청 하나의 한도(없으면 AI_LIST_TIMEOUT_MS)
   home?: string; readFile?: (p: string) => string; exists?: (p: string) => boolean; commandExists?: (name: string) => boolean;
 };
 
@@ -82,9 +82,9 @@ export function codexRows(json: unknown): ModelRow[] {
     .map((m) => ({ id: String(m.slug), label: typeof m.display_name === "string" ? m.display_name : "" }));
 }
 
-async function getJson(fetchImpl: FetchLike, url: string, headers: Record<string, string>): Promise<unknown> {
+async function getJson(fetchImpl: FetchLike, url: string, headers: Record<string, string>, ms = AI_LIST_TIMEOUT_MS): Promise<unknown> {
   let res: Response;
-  try { res = await fetchImpl(url, { method: "GET", headers, redirect: "error" }); } catch { throw new Error("목록을 받지 못했어요(연결 오류)"); }
+  try { res = await timedFetch(fetchImpl, url, { method: "GET", headers, redirect: "error" }, ms); } catch (e) { throw new Error(e instanceof BrainTimeoutError ? "목록을 받지 못했어요(응답이 너무 오래 걸렸어요)" : "목록을 받지 못했어요(연결 오류)"); }
   if (!res.ok) { await res.text().catch(() => ""); throw new Error(res.status === 401 || res.status === 403 ? "키로 목록을 볼 수 없어요" : `목록을 받지 못했어요(HTTP ${res.status})`); }
   return JSON.parse(await res.text());
 }
@@ -115,10 +115,10 @@ async function listFor(provider: string, cfg: Pick<Config, "brain" | "models">, 
   if (hit && !fresh && now - hit.at < LIST_TTL_MS) return hit.rows;
   const f = d.fetch ?? fetch;
   let rows: ModelRow[];
-  if (provider === "gemini") rows = geminiRows(await getJson(f, `${GEMINI_URL}?pageSize=1000`, { "x-goog-api-key": key }));
-  else if (provider === "openai") rows = openaiRows(await getJson(f, "https://api.openai.com/v1/models", { Authorization: `Bearer ${key}` }));
-  else if (provider === "anthropic") rows = anthropicRows(await getJson(f, `${ANTHROPIC_URL.replace(/\/messages$/, "/models")}?limit=100`, { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION }));
-  else rows = (await gensparkModels(key, { fetch: f, fresh })).map((id) => ({ id, label: "" }));
+  if (provider === "gemini") rows = geminiRows(await getJson(f, `${GEMINI_URL}?pageSize=1000`, { "x-goog-api-key": key }, d.listTimeoutMs));
+  else if (provider === "openai") rows = openaiRows(await getJson(f, "https://api.openai.com/v1/models", { Authorization: `Bearer ${key}` }, d.listTimeoutMs));
+  else if (provider === "anthropic") rows = anthropicRows(await getJson(f, `${ANTHROPIC_URL.replace(/\/messages$/, "/models")}?limit=100`, { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION }, d.listTimeoutMs));
+  else rows = (await gensparkModels(key, { fetch: f, fresh, ...(d.listTimeoutMs ? { timeoutMs: d.listTimeoutMs } : {}) })).map((id) => ({ id, label: "" }));
   if (!rows.length) throw new Error("목록이 비어 있어요");
   cache.set(tag, { rows, at: now });
   return rows;

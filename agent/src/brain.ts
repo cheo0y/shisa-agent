@@ -40,7 +40,7 @@ import { mailContext } from "./mail-sync.ts";
 import { LOCAL_ONLY, remoteJson, resolveAnthropicModel, resolveHttpModel, type ProviderDeps } from "./providers.ts";
 import { GH_HINT, GH_SERVER, ghEnabled, ghMcpServer } from "./gh.ts";
 import { SUBAGENT_SDK_OPTIONS, SUBAGENT_TOOLS, subagentEnv } from "./subagents.ts";
-import { contextHeader, ctxMcpServer, CTX_GUIDE, CTX_SERVER, fmtNow, fmtTime, todoLine, type CtxDeps } from "./ctx-tools.ts";
+import { contextHeader, ctxMcpServer, CTX_GUIDE, CTX_SERVER, fmtNow, fmtTime, todoLine, userLine, type CtxDeps } from "./ctx-tools.ts";
 import { WorktreeIsolation } from "./agent-worktrees.ts";
 import { DENIED_STEP, LOCK_WAIT_MS, getBroker, waitStep, withRunOrigin, type PermissionBroker, type PermOrigin, type PermWait } from "./permissions.ts";
 
@@ -314,7 +314,7 @@ export function thinkPrompt(cfg: Config, store: Store, task: string, o: { tools?
   const guidelines = o.scope ? guidelinesFor(store, o.scope) : "";
   const head = o.tools
     ? contextHeader(cfg, { ...(o.now ? { now: o.now } : {}), ...(guidelines ? { guidelines } : {}) })
-    : `${buildContext(store, o.now ?? new Date(), { selfId: cfg.slackUserId, sessions: sessionsAllowed(cfg) })}${guidelines ? `\n\n${guidelines}` : ""}`;
+    : `${userLine(cfg)}\n${buildContext(store, o.now ?? new Date(), { selfId: cfg.slackUserId, sessions: sessionsAllowed(cfg) })}${guidelines ? `\n\n${guidelines}` : ""}`;
   return `${head}\n\n## 지금 할 일\n${task}`;
 }
 
@@ -357,10 +357,10 @@ async function askOther<T>(provider: string, cfg: Config, prompt: string, schema
     }
     const system = withCharacter(opts.system); // 캐릭터 말투(시사가 아니면 첫 문장·말투 줄을 바꾼다)
     if (schema === null) {
-      const out = await remoteJson(provider as any, cfg, prompt, TEXT_SCHEMA, { system, model: opts.model, blocks: opts.blocks, ...opts.deps }) as { reply?: string };
+      const out = await remoteJson(provider as any, cfg, prompt, TEXT_SCHEMA, { system, model: opts.model, blocks: opts.blocks, ...(opts.abort ? { signal: opts.abort.signal } : {}), ...opts.deps }) as { reply?: string };
       return String(out?.reply ?? "") as T;
     }
-    return remoteJson(provider as any, cfg, prompt, schema, { system, model: opts.model, blocks: opts.blocks, ...opts.deps }) as Promise<T>; // 첨부 블록도(예전엔 버려져 본 척했다)
+    return remoteJson(provider as any, cfg, prompt, schema, { system, model: opts.model, blocks: opts.blocks, ...(opts.abort ? { signal: opts.abort.signal } : {}), ...opts.deps }) as Promise<T>; // 첨부 블록도(예전엔 버려져 본 척했다)
   });
 }
 
