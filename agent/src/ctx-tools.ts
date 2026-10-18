@@ -51,14 +51,19 @@ export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작
 
 // 매 턴 붙는 작은 머리말: 지금 시각(KST), 사용자, 이 대화(스레드·할 일). 집어 든 할 일의 자세한 블록은 chat.ts focusBlock
 // guidelines: 사용자가 정한 행동 지침 블록(guidelines.ts guidelinesBlock) — 상한(HEADER_MAX)과 따로, 늘 끝에 붙는다
+// 「- 사용자: 이름 (GitHub·Slack)」 한 줄. 도구 쓰는 뇌의 머리말과 도구 없는 뇌(Gemini·OpenAI 등)의 큰 맥락 블록이 같이 쓴다
+export function userLine(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & { user?: Config["user"] }): string {
+  const who = [cfg.gitAuthor?.name ? `GitHub ${cfg.gitAuthor.name}` : "", cfg.slackUserId ? `Slack ${cfg.slackUserId}` : ""].filter(Boolean).join(", ");
+  return `- 사용자: ${displayUserName(cfg.user) || "(이름 모름 — 설정 user.name)"}${who ? ` (${who})` : ""}`;
+}
+
 export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string; mail?: string } = {}): string {
   const now = opts.now ?? new Date();
-  const who = [cfg.gitAuthor?.name ? `GitHub ${cfg.gitAuthor.name}` : "", cfg.slackUserId ? `Slack ${cfg.slackUserId}` : ""].filter(Boolean).join(", ");
   const lines = [
     "## 지금",
     `- 시각: ${fmtNow(now)} (KST)`,
     workHoursLine(workHoursOf(cfg as Record<string, unknown>), now), // 「퇴근까지 얼마나 남았어?」 같은 질문용(설정 「근무 시간」)
-    `- 사용자: ${displayUserName(cfg.user) || "(이름 모름 — 설정 user.name)"}${who ? ` (${who})` : ""}`,
+    userLine(cfg),
   ];
   if (opts.thread) lines.push(`- 이 대화: ${KIND_KO[opts.thread.kind] ?? opts.thread.kind} "${clip(opts.thread.title, 60)}"`);
   if (opts.focus) lines.push(`- 대상 할 일: id=${opts.focus.id} [P${opts.focus.priority}] ${clip(opts.focus.title, 80)}`);
