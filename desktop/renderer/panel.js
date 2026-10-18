@@ -3400,6 +3400,7 @@ function relang() {
   renderUndo(undo.current ?? null);
   modelsView.update();
   for (const v of [focusView, calendarView, projectsView]) { try { (v.relang ?? v.refresh)?.call(v); } catch (e) { console.error('[i18n] view', e); } }
+  load(); // 데몬이 만든 글(연결 카드 이름·상태 등)도 새 언어로 다시 받는다
 }
 bindLanguage(cy, relang, { whoName: () => who() });
 panelReady = true;

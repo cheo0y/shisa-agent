@@ -1,4 +1,5 @@
 // 앱 끄기 판단(창 닫기) · 데몬에 안 붙었을 때의 호출 결과. 순수 함수 — main.js 가 쓴다.
+import { t } from './i18n.js';
 
 // 창이 닫히려 할 때 무엇을 할까 → 'close'(그냥 닫힘) · 'hide'(숨기기만) · 'quit'(앱 끄기 — before-quit 를 거친다).
 // 윈도우는 밖에서 끄라는 요청(taskkill /PID 의 WM_CLOSE, 작업 관리자 「작업 끝내기」, 설치·업데이트 프로그램)이 창 닫기로만 온다
@@ -17,5 +18,5 @@ export function closeAction({ platform, quitting, window, visible }) {
 // 그 포트를 다른 프로그램이 쥐고 있을 때 첫 패널 열기의 /focus·/dashboard·/models·/settings… 가 그쪽에 닿지 않게.
 // 붙어 있으면 null(보낸다). 데몬 확인(/status·/events)은 request() 를 안 쓰고 fetch 로 직접 한다(daemonAlive·connectLoop·probeDaemon)
 export function offlineResult(connected) {
-  return connected ? null : { ok: false, status: 0, error: '연결되지 않았어요' };
+  return connected ? null : { ok: false, status: 0, error: t('main.offline') };
 }
