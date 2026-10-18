@@ -12,6 +12,7 @@ import { todayReminderOf, type TodayReminder } from "./daily-plan.ts";
 import { isNewStyle, onboardedOf, readSessionsOf } from "./onboarding.ts";
 import { calendarAlertOf, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { workHoursOf } from "./work-hours.ts";
+import { weatherOf, type WeatherConfig } from "./weather.ts";
 import { stripBom } from "./fs-atomic.ts";
 
 export const HOME_DIR = process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent");
@@ -60,6 +61,8 @@ export type Config = {
   workDays?: number[];
   startAlert?: boolean;
   leaveAlert?: boolean;
+  // 날씨 알리미(설정 창 「날씨」, weather.ts): 고른 지역(없으면 꺼짐)·출근 후 브리핑 다음·퇴근 20분 전·정한 시각. loadConfig 는 늘 채운다
+  weather?: WeatherConfig;
   // 캐릭터(characters.ts id). 없거나 모르는 값이면 시사
   character?: string;
   // 지식그래프 2단계(엔티티·관계 추출) 모델. 1단계(업무 판정)는 늘 경량. 기본은 경량(대량 작업이라 비용 우선)
@@ -315,6 +318,7 @@ export function loadConfig(env = process.env, file: FileConfig = readFileConfig(
     autoMerge: autoMergeList(f.autoMerge),
     todayReminder: todayReminderOf(f.todayReminder, notes),
     calendarAlert: calendarAlertOf(f.calendarAlert),
+    weather: weatherOf(f.weather),
     ...workHoursOf(f), // lunchAlert·workStart·lunchTime·workEnd·workDays·startAlert·leaveAlert
     ...(typeof f.character === "string" && f.character ? { character: f.character } : {}),
     kgModel: env.CY_AGENT_KG_MODEL ?? (f.kgModel as string) ?? (env.CY_AGENT_MODEL_LIGHT ?? (f.models as any)?.light ?? "claude-haiku-5-5"),

@@ -4,6 +4,8 @@ import { loadConfig } from "./config.ts";
 import { DEFAULT_TODAY_REMINDER } from "./daily-plan.ts";
 import { localAsk, localLine } from "./local-mode.ts";
 import { LEAVE_BEFORE_MIN, WorkAlerts, minsToLeave, workHoursOf } from "./work-hours.ts";
+import { Weather, setWeatherPeek, weatherDue, weatherLine, weatherOf } from "./weather.ts";
+import { failText as weatherFailText, noPlaceText as weatherNoPlaceText, weatherText } from "./weather-say.ts";
 import { Store } from "./store.ts";
 import { Bus, EXIT_PORT_TAKEN } from "./bus.ts";
 import { runs } from "./runs.ts";
@@ -117,14 +119,16 @@ const cliSync = new CliSync({ runs, db: store.db, store, onThread: (id) => bus.t
 // 대화 속 서브에이전트·작업 세션 카드: 바뀌면 ≈1초 모아 SSE agents {threadId} → 패널이 다시 가져온다
 new AgentsNotifier(runs, (threadId) => bus.agents(threadId));
 let agent!: Agent;
+let startGreetAt = 0; // 출근 인사를 띄운 때 — 이 뒤 10분 안의 로컬 브리핑 시간대 인사는 띄우지 않는다(날씨 「출근 후」도 이 뒤)
 let slack = createSlack(cfg, () => agent);
 // 채팅 슬래시 명령 목록: 처음 물을 때 SDK 에서(모델 턴 없이), 10분마다 새로
 const commands = new SlashCommands(() => loadCommands());
-agent = new Agent(cfg, store, bus, slack?.port, { retitle: suggestTitle, commands, mergePr, focusOps: (ops) => applyFocusOps(focus, ops, () => store.openTodos()), greetOk: (part) => (part === "morning" ? !!workAlerts.claim("start") : Date.now() - startGreetAt > GREET_QUIET_MS),
+agent = new Agent(cfg, store, bus, slack?.port, { retitle: suggestTitle, commands, mergePr, focusOps: (ops) => applyFocusOps(focus, ops, () => store.openTodos()), greetOk: (part) => (part === "morning" ? greetMorning() : Date.now() - startGreetAt > GREET_QUIET_MS),
   autoMergeOp: (op, slug) => settings.autoMergeOp(op, slug), beforeBriefing: () => (mailSync.enabled ? mailSync.sync() : Promise.resolve()) }); // 새 대화 제목: 가벼운 모델(답 뒤에 따로) · 자동 머지 레포는 설정 창과 같은 config.json 에
 // 캐릭터 반응(그림 말풍선·진행 보고·머지 승인). 하루 한 번 규칙은 reactions.json 에 남는다
 const reactions = new Reactions(bus, { logPath: join(HOME_DIR, "reactions.json"), lotsThreshold: Number(process.env.CY_LOTS_THRESHOLD) || 8 });
 agent.setReactions(reactions, realMergeAsk(cfg));
+agent.onBriefed = () => { setTimeout(() => safeWeather(), 3000).unref?.(); }; // 아침 브리핑이 끝나면 곧 「출근 후」 날씨
 
 const safe = (name: string, fn: () => unknown) => async () => {
   try { await fn(); } catch (e: any) { console.error(`[cy-agent] ${name} 실패:`, e?.data?.error ?? e?.message ?? e); }
@@ -153,7 +157,6 @@ function remindToday(opened = false) {
 //  - 점심: 점심 시각부터 한 시간 안에 점심 영상(칸 lunch — 기본은 그 캐릭터의 일정 알림 영상) + 점심 인사
 //  - 퇴근 10분 전: 일정 알림(plan) 영상 + 퇴근 인사(local.leave). plan 영상의 한마디는 일정용이라 쓰지 않는다
 const workAlerts = new WorkAlerts(join(HOME_DIR, "lunch.json"));
-let startGreetAt = 0; // 출근 인사를 띄운 때 — 이 뒤 10분 안의 로컬 브리핑 시간대 인사는 띄우지 않는다
 const GREET_QUIET_MS = 10 * 60e3;
 function workTick() {
   const wh = workHoursOf(cfg as unknown as Record<string, unknown>);
@@ -172,7 +175,42 @@ function workTick() {
     bus.bubble({ id: `leave:${leaveDay}`, text: fillVars(localLine("leave"), { mins: String(mins) }), kind: "info", ttlMs: 60e3 });
   }
 }
-const safeWork = () => { try { workTick(); } catch (e: any) { console.warn("[work-hours] 알림:", e?.message ?? e); } };
+const safeWork = () => { try { workTick(); } catch (e: any) { console.warn("[work-hours] 알림:", e?.message ?? e); } safeWeather(); };
+// 로컬 뇌 브리핑의 아침 인사가 오늘 첫 출근 인사가 되면 그때를 출근 인사 시각으로(날씨 「출근 후」가 그 뒤에)
+function greetMorning(): boolean {
+  if (!workAlerts.claim("start")) return false;
+  startGreetAt = Date.now();
+  return true;
+}
+// 날씨 알리미(weather.ts, 설정 창 「날씨」): 지역을 골랐을 때만. Open-Meteo 예보(45분 캐시)를 정해진 말로(AI 없이)
+//  - 출근 후 브리핑 다음 · 퇴근 20분 전(퇴근 시간대 날씨, 비·눈이면 ☔ 우산!) · 사람이 정한 시각. 근무 요일에 하루 한 번씩(lunch.json)
+//  - 예보를 못 가져오면 남기지 않고 다음 확인(1분 뒤 · 실패 뒤 5분은 다시 묻지 않는다) — 연결 상태 「날씨」 줄에 이유
+const weather = new Weather(() => weatherOf(cfg.weather));
+const startedAt = Date.now();
+setWeatherPeek(() => { const p = weather.place, f = weather.cached(); return p && f ? weatherLine(p, f) : ""; }); // 채팅·브리핑 맥락 한 줄
+let weatherBusy = false;
+async function weatherTick() {
+  if (weatherBusy) return;
+  const wc = weatherOf(cfg.weather);
+  const place = wc.place;
+  if (!place) return;
+  const wh = workHoursOf(cfg as unknown as Record<string, unknown>);
+  const slot = weatherDue({
+    cfg: wc, wh, now: new Date(), done: (k) => workAlerts.doneKey(k),
+    greetedAt: startGreetAt || null, greetedToday: workAlerts.done("start"), startedAt,
+    briefing: { running: agent.briefingBusy, doneAt: agent.briefedAt },
+  });
+  if (!slot) return;
+  if (slot.kind === "leave" && bus.activity.snapshot().danceClip === "plan") return; // 일정 알림 춤 중이면 다음 확인에
+  weatherBusy = true;
+  try {
+    const f = await weather.forecast();
+    if (!f || !workAlerts.claimKey(slot.key)) return;
+    const t = weatherText(slot.kind === "leave" ? "leave" : slot.kind === "morning" ? "morning" : "now", place, f, { workEnd: wh.workEnd });
+    bus.bubble({ id: `weather:${slot.key}`, text: t.text, kind: t.rain ? "todo" : "info", ttlMs: 60e3 });
+  } finally { weatherBusy = false; }
+}
+const safeWeather = () => { weatherTick().catch((e: any) => console.warn("[weather] 알림:", e?.message ?? e)); };
 bus.onOverlay = () => { remindToday(true); safeWork(); };
 setInterval(() => {
   try { remindToday(false); } catch (e: any) { console.warn("[today] 알림:", e?.message ?? e); }
@@ -227,9 +265,10 @@ const settings = new Settings(cfg, { onChange: (keys) => {
   // 뇌를 바꿈(MCP 캘린더는 Claude Code 뇌로만 읽는다)·마법사를 마침 → 캘린더를 바로 한 번 다시 가져온다(이유·상태 줄도 그에 맞게)
   if (calendar.enabled && keys.some((k) => k === "brain" || k === "onboarded")) calendar.sync().catch(() => {});
   if (keys.includes("character")) bus.characterChanged(); // 앱 그림·영상을 바로 바꾼다
+  if (keys.includes("weather")) { weather.reset(); if (weather.place) void weather.forecast(); } // 새 지역은 바로 한 번 가져온다
 } });
 let kgStatus: (() => { phase: string; reason?: string; step?: string }) | undefined;
-const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state(), mail: () => mailSync.state() });
+const connections = new Connections(cfg, { lastRun: lastRunOf((o) => runs.listRuns(o)), kg: () => kgStatus?.(), calendar: () => calendar.state(), mail: () => mailSync.state(), weather: () => weather.state() });
 // GET /status: 뇌가 claude-code 인데 로그인 확인 전이면 한 번 확인을 걸고(비동기) 끝나면 SSE status 로 알린다
 const status = () => statusOf(cfg, { claude: () => connections.claudeLoggedIn() });
 setClaudeProbe(() => connections.claudeLoggedIn()); // 코드 작업 AI 고르기·준비(coding.ts)
@@ -343,7 +382,18 @@ await bus.listen(cfg.port, {
   characters: characterStore,
   // AI 없이 고르는 질문(캐릭터 더블클릭 칩): 오늘 할 일·열린 할 일·캘린더만 보고 정해진 말로
   // 응원해 줘·춤춰 줘: 답과 함께 그 캐릭터의 응원·춤 영상(앱이 캐릭터마다 고른다)
+  weatherSearch: (q) => weather.search(q),
   localAsk: (id) => {
+    // 「오늘 날씨?」: 지역을 안 골랐으면 설정 안내, 아니면 예보(캐시 45분)를 정해진 말로
+    if (id === "weather") {
+      const place = weather.place;
+      if (!place) return { id, kind: "info", text: weatherNoPlaceText() };
+      return weather.forecast().then((f) => {
+        if (!f) { const st = weather.state(); return { id, kind: "info", text: weatherFailText(), ...(st.phase === "failed" ? { detail: st.reason } : {}) }; }
+        const t = weatherText("now", place, f);
+        return { id, kind: "info", text: t.text, detail: `${place.label} · 예보: Open-Meteo` };
+      });
+    }
     // 「집중 시작할래?」·「집중 그만할래?」: 할 일은 진행 중(▶)인 것 → 오늘 할 일 중 안 끝낸 첫 번째 → 없이
     if (isFocusAsk(id)) {
       return focusAsk(id, focus, () => chipFocusTodo(store.openTodos().filter((t) => t.doing === true), agent.dailyPlan().state().items));
@@ -360,7 +410,7 @@ await bus.listen(cfg.port, {
   },
   guidelines: agent.guidelinesApi(),
   focus: focusApi(focus),
-  connections: { ids: CHECK_IDS, list: () => connections.list(), recheck: async (id) => { const r = await connections.recheck(id as CheckId | undefined); bus.statusChanged(status()); return r; } },
+  connections: { ids: CHECK_IDS, list: () => { if (weather.state().phase === "pending") void weather.forecast(); return connections.list(); }, recheck: async (id) => { const r = await connections.recheck(id as CheckId | undefined); bus.statusChanged(status()); return r; } },
   status: () => {
     if (connections.claudeLoggedIn() === undefined) void probeClaude(); // 코드 기능(Claude Code)도 이걸로 가른다
     return status();
@@ -413,6 +463,7 @@ await bus.listen(cfg.port, {
   }),
 });
 console.log(`[cy-agent] 버스 http://127.0.0.1:${cfg.port}`);
+if (weather.place) { console.log(`[weather] 날씨 알리미 켬: ${weather.place.name}`); void weather.forecast(); } // 지역 이름만(좌표는 남기지 않는다)
 // 지난 실행이 남긴 Codex 코드 작업용 임시 CODEX_HOME(인증 사본)을 지운다 — 포트를 잡은 뒤라 이 데몬 하나뿐이다
 const staleCodexHomes = cleanupStaleCodexHomes();
 if (staleCodexHomes.length) console.log(`[codex] 예전 임시 홈 ${staleCodexHomes.length}개 정리`);

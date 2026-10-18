@@ -40,6 +40,7 @@ import { mailContext } from "./mail-sync.ts";
 import { LOCAL_ONLY, remoteJson, resolveAnthropicModel, resolveHttpModel, type ProviderDeps } from "./providers.ts";
 import { GH_HINT, GH_SERVER, ghEnabled, ghMcpServer } from "./gh.ts";
 import { SUBAGENT_SDK_OPTIONS, SUBAGENT_TOOLS, subagentEnv } from "./subagents.ts";
+import { weatherPeekLine } from "./weather.ts";
 import { contextHeader, ctxMcpServer, CTX_GUIDE, CTX_SERVER, fmtNow, fmtTime, todoLine, userLine, type CtxDeps } from "./ctx-tools.ts";
 import { WorktreeIsolation } from "./agent-worktrees.ts";
 import { DENIED_STEP, LOCK_WAIT_MS, getBroker, waitStep, withRunOrigin, type PermissionBroker, type PermOrigin, type PermWait } from "./permissions.ts";
@@ -167,6 +168,8 @@ export function buildContext(store: Store, now = new Date(), opts: { selfId?: st
     byProject.set(p, [...(byProject.get(p) ?? []), s]);
   }
   const lines = [`현재 시각: ${fmtNow(now)} (KST)`];
+  const weather = weatherPeekLine(); // 날씨 알리미(weather.ts): 고른 지역의 오늘 날씨 한 줄(캐시에 있을 때만)
+  if (weather) lines.push(weather);
   const profile = profileContext(store, { now, selfId: opts.selfId });
   if (profile) lines.push("", profile);
   const kg = kgContext(store, { limit: 5, query: opts.query }); // 백필로 쌓은 업무 엔티티(프로젝트·사람·이슈·결정)

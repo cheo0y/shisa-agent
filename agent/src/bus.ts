@@ -133,7 +133,9 @@ export type BusHandlers = {
   // 연결 상태(connections.ts). 없으면 503
   connections?: ConnectionsApi;
   // AI 없이 고르는 질문(local-mode.ts QUICK_ASKS → quickAnswer). 모르는 id 면 undefined → 400. 없으면 503
-  localAsk?(id: string): unknown;
+  localAsk?(id: string): unknown; // 「오늘 날씨?」는 예보를 가져오느라 Promise
+  // 날씨 지역 검색(weather.ts Open-Meteo Geocoding): GET /weather/search?q= → { ok, items: [{ name, label, latitude, longitude, timezone, … }] } | { ok: false, error }. 없으면 503
+  weatherSearch?(q: string): Promise<unknown>;
   // 지금 무엇이 연결됐나(status.ts): GET /status. 없으면 503
   status?: () => unknown;
   // 설치 마법사가 config.json 의 connectors 를 고친 뒤: 다시 읽어 바뀌었는지 + (launchd 아래면) 다시 켜는지. POST /connectors/reload. 없으면 503
@@ -476,6 +478,12 @@ export class Bus {
       if (!h.settings) return json(res, 503, { error: "settings unavailable" });
       return json(res, 200, h.settings.get());
     }
+    if (req.method === "GET" && url.pathname === "/weather/search") {
+      if (!h.weatherSearch) return json(res, 503, { error: "weather unavailable" });
+      const q = (url.searchParams.get("q") ?? "").trim();
+      if (!q || q.length > 60) throw new BadRequest("q must be 1~60 chars");
+      return json(res, 200, await h.weatherSearch(q));
+    }
     if (req.method === "GET" && url.pathname === "/connections") {
       if (!h.connections) return json(res, 503, { error: "connections unavailable" });
       return json(res, 200, await h.connections.list());
@@ -673,7 +681,7 @@ export class Bus {
         const body = await readJson(req, false);
         for (const k of Object.keys(body)) if (k !== "id") throw new BadRequest(`unknown key: ${k}`);
         if (typeof body.id !== "string") throw new BadRequest("id required");
-        const answer = h.localAsk(body.id);
+        const answer = await h.localAsk(body.id);
         if (!answer) throw new BadRequest("unknown id");
         return json(res, 200, { ok: true, answer });
       }

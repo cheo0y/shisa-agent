@@ -13,7 +13,7 @@ const src = { today: () => [], open: () => [], calendar: () => ({ enabled: false
 test("치이카와: 소리(흠!·으아앙...·헤헤·에?·이야!!) 뒤 괄호 안에 할 말, AI 프롬프트도 같은 규칙", () => {
   const SOUND = /^(흠!|으아앙\.\.\.|헤헤|에\?|이야!!) \(/;
   for (const [k, lines] of Object.entries(CHARACTERS.chiikawa.phrases)) for (const l of lines) assert.match(l, SOUND, `phrases.${k}: ${l}`);
-  for (const [k, l] of Object.entries(CHARACTERS.chiikawa.lines)) assert.match(l as string, SOUND, `local.${k}: ${l}`);
+  for (const [k, l] of Object.entries(CHARACTERS.chiikawa.lines).filter(([k]) => k !== "weatherRain")) assert.match(l as string, SOUND, `local.${k}: ${l}`);
   for (const l of CHARACTERS.chiikawa.cheer!) assert.match(l, SOUND, l);
   setCharacter("chiikawa");
   assert.match(withCharacter(CHAT_SYSTEM), /치이카와는 말을 거의 못 하고 소리로 반응한다/);
@@ -48,7 +48,7 @@ test("쿠리만쥬: 술 영상(응원·춤)엔 크아·캬아·크으, 먹는 �
   for (const l of CHARACTERS.kuri.phrases.dance) assert.match(l, DRINK, l);
   for (let i = 0; i < 20; i++) { assert.match(localAsk("cheer", src)!.text, DRINK); assert.match(localAsk("dance", src)!.text, DRINK); }
   assert.match(localLine("lunch"), /^얌 얌 얌 \(/);
-  for (const [k, l] of Object.entries(CHARACTERS.kuri.lines)) assert.match(l as string, /^\S.*? \(.*\)$/, `local.${k}`);
+  for (const [k, l] of Object.entries(CHARACTERS.kuri.lines).filter(([k]) => k !== "weatherRain")) assert.match(l as string, /^\S.*? \(.*\)$/, `local.${k}`);
   // 춤·일정 알림 영상이 없어 응원 영상(맥주 캔), 집중은 술상, 점심은 타코
   assert.deepEqual(characterClips("dance").map((x) => x.file), ["cheer"]);
   assert.deepEqual(characterClips("plan").map((x) => x.file), ["cheer"]);

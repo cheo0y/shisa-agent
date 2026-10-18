@@ -183,7 +183,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "'{title}' 집중 시작! 같이 열심히 해 보자!",
       "focusAlready": "벌써 {mins}분째 집중하고 있어! 이대로 쭉 가 보자.",
       "focusStop": "{duration} 집중한 거야? 대단한데! 잠깐 쉬자.",
-      "focusIdle": "지금은 집중하고 있지 않아."
+      "focusIdle": "지금은 집중하고 있지 않아.",
+      "weatherMorning": "있지, 오늘 {place}는 {summary}이래! 지금 {now} · 최고 {max}/최저 {min}.{rain}",
+      "weatherLeave": "퇴근길 {place}는 {summary}, 지금 {now}야. 조심히 가!",
+      "weatherLeaveRain": "퇴근길 {what} 와, 우산 꼭 챙겨! {when}쯤 {what} {prob}, {place} 지금 {now}야.",
+      "weatherNow": "지금 {place}는 {summary}, {now}야! 오늘 최고 {max}/최저 {min}.{rain}",
+      "weatherRain": " {when}쯤 {what} {prob}래, 우산 챙기자!",
+      "weatherNoPlace": "설정에서 지역을 골라 주면 날씨 알려 줄게!",
+      "weatherFail": "앗, 날씨를 지금 못 가져왔어. 조금 있다 다시 물어봐 줘!"
     },
     "cheer": [
       "안녕! 오늘도 열심히 해 보자. 파이팅!",
@@ -491,7 +498,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "'{title}'에 집중할 시간이군. 시작해 볼까.",
       "focusAlready": "이미 {mins}분째 집중 중이다. 그대로 가지.",
       "focusStop": "{duration} 집중했군. 잠깐 숨을 고르도록.",
-      "focusIdle": "지금은 집중하고 있지 않다."
+      "focusIdle": "지금은 집중하고 있지 않다.",
+      "weatherMorning": "오늘 {place} 날씨는 {summary}. 지금 {now} · 최고 {max}/최저 {min}.{rain}",
+      "weatherLeave": "퇴근길 {place}는 {summary}, 지금 {now}다. 조심히 가라.",
+      "weatherLeaveRain": "퇴근길 {what} 온다, 우산 챙겨라. {when}쯤 {what} {prob}, {place} 지금 {now}.",
+      "weatherNow": "지금 {place}는 {summary}, {now}다. 오늘 최고 {max}/최저 {min}.{rain}",
+      "weatherRain": " {when}쯤 {what} {prob}. 우산을 챙겨 두는 게 좋겠군.",
+      "weatherNoPlace": "설정에서 지역을 고르면 날씨를 알려 주지.",
+      "weatherFail": "날씨를 지금은 못 가져왔다. 잠시 뒤에 다시 물어봐."
     },
     "cheer": [
       "그래, 왔군. 오늘도 열심히 달려볼까.",
@@ -811,7 +825,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "'{title}' 한다고? 흥, 딴짓하면 다 보여.",
       "focusAlready": "벌써 {mins}분째 집중 중이잖아. 또 누르게?",
       "focusStop": "{duration} 집중했어? 흥, 그럭저럭이네.",
-      "focusIdle": "집중 안 하고 있잖아. 뭘 그만해?"
+      "focusIdle": "집중 안 하고 있잖아. 뭘 그만해?",
+      "weatherMorning": "아앙? 오늘 {place} 날씨는 {summary}. 지금 {now} · 최고 {max}/최저 {min}.{rain}",
+      "weatherLeave": "퇴근길 {place}는 {summary}, 지금 {now}. 빨리 가랏!",
+      "weatherLeaveRain": "퇴근길 {what} 온다고! 우산 챙겨! {when}쯤 {what} {prob}, {place} 지금 {now}.",
+      "weatherNow": "아앙? 지금 {place}는 {summary}, {now}야. 오늘 최고 {max}/최저 {min}.{rain}",
+      "weatherRain": " {when}쯤 {what} {prob}. 우산 안 챙기면 몰라!",
+      "weatherNoPlace": "설정에서 지역부터 골라. 그럼 알려 주지.",
+      "weatherFail": "날씨 못 가져왔잖아. 이따 다시 물어봐!"
     },
     "cheer": [
       "냠냠, 엇, 뭐야. 응원해 달라구? 그래그래, 잘 하고 있다. (쩝~쩝)",
@@ -1102,7 +1123,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "우나 야하('{title}' 집중 시작!)",
       "focusAlready": "우나({mins}분째 집중 중이야. 계속 가자!)",
       "focusStop": "푸루루루루루루루({duration} 집중 끝! 기지개 쭉)",
-      "focusIdle": "하아~~?(지금은 집중 안 하고 있어.)"
+      "focusIdle": "하아~~?(지금은 집중 안 하고 있어.)",
+      "weatherMorning": "야하!(오늘 {place} {summary}! 지금 {now} · 최고 {max}/최저 {min}.{rain})",
+      "weatherLeave": "우나(퇴근길 {place} {summary}, 지금 {now}야. 조심히 가!)",
+      "weatherLeaveRain": "하아~~?(퇴근길 {what} 와! 우산! {when}쯤 {what} {prob}, {place} 지금 {now}.)",
+      "weatherNow": "우나 야하(지금 {place} {summary}, {now}! 오늘 최고 {max}/최저 {min}.{rain})",
+      "weatherRain": " {when}쯤 {what} {prob}, 우산 챙겨!",
+      "weatherNoPlace": "우나(설정에서 지역을 고르면 날씨 알려 줄게)",
+      "weatherFail": "하아~~?(날씨를 지금 못 가져왔어. 조금 있다 다시 물어봐)"
     },
     "cheer": [
       "우나 야하(한 칸만 같이 넘어가 보자!)",
@@ -1395,7 +1423,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "헤헤 ('{title}' 집중 시작이야!)",
       "focusAlready": "으응? (벌써 {mins}분째 집중하고 있어!)",
       "focusStop": "헤헤헤... ({duration} 집중했어. 잠깐 쉬자!)",
-      "focusIdle": "으응? (지금은 집중 안 하고 있어.)"
+      "focusIdle": "으응? (지금은 집중 안 하고 있어.)",
+      "weatherMorning": "으아아~ (오늘 {place} {summary}! 지금 {now} · 최고 {max}/최저 {min}.{rain})",
+      "weatherLeave": "헤헤헤... (퇴근길 {place} {summary}, 지금 {now}야. 조심히 가!)",
+      "weatherLeaveRain": "으으윽.. (퇴근길 {what} 와! 우산! {when}쯤 {what} {prob}, {place} 지금 {now}.)",
+      "weatherNow": "으응? (지금 {place} {summary}, {now}야. 오늘 최고 {max}/최저 {min}.{rain})",
+      "weatherRain": " {when}쯤 {what} {prob}, 우산 챙겨!",
+      "weatherNoPlace": "으응? (설정에서 지역을 고르면 날씨 알려 줄게.)",
+      "weatherFail": "으으으... (날씨를 지금 못 가져왔어. 조금 있다 다시 물어봐.)"
     },
     "cheer": [
       "앗? 헤헤헤 (충분히 잘하고 있어!)",
@@ -1689,7 +1724,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "헤헤 ('{title}' 집중 시작이야!)",
       "focusAlready": "에? (벌써 {mins}분째 집중하고 있어!)",
       "focusStop": "이야!! ({duration} 집중했어. 잠깐 쉬자!)",
-      "focusIdle": "에? (지금은 집중 안 하고 있어.)"
+      "focusIdle": "에? (지금은 집중 안 하고 있어.)",
+      "weatherMorning": "헤헤 (오늘 {place} {summary}! 지금 {now} · 최고 {max}/최저 {min}.{rain})",
+      "weatherLeave": "이야!! (퇴근길 {place} {summary}, 지금 {now}야. 조심히 가!)",
+      "weatherLeaveRain": "에? (퇴근길 {what} 와! 우산! {when}쯤 {what} {prob}, {place} 지금 {now}.)",
+      "weatherNow": "흠! (지금 {place} {summary}, {now}야. 오늘 최고 {max}/최저 {min}.{rain})",
+      "weatherRain": " {when}쯤 {what} {prob}, 우산 챙겨!",
+      "weatherNoPlace": "에? (설정에서 지역을 고르면 날씨 알려 줄게.)",
+      "weatherFail": "에? (날씨를 지금 못 가져왔어. 조금 있다 다시 물어봐.)"
     },
     "cheer": [
       "이야!! (잘하고 있어, 진짜로!)",
@@ -1984,7 +2026,14 @@ export const CHARACTER_LINES = {
       "focusStartTodo": "어이~ ('{title}' 집중 시작이야.)",
       "focusAlready": "허허 (벌써 {mins}분째 집중 중이야. 그대로 가자.)",
       "focusStop": "캬아 ({duration} 집중했어. 한숨 돌리자!)",
-      "focusIdle": "어이~ (지금은 집중 안 하고 있어.)"
+      "focusIdle": "어이~ (지금은 집중 안 하고 있어.)",
+      "weatherMorning": "어이~ (오늘 {place} {summary}. 지금 {now} · 최고 {max}/최저 {min}.{rain})",
+      "weatherLeave": "캬아 (퇴근길 {place} {summary}, 지금 {now}다. 조심히 가자.)",
+      "weatherLeaveRain": "크흠. 음! (퇴근길 {what} 온다, 우산! {when}쯤 {what} {prob}, {place} 지금 {now}.)",
+      "weatherNow": "으음~ (지금 {place} {summary}, {now}. 오늘 최고 {max}/최저 {min}.{rain})",
+      "weatherRain": " {when}쯤 {what} {prob}, 우산 챙기자.",
+      "weatherNoPlace": "어이~ (설정에서 지역을 고르면 날씨 알려 주지.)",
+      "weatherFail": "크으음. (날씨를 지금 못 가져왔어. 이따 다시 물어봐.)"
     },
     "cheer": [
       "크아아아아 (잘하고 있어, 건배!)",

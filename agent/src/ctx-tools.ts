@@ -20,6 +20,7 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
+import { weatherPeekLine } from "./weather.ts";
 import { mailContextParts, readMailItems } from "./mail-sync.ts";
 import { findMail, mailBodyBlock, MAIL_TOOL_CHARS, refFrom } from "./mail-pick.ts";
 
@@ -70,6 +71,8 @@ export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & P
     workHoursLine(workHoursOf(cfg as Record<string, unknown>), now), // 「퇴근까지 얼마나 남았어?」 같은 질문용(설정 「근무 시간」)
     userLine(cfg),
   ];
+  const weather = weatherPeekLine(); // 날씨 알리미 지역을 골랐고 예보가 캐시에 있으면 한 줄(weather.ts)
+  if (weather) lines.push(weather);
   if (opts.thread) lines.push(`- 이 대화: ${KIND_KO[opts.thread.kind] ?? opts.thread.kind} "${clip(opts.thread.title, 60)}"`);
   if (opts.focus) lines.push(`- 대상 할 일: id=${opts.focus.id} [P${opts.focus.priority}] ${clip(opts.focus.title, 80)}`);
   if (opts.mail) lines.push(clip(opts.mail, 160)); // 메일(IMAP)을 연결했으면 몇 통 왔는지 한 줄(mail-sync.ts mailSummaryLine)

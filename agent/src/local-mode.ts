@@ -37,11 +37,24 @@ export const SHISA_EXTRA = {
   praiseDone: "최근에 {titles}을 끝내셨어요. 잘하셨어요.",
   calThen: "그다음은 〈{title}〉, {when}이에요.",
 } as const;
+// 날씨 알리미(weather-say.ts): 출근 후·퇴근 20분 전·정한 시각·칩 「오늘 날씨?」. 앞에 날씨 이모지 하나는 코드가 붙인다
+//  {place} 지역 · {summary} 날씨 낱말 · {now} 지금 기온 · {max}/{min} 최고·최저 · {rain} 비·눈 소식(weatherRain, 없으면 빈칸)
+//  weatherRain·weatherLeaveRain: {when} 「오후 3시」 · {what} 비|눈 · {prob} 「60%」
+export const WEATHER_LINES = {
+  weatherMorning: "오늘 {place} {summary}, 지금 {now} · 최고 {max}/최저 {min}.{rain}",
+  weatherLeave: "퇴근길 {place} {summary}, 지금 {now}예요. 조심히 들어가세요.",
+  weatherLeaveRain: "퇴근길 {what} 와요, 우산! {when}쯤 {what} {prob}, {place} 지금 {now}예요.",
+  weatherNow: "지금 {place} {summary}, {now} · 오늘 최고 {max}/최저 {min}.{rain}",
+  weatherRain: " {when}쯤 {what} {prob}, 우산 챙겨요.",
+  weatherNoPlace: "설정에서 지역을 고르면 알려 줄게요.",
+  weatherFail: "날씨를 지금 못 가져왔어요. 잠시 뒤에 다시 물어봐 주세요.",
+} as const;
 export function localLine(key: LocalLineKey): string {
   const own = character().lines[key];
   if (own) return own;
   if (key in LINES) return LINES[key as keyof typeof LINES];
   if (key in SHISA_EXTRA) return SHISA_EXTRA[key as keyof typeof SHISA_EXTRA];
+  if (key in WEATHER_LINES) return WEATHER_LINES[key as keyof typeof WEATHER_LINES];
   return QUICK_LINES[key as Exclude<keyof typeof QUICK_LINES, "cheer">];
 }
 

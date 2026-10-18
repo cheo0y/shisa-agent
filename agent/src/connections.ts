@@ -16,6 +16,7 @@ import { argv as ghArgv, runGh } from "./gh.ts";
 import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./connectors.ts";
 import { calendarPartsLine, type CalendarState } from "./calendar-state.ts";
 import type { MailState } from "./mail-sync.ts";
+import type { WeatherState } from "./weather.ts";
 import { hasUserMcpServer } from "./mcp.ts";
 import { authFailText, brainAuthFailed, brainCreditNeeded, brainKeyReady, creditFailText, type KeyProvider } from "./providers.ts";
 import { NEEDS_CLAUDE_MCP } from "./feature-brain.ts";
@@ -84,6 +85,7 @@ export type ConnectionsDeps = {
   lastRun?: (kind: RunKind) => Run | undefined;
   kg?: () => { phase: string; reason?: string; step?: string } | undefined;
   calendar?: () => CalendarState; // 캘린더 동기화 상태(calendar-sync.ts): 연결됨 줄·캘린더 동기화 줄이 실제 결과를 따른다
+  weather?: () => WeatherState;   // 날씨 알리미(weather.ts): 고른 지역·마지막으로 가져온 때·기온·실패 이유
   mail?: () => MailState;         // 메일(IMAP) 동기화 상태(mail-sync.ts): 메일 줄이 가져온 메일 수·실패 이유를 따른다
 };
 
@@ -103,7 +105,7 @@ export function sdkLoggedIn(s: Pick<SdkProbe, "account" | "error">): boolean {
 
 export class Connections {
   private cfg: Config;
-  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail">;
+  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail" | "weather">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail" | "weather">;
   http: Record<string, HttpProbe> = {};
   sdk?: SdkProbe;
   ghr?: GhProbe;
@@ -123,6 +125,7 @@ export class Connections {
       lastRun: deps.lastRun,
       calendar: deps.calendar,
       mail: deps.mail,
+      weather: deps.weather,
       kg: deps.kg,
     };
   }
@@ -291,6 +294,7 @@ export class Connections {
       : { id: "slack-ingest", label: "Slack 수집", group: "local", check: "local", checkedAt: at, state: "off", detail: "Slack 이 직접 연결(API)이 아니라 수집하지 않아요" });
     rows.push(conns.calendar.mode !== "off" ? (this.d.calendar ? this.calendarRow(this.d.calendar(), now) : this.runRow("calendar", "캘린더 동기화", "calendar", 90, now))
       : { id: "calendar", label: "캘린더 동기화", group: "local", check: "local", checkedAt: at, state: "off", detail: "캘린더 연결 안 함" });
+    if (this.d.weather) rows.push(weatherRow(this.d.weather(), now));
     const kgRow = this.runRow("kg", "지식그래프(KG)", "kg", 3 * 60, now);
     const k = this.d.kg?.();
     if (k) {
@@ -379,4 +383,13 @@ export async function realSdkProbe(opts: { query?: typeof sdkQuery; timeoutMs?: 
 // runs 기록에서 그 종류의 마지막 run
 export function lastRunOf(list: (o: { limit?: number }) => Run[]): (kind: RunKind) => Run | undefined {
   return (kind) => list({ limit: 200 }).find((r) => r.kind === kind);
+}
+
+// 날씨 줄: 「서울 마포구 · 방금 · 14°C」 / 실패 이유. 지역을 안 골랐으면 꺼짐
+export function weatherRow(s: WeatherState, now: Date): ConnRow {
+  const base = { id: "weather", label: "날씨(Open-Meteo)", group: "local" as const, check: "local" as CheckId, checkedAt: now.toISOString() };
+  if (s.phase === "off") return { ...base, state: "off", detail: "지역을 고르지 않아 꺼져 있어요(설정 「날씨」)" };
+  if (s.phase === "pending") return { ...base, state: "unknown", detail: `${s.place} · 아직 가져오지 않았어요` };
+  if (s.phase === "failed") return { ...base, state: s.lastOkAt ? "warn" : "error", detail: `${s.place} · 가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}`, error: s.reason };
+  return { ...base, state: "ok", detail: `${s.place} · ${ago(s.at, now)} · ${Math.round(s.temp)}°C` };
 }
