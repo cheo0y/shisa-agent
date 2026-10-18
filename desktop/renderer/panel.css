@@ -173,7 +173,7 @@ button.ghost:hover:not(:disabled) { background: var(--code); filter: none; }
 button.close { font-size: 13px; padding: 4px 9px; }
 /* 머리의 아이콘 단추(⚙ 설정·✕ 닫기): 같은 크기 정사각형, 글자 단추와 세로 가운데 */
 #top #open-settings, #top #close { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
-#top #open-settings { font-size: 20px; }
+#top #open-settings svg.icon { display: block; } /* 글자(⚙)는 글꼴마다 아래로 처져 그림(svg)으로 — 단추 정가운데 */
 #top #close { font-size: 15px; }
 #banner {
   margin: 0 22px 8px;
