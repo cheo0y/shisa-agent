@@ -192,7 +192,7 @@ export class Connections {
     if (keyIssue) rows.push({ id: "brain", label: "뇌(브리핑·채팅 모델)", group: "core", check: "local", checkedAt: at, state: "warn", detail: keyIssue });
     else rows.push({
       id: "brain", label: "뇌(브리핑·채팅 모델)", group: "core", check: "local", checkedAt: at, state: brainOk ? "ok" : "error",
-      detail: brainOk ? `${BRAIN_LABEL[provider] ?? provider}${provider === "local" ? " — 할 일 정리만, 도구 없음" : provider === "codex" ? " — 브리핑·채팅·뒤에서 하는 정리(MCP·코드 고치기는 Claude Code)" : ""}`
+      detail: brainOk ? `${BRAIN_LABEL[provider] ?? provider}${provider === "local" ? " — 할 일 정리만, 도구 없음" : provider === "codex" ? " — 브리핑·채팅·뒤에서 하는 정리(MCP 는 Claude Code)" : ""}`
         : provider === "codex" ? "codex 명령을 찾을 수 없어요" : provider === "genspark" ? "Genspark 키가 없어요(gsk login 을 하거나 키를 붙여 넣어 주세요)" : `${BRAIN_LABEL[provider] ?? provider} API 키가 없어요`,
     });
 

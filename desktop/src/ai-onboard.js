@@ -146,7 +146,7 @@ export function todoBrief({ open = [], done = [] } = {}) {
 
 export const HUB = [
   { id: 'claude', title: 'Claude Code', blurb: '코드 작업을 맡길 때 씁니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
-  { id: 'codex', title: 'Codex', blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 모델 탭에서 코딩 실행기도 Codex로 고를 수 있습니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
+  { id: 'codex', title: 'Codex', blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 설정 창 「세부 모델」에서 코드 작업 AI도 Codex로 고를 수 있습니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
   { id: 'gcal', title: '구글 캘린더', blurb: '내 일정을 시사가 읽습니다. 캘린더마다 비밀 주소를 붙여 넣으면 되고, 여러 개 붙일 수 있습니다.', kind: 'done' },
   { id: 'outlook', title: 'Outlook 캘린더', blurb: '내 일정을 시사가 읽습니다. 여러 개 붙일 수 있고 구글 캘린더와 같이 써도 됩니다. 회사가 일정 게시를 막았으면 쓸 수 없습니다.', kind: 'done' },
   { id: 'slack', title: 'Slack', blurb: '슬랙 글을 시사가 읽습니다. 슬랙 공식 로그인만 쓰고 쿠키는 복사하지 않습니다. 회사처럼 관리자 승인이 필요한 곳은 막힐 수 있습니다. Claude Code가 먼저 필요합니다.', kind: 'done', needsAgent: 'claude' },
