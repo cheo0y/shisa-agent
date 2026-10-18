@@ -60,7 +60,7 @@ class Node {
     if (!(e instanceof FakeEvent)) e = Object.assign(new FakeEvent(e.type), e);
     if (!e.target) e.target = this;
     let n = this;
-    while (n) { e.currentTarget = n; for (const f of [...(n._ev.get(e.type) ?? [])]) f.call(n, e); if (e._stop || !e.bubbles) break; n = n.parentNode ?? (n === n.ownerDocument ? n.defaultView : null); }
+    while (n) { e.currentTarget = n; for (const f of [...(n._ev.get(e.type) ?? [])]) f.call(n, e); if (e._stop || !e.bubbles) break; n = n.parentNode ?? (n === n.ownerDocument ? n._winEv ?? null : null); }
     return !e.defaultPrevented;
   }
   cloneNode(deep) {
@@ -449,6 +449,7 @@ function installGlobals(doc, { cy, storage, search }) {
   };
   win.window = win; win.self = win; win.top = win; win.parent = win;
   doc.defaultView = win;
+  doc._winEv = winEv; // 문서에서 창(window) 듣는 쪽으로 거품이 오른다
   for (const [k, v] of Object.entries(win)) {
     if (k === 'navigator' && globalThis.navigator) { try { Object.defineProperty(globalThis, 'navigator', { value: v, configurable: true, writable: true }); } catch { /* 노드 기본 */ } continue; }
     try { globalThis[k] = v; } catch { Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true }); }
