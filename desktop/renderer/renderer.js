@@ -1,6 +1,6 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
 import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
-import { quickBubble, chipsOf, chipAction, answerBubble, QUICK_ID } from '../src/quick-ask.js';
+import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
@@ -896,6 +896,8 @@ askInput.addEventListener('keydown', async (e) => {
     e.preventDefault();
     askInput.value = '';
     tray.clear();
+    quickGen++;
+    dismiss(QUICK_ID); // ＋ 로 띄운 칩도 같이 닫는다
     return hideAsk();
   }
   // 한글 조합 중 Enter 는 글자 확정용 — 보내지 않는다
@@ -1018,6 +1020,7 @@ cy.onBrain?.((v) => { if (v) brain = v; if (brain.ready === false && askOpen) hi
 // 뇌 없이 더블클릭: 고르는 질문 칩(오늘 할 일·지금 할 일·다음 일정·응원·AI 연결하기). 춤은 「응원해 줘」 때만
 let danceOff = null;
 let chipSeq = 0; // 칩을 새로 누르면 앞선 「다시 띄우기」는 버린다
+let quickGen = 0; // 더블클릭·Esc 로 칩을 닫으면 늘린다 — 그 전에 누른 칩의 「다시 띄우기」는 안 한다(답은 그대로 보인다)
 const CHIPS_AGAIN_MS = 2000; // 답을 보여 주고 이만큼 뒤에 칩을 다시
 // 데몬이 꺼져 있을 때만 쓴다(켜져 있으면 데몬이 영상 번호를 골라 state 로 알린다). 영상 번호는 여기서 고르고 그 영상의 한마디를 돌려준다
 const lastLocal = {};
@@ -1040,6 +1043,7 @@ async function quickChip(id) {
   dismiss(QUICK_ID); // 누르면 칩은 내리고 답만 보인다
   if (a.type === 'open') { cy.openItem(a.section, a.id); return; }
   const seq = ++chipSeq;
+  const gen = quickGen;
   const acting = a.id === 'cheer' || a.id === 'dance';
   // 데몬과 끊겨 있으면 바로 앱이 고른 영상으로(꺼져 있어도 보이게). 붙어 있으면 데몬이 영상 번호를 골라 state 로 알린다(대사와 같은 번호)
   let ownSay = null;
@@ -1053,7 +1057,7 @@ async function quickChip(id) {
   for (const x of queue.items.filter((x) => x.id.startsWith('local-ask-'))) dismiss(x.id); // 앞선 답은 내린다
   // 앱이 혼자 춘 영상에 한마디가 있으면 그 말(데몬 답이 없을 때)
   showBubble(!r?.ok && ownSay ? answerBubble(a.id, { ok: true, data: { answer: { id: a.id, kind: 'done', text: ownSay } } }) : answerBubble(a.id, r));
-  setTimeout(() => { if (seq === chipSeq) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
+  setTimeout(() => { if (seq === chipSeq && gen === quickGen) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
 }
 // 입력창 잠깐 숨기기(열린 채로 — 포커스·내용은 그대로). ms 뒤 아직 열려 있으면 다시 보인다. 그 사이 또 부르면 늘린다
 function pauseAsk(ms) {
@@ -1068,9 +1072,18 @@ function pauseAsk(ms) {
     requestAnimationFrame(recheckHit);
   }, ms);
 }
+// 더블클릭 = 열기, 열린 채로 또 더블클릭 = 바로 닫기(칩·입력창·칩 안내 말풍선). 입력창에 쓰던 글·첨부는 남겨 두고 다음에 열 때 그대로
 function talk() {
-  if (brain.ready === false) return noBrain();
+  const quickShown = queue.visible().some((x) => x.id === QUICK_ID);
+  const a = dblclickAction({ ready: brain.ready, askOpen, quickShown });
+  if (a === 'close') return closeQuick();
+  if (a === 'quick') return noBrain();
   showAsk();
+}
+function closeQuick() {
+  quickGen++;
+  dismiss(QUICK_ID); // 칩을 눌러 나온 답 말풍선(local-ask-*)·둘러보기 말풍선은 그대로
+  hideAsk();
 }
 // AI가 있어도 입력창 ＋ 로 정해진 답 칩(오늘 할 일·지금 할 일·다음 일정·응원·춤)
 document.getElementById('ask-more')?.addEventListener('click', (e) => {
@@ -1104,6 +1117,11 @@ window.addEventListener('mouseup', (e) => {
 });
 
 window.addEventListener('blur', resetPress);
+// 창이 키를 받을 때(입력창 밖) Esc = 칩 닫기. 입력창·추가질문 줄은 자기 Esc 를 먼저 쓴다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (queue.visible().some((x) => x.id === QUICK_ID)) { e.preventDefault(); closeQuick(); }
+});
 
 wrap.addEventListener('contextmenu', (e) => {
   e.preventDefault();
