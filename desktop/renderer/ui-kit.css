@@ -1,0 +1,85 @@
+/* 패널 공통 조각(renderer/ui-kit.js): 단추 크기 3종 · 아이콘 단추 · ⋯ 메뉴 · 빈 상태 · 배지 · 진행 막대.
+   색은 panel.css 토큰만 쓴다(라이트·다크 같이). 새 화면은 여기 것을 먼저 쓰고, 탭 CSS 에는 자리·간격만 둔다. */
+
+/* 단추 크기: s(24) · m(기본 30) · l(36) */
+button.size-s { height: 24px; padding: 0 8px; font-size: 12px; line-height: 24px; border-radius: var(--r-s); }
+button.size-l { height: 36px; padding: 0 16px; font-size: 13.5px; font-weight: 600; border-radius: var(--r-m); }
+button:focus-visible, .ui-menu-item:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 아이콘 단추: 정사각형, 기호는 가운데 */
+button.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; height: 30px; padding: 0; border-radius: var(--r-m); line-height: 1; font-size: 15px;
+}
+button.icon-btn.size-s { width: 24px; height: 24px; border-radius: var(--r-s); font-size: 13px; }
+button.icon-btn .ico { display: block; pointer-events: none; }
+button.icon-btn[aria-expanded="true"] { background: var(--code); color: var(--fg); }
+
+/* ⋯ 메뉴: body 끝에 붙는 떠 있는 상자 */
+.ui-menu {
+  position: fixed; z-index: 70; min-width: 184px; max-width: min(320px, calc(100vw - 16px));
+  padding: 4px; border-radius: var(--r-l); background: var(--pop); color: var(--fg); box-shadow: var(--pop-shadow);
+  display: flex; flex-direction: column; gap: 4px; animation: ui-pop 0.12s ease;
+  -webkit-app-region: no-drag;
+}
+.ui-menu.has-search { width: min(300px, calc(100vw - 16px)); }
+@keyframes ui-pop { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .ui-menu { animation: none; } }
+.ui-menu-list { display: flex; flex-direction: column; max-height: min(280px, 50vh); overflow: auto; }
+input.ui-menu-search {
+  margin: 2px 2px 0; padding: 6px 9px; border-radius: var(--r-m); border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg); outline: none; font-size: 12.5px;
+}
+input.ui-menu-search:focus { border-color: var(--accent); }
+button.ui-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px;
+  border-radius: var(--r-s); background: none; color: var(--fg); text-align: left; font-size: 13px;
+}
+button.ui-menu-item:hover:not(:disabled), button.ui-menu-item:focus-visible { background: var(--accent-soft); filter: none; outline: none; }
+button.ui-menu-item.danger { color: var(--del-fg); }
+button.ui-menu-item.danger:hover:not(:disabled), button.ui-menu-item.danger:focus-visible { background: var(--del-bg); }
+button.ui-menu-item:disabled { opacity: 0.4; }
+.ui-menu-ico { width: 16px; flex: none; text-align: center; color: var(--muted); font-size: 12.5px; }
+.ui-menu-item.danger .ui-menu-ico { color: inherit; }
+
+.ui-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-menu-hint { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11.5px; }
+.ui-menu-sep { height: 1px; margin: 3px 6px; background: var(--line); }
+.ui-menu-empty { padding: 10px 8px; color: var(--muted); font-size: 12.5px; text-align: center; }
+
+/* 빈 상태 */
+.ui-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 16px; text-align: center; color: var(--muted); }
+.ui-empty.compact { padding: 14px 12px; }
+.ui-empty-ico { font-size: 24px; line-height: 1.2; margin-bottom: 2px; }
+.ui-empty-text { color: var(--fg); font-weight: 600; }
+.ui-empty-sub { font-size: 12px; color: var(--muted); max-width: 34em; }
+.ui-empty > button { margin-top: 8px; }
+
+/* 배지: 짧은 상태 글(기한 D-n·끝남 등) */
+.ui-badge {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--r-s);
+  background: var(--code); color: var(--muted); font-size: 11.5px; font-weight: 650; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ui-badge.accent { background: var(--accent-soft); color: var(--accent); }
+.ui-badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok-fg); }
+.ui-badge.warn { background: color-mix(in srgb, var(--p2) 18%, transparent); color: var(--warn-fg); }
+.ui-badge.err { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--del-fg); }
+
+/* 진행 막대 */
+.ui-progress { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ui-progress-track { flex: 1; min-width: 40px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.ui-progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.25s ease; }
+.ui-progress.full .ui-progress-fill { background: var(--ok); }
+.ui-progress-text { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 손잡이 점(⋮⋮ 대신 2×3 점) */
+.grip-dots {
+  display: block; width: 6px; height: 10px; margin: auto;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.4px); background-size: 4px 4px; background-position: -1px -1px;
+}
+
+/* 글자 메뉴 단추(「기존 할 일 ▾」) */
+button.text-menu { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--muted); white-space: nowrap; }
+button.text-menu .caret { width: 5px; height: 5px; margin: -3px 1px 0 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); font-size: 0; opacity: 0.8; }
+button.text-menu[aria-expanded="true"] { background: var(--code); color: var(--fg); }
