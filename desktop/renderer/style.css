@@ -61,6 +61,8 @@ html, body {
   width: 100%;
 }
 #stack.hidden { display: none; }
+/* 윈도우 캐릭터 숨기기: 창은 둔 채 다 감춘다(감춘 건 마우스에 안 맞아 클릭이 투과된다) */
+body.char-hidden #stage { visibility: hidden; }
 
 .bubble {
   position: relative;
