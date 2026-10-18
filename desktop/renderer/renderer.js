@@ -1,6 +1,6 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
 import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
-import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, QUICK_ID } from '../src/quick-ask.js';
+import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
@@ -713,6 +713,7 @@ function drawFocus() {
   if (v) {
     focusEl.classList.toggle('paused', v.paused);
     focusLabel.textContent = v.label;
+    focusEl.title = v.title ?? '';
     focusTime.textContent = v.time;
     focusToggle.textContent = v.toggle.label;
     focusToggle.dataset.cmd = v.toggle.cmd;
@@ -722,7 +723,10 @@ function drawFocus() {
   drawDoing(); // 집중하기가 먼저 — 집중하는 동안 진행 중 말풍선은 숨는다
 }
 function setFocus(raw) {
+  const was = !!focus?.active;
   focus = raw ? normFocus(raw) : null;
+  // 칩 말풍선이 떠 있는 채로 집중이 시작·끝나면(정한 시간을 채움 등) 「집중 시작할래?」↔「집중 그만할래?」를 바꿔 다시
+  if (was !== !!focus?.active && queue.visible().some((x) => x.id === QUICK_ID)) showBubble(quickBubble(brain, charA.id, !!focus?.active));
   dispatchActivity({ type: 'focus', active: !!focus?.active, paused: !!focus?.active?.paused });
   clearInterval(focusTick);
   focusTick = focus?.active && !focus.active.paused ? setInterval(drawFocus, 1000) : null;
@@ -1061,7 +1065,7 @@ function localDance(ms, clip = 'dance') {
 }
 function noBrain() {
   chipSeq++;
-  showBubble(quickBubble(brain, charA.id));
+  showBubble(quickBubble(brain, charA.id, !!focus?.active));
 }
 async function quickChip(id) {
   const a = chipAction(id);
@@ -1078,12 +1082,13 @@ async function quickChip(id) {
   const ask = async () => { try { return await cy.localAsk(a.id); } catch (e) { return { ok: false, error: e?.message }; } };
   let r = await ask();
   if (!r?.ok) { await new Promise((ok) => setTimeout(ok, 800)); r = await ask(); } // 데몬이 잠깐 바빴으면 한 번 더
+  if (isFocusChip(a.id) && r?.ok) await loadFocus(); // 시작·멈춤을 바로 그린다(SSE focus 도 곧 온다) — 다시 뜨는 칩도 바뀐 쪽으로
   if (seq !== chipSeq) return;
   if (acting && !r?.ok && !act.localDance) ownSay = localDance(8000, a.id); // 붙어 있다고 봤는데 답이 없으면 앱이 춘다
   for (const x of queue.items.filter((x) => x.id.startsWith('local-ask-'))) dismiss(x.id); // 앞선 답은 내린다
   // 앱이 혼자 춘 영상에 한마디가 있으면 그 말(데몬 답이 없을 때)
   showBubble(!r?.ok && ownSay ? answerBubble(a.id, { ok: true, data: { answer: { id: a.id, kind: 'done', text: ownSay } } }) : answerBubble(a.id, r));
-  setTimeout(() => { if (seq === chipSeq && gen === quickGen) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
+  setTimeout(() => { if (seq === chipSeq && gen === quickGen) showBubble(quickBubble(brain, charA.id, !!focus?.active)); }, CHIPS_AGAIN_MS);
 }
 // 입력창 잠깐 숨기기(열린 채로 — 포커스·내용은 그대로). ms 뒤 아직 열려 있으면 다시 보인다. 그 사이 또 부르면 늘린다
 function pauseAsk(ms) {
@@ -1115,7 +1120,7 @@ function closeQuick() {
 document.getElementById('ask-more')?.addEventListener('click', (e) => {
   e.preventDefault();
   chipSeq++;
-  showBubble(quickBubble(brain, charA.id));
+  showBubble(quickBubble(brain, charA.id, !!focus?.active));
 });
 
 function onCharacterClick() {

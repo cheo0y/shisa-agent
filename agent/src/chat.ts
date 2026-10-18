@@ -11,6 +11,7 @@ import { ask, tidyThought, brainFacts, buildContext, SCHEMA as THOUGHT_SCHEMA, I
 import { buildDashboard, dashboardSummary } from "./dashboard.ts";
 import { TODO_OPS_SCHEMA, trashedNote, type TodoOp } from "./todos.ts";
 import { PROJECT_OPS_SCHEMA } from "./manual-projects.ts";
+import { FOCUS_OPS_SCHEMA, focusPromptLine, type FocusOp } from "./focus-ops.ts";
 import { PLAN_OPS_SCHEMA, type PlanOp } from "./daily-plan.ts";
 import { MEMORY_OPS_SCHEMA, applyMemoryOps, extractRememberedFact, rememberFact, type MemoryOp } from "./profile.ts";
 import { RULE_SCHEMA, RULE_GUIDE } from "./todo-rules.ts";
@@ -37,7 +38,7 @@ import { sessionsAllowed } from "./onboarding.ts";
 import { codingReady } from "./coding.ts";
 
 export type { PanelSection };
-export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[] };
+export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; focus_ops?: FocusOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[] };
 // 머지해 달라는 PR 하나(모델 출력 merges) — 데몬이 PR 을 읽어 머지 승인 카드로(merge-request.ts).
 // userSaid: 사용자가 이번 말에서 그 PR 을 머지하라고 직접 말함 → 데몬이 사용자 말을 다시 보고(auto-merge.ts textMergeConsent) 맞으면 ✓ 없이 바로
 export type MergeAsk = { pr: string; repo?: string; userSaid?: boolean };
@@ -203,7 +204,7 @@ export const CHAT_AUTO_MERGE = {
 export const CHAT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["reply_md", "bubble", "show", "proposals", "todo_ops", "project_ops", "plan_ops", "memory_ops", "rule", "guideline", "merges", "auto_merge"],
+  required: ["reply_md", "bubble", "show", "proposals", "todo_ops", "project_ops", "plan_ops", "memory_ops", "focus_ops", "rule", "guideline", "merges", "auto_merge"],
   properties: {
     reply_md: { type: "string", description: "대화 답변(Markdown). 짧게, 필요한 만큼만. 링크 포함. 굵게는 한두 곳만, 긴 줄표(—) 없이, 같은 칸이 있는 항목 셋 이상은 표로." },
     bubble: { type: "string", description: "캐릭터 말풍선용 요약. 정해진 캐릭터 말투로, 40자 이내." },
@@ -216,6 +217,7 @@ export const CHAT_SCHEMA = {
     project_ops: PROJECT_OPS_SCHEMA,
     plan_ops: PLAN_OPS_SCHEMA,
     memory_ops: MEMORY_OPS_SCHEMA,
+    focus_ops: FOCUS_OPS_SCHEMA,
     rule: RULE_SCHEMA,
     guideline: GUIDELINE_SCHEMA,
     merges: CHAT_MERGES,
@@ -242,6 +244,7 @@ ${context}
 - "할 일에 X 추가해줘", "견적 회신 우선순위 올려줘", "그거 지워줘", "그거 끝났어"처럼 할 일을 바꾸라는 말이면 todo_ops에 넣는다. 우선순위 '올리기'는 숫자를 줄이는 것(P2→P1). '그거'는 최근 대화로 판단하고, 어느 할 일인지 애매하면 todo_ops는 비우고 되물어라. reply_md에는 무엇을 바꿨는지 한 줄로.
 - "○○ 프로젝트 만들어 줘", "그 프로젝트 끝났어", "기한 다음 주 금요일로"처럼 사람이 직접 만드는 프로젝트(레포가 아닌 일 묶음)를 만들거나 고치라는 말이면 project_ops에 넣는다(지우기는 패널에서만). "이 할 일 ○○ 프로젝트에 넣어 줘"면 todo_ops edit 에 project(그 프로젝트 id 나 이름), 새 할 일을 그 프로젝트로 만들면 add 에 project. 진행 중인 직접 만든 프로젝트는 dashboard_summary(또는 위 대시보드 요약)의 '내가 만든 프로젝트'에 있다. 코드 작업(proposals)의 레포 프로젝트와 헷갈리지 않는다 — 프로젝트를 만들거나 할 일을 넣는 일은 proposals 에 넣지 않는다(proposals 는 레포 코드를 고치는 일만).
 - "오늘 할 일 적어줘", "오늘 할 일에 회의 준비 넣어", "그거 오늘 할게"처럼 오늘 할 일이면 plan_ops에 넣는다(새로 적으면 add title·priority, 있는 할 일을 오늘로 고르면 add id). 일정 캐시를 보고 오늘 할 일을 채워도 된다.
+- "집중 시작해 줘", "25분 집중할게", "보고서 할 일로 집중하자", "집중 그만"처럼 집중하기(포커스 타이머 — 캐릭터가 공부 영상을 틀고 머리 위에 집중 시간을 보인다)를 시작하거나 멈추라는 말이면 focus_ops에 넣는다: 시작은 start(minutes = 말한 분, 말이 없으면 null · todo = 그 할 일의 id 나 이름, 말이 없으면 null), 멈춤은 stop. 지금 집중 상태는 맥락의 「집중하기」 줄에 있다. 이미 집중 중이면 start 를 넣어도 새로 시작하지 않고 데몬이 「이미 N분째 집중 중」을 덧붙이고, 할 일을 못 찾으면 할 일 없이 시작하고 ⚠️ 한 줄을 붙인다. reply_md 는 한 줄이면 된다. 사용자가 무엇을 할 수 있냐고 물으면 집중하기 시작·멈춤도 할 수 있다고 알려 준다.
 - "내 이름은 홍길동이야, 기억해줘"처럼 자기 정보를 맡기면 memory_ops remember에 사실 문장만 넣는다('기억해줘'는 빼고). 잊어 달라면 forget. 이미 데몬이 같은 말을 저장했으면 memory_ops는 비우고 짧게 확인만 한다.
 ${RULE_GUIDE} 규칙은 바로 저장되고 맞는 기존 할 일에도 적용된다(데몬이 결과를 덧붙인다).
 ${GUIDELINE_GUIDE} 저장 결과는 데몬이 답에 덧붙인다.
@@ -319,8 +322,10 @@ export function chatPrompt(cfg: Config, store: Store, history: ChatTurn[], text:
   const head = inlineContext(cfg)
     ? [userLine(cfg), buildContext(store, new Date(), { selfId: cfg.slackUserId, query: focus ? `${focus.title} ${text}` : text, sessions: sessionsAllowed(cfg) }), ...(mailBodies ? ["", mailBodies] : []), workHoursLine(workHoursOf(cfg as unknown as Record<string, unknown>), new Date()), "", ...(guidelines ? [guidelines, ""] : []), summary ?? "", "", ...(meeting(store) ? [meeting(store), ""] : [])]
     : [contextHeader(cfg, { ...(thread ? { thread } : {}), ...(focus ? { focus } : {}), ...(guidelines ? { guidelines } : {}), mail: mailSummaryLine(store) }), ""];
+  const focusLine = focusPromptLine(); // 지금 집중하기 상태(focus_ops 판단용)
   return [
     ...head,
+    ...(focusLine ? [focusLine, ""] : []),
     "## 이 대화의 최근 흐름(다른 대화 창의 내용은 모른다)", turns.length ? turns.join("\n") : "(없음 — 새 대화)",
     // 예전 기록에 다른 이름(옛 「cy」·바꾸기 전 캐릭터)으로 소개한 말이 있어도 지금 이름으로 답하게
     ...(turns.length ? [`(「${character().name}」의 말은 네가 한 말이다. 기록에서 다른 이름으로 소개했어도 너는 「${character().name}」다.)`] : []), "",
@@ -344,7 +349,7 @@ export async function converse(
   const prompt = chatPrompt(cfg, store, history, text, summary, focus, repo, thread, att?.note);
   const via: ActionVia = thread?.kind === "hover" ? "hover" : "chat";
   const r = await ask<ChatReply>(cfg, prompt, CHAT_SCHEMA, onStep, { ...chatAskOpts(cfg, text || attachmentsTitle(attachments), repo, threadId, via, model), ...(inlineContext(cfg) ? {} : { ctx: { ...ctx, store } }), ...(abort ? { abort } : {}), ...(att?.blocks.length ? { blocks: att.blocks } : {}), facts: brainFacts(store) });
-  return { ...tidyThought(r), show: SECTIONS.includes(r.show as PanelSection) ? r.show : null, proposals: r.proposals ?? [], todo_ops: r.todo_ops ?? [], project_ops: Array.isArray(r.project_ops) ? r.project_ops : [], plan_ops: r.plan_ops ?? [], memory_ops: r.memory_ops ?? [], rule: r.rule ?? null, guideline: r.guideline ?? null, actions: Array.isArray(r.actions) ? r.actions : [], merges: Array.isArray(r.merges) ? r.merges : [], auto_merge: Array.isArray(r.auto_merge) ? r.auto_merge : [] };
+  return { ...tidyThought(r), show: SECTIONS.includes(r.show as PanelSection) ? r.show : null, proposals: r.proposals ?? [], todo_ops: r.todo_ops ?? [], project_ops: Array.isArray(r.project_ops) ? r.project_ops : [], plan_ops: r.plan_ops ?? [], memory_ops: r.memory_ops ?? [], focus_ops: Array.isArray(r.focus_ops) ? r.focus_ops : [], rule: r.rule ?? null, guideline: r.guideline ?? null, actions: Array.isArray(r.actions) ? r.actions : [], merges: Array.isArray(r.merges) ? r.merges : [], auto_merge: Array.isArray(r.auto_merge) ? r.auto_merge : [] };
 }
 
 // 슬래시 명령 한 번: 맥락·스키마로 감싸지 않고 말 그대로 프롬프트로(Claude Code 가 명령·스킬을 펼친다).
@@ -403,6 +408,7 @@ export type ChatPorts = {
   projectOps?(ops: unknown[]): { applied: string[]; errors: string[]; added?: { id: string; name: string }[] }; // 직접 만든 프로젝트 만들기·고치기·끝내기(manual-projects.ts) // 할 일 편집 적용(잘못된 건 이유, 휴지통으로 옮긴 제목)
   planOps?(ops: PlanOp[]): { applied: string[]; errors: string[] };
   memoryOps?(ops: MemoryOp[]): { applied: string[]; errors: string[] };
+  focusOps?(ops: FocusOp[]): { applied: string[]; errors: string[]; notes: string[] }; // 집중하기 시작·멈춤(focus-ops.ts)
   addRule?(rule: unknown): string; // 지속 규칙 저장 + 기존 할 일 적용 → 답에 덧붙일 한 줄
   guideline?(op: unknown, ctx: GuidelineCtx): string; // 행동 지침 추가·고치기·빼기(guidelines.ts — 사용자 말에서 나온 것만) → 답에 덧붙일 한 줄
   summary?(): Promise<string>;
@@ -839,6 +845,13 @@ export class Chat {
       }
       if ((r.plan_ops ?? []).length && this.ports.planOps) {
         const res = this.ports.planOps(r.plan_ops!);
+        if (res.errors.length) reply += `\n\n${res.errors.map((e) => `⚠️ ${e}`).join("\n")}`;
+      }
+      // 집중하기 시작·멈춤 — 슬래시 명령 답에는 없다
+      if (!command && (r.focus_ops ?? []).length && this.ports.focusOps) {
+        const res = this.ports.focusOps(r.focus_ops!);
+        lines.push(...res.applied.map((a) => `✓ ${a}`));
+        if (res.notes.length) reply += `\n\n${res.notes.map((e) => `ℹ️ ${e}`).join("\n")}`;
         if (res.errors.length) reply += `\n\n${res.errors.map((e) => `⚠️ ${e}`).join("\n")}`;
       }
       if ((r.memory_ops ?? []).length) {

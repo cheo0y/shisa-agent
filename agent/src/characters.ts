@@ -37,7 +37,8 @@ export type Character = {
 export type LocalLineKey =
   | "morning" | "lunch" | "leave" | "afternoon" | "evening" | "remind" | "praise" | "empty" | "emptyHead" | "praiseDone"
   | "todayEmpty" | "todayPick" | "todayAll" | "todayNone" | "todaySome" | "todoEmpty" | "todoTop"
-  | "calOff" | "calNone" | "calLoading" | "calFail" | "calNow" | "calNext" | "calThen";
+  | "calOff" | "calNone" | "calLoading" | "calFail" | "calNow" | "calNext" | "calThen"
+  | "focusStart" | "focusStartTodo" | "focusAlready" | "focusStop" | "focusIdle"; // 말로 집중하기(focus-ops.ts)
 
 // 시사: 예전 말투 그대로(voice.ts TONE·MOODS, phrases.ts 기본값, local-mode.ts LINES).
 // 프롬프트(brain.ts BASE 등)에 박힌 첫 문장·말투 줄은 늘 이 글이다. withCharacter 가 이 자리만 지금 캐릭터 것으로 바꾼다

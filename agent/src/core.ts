@@ -72,6 +72,7 @@ export type Deps = {
   describe: Describe; // 설명 없는 할 일을 펼칠 때 한 번(가벼운 모델)
   gitShow?: GitShow; // 테스트용. 기본은 git show
   git?: (cfg: Config) => Promise<RepoActivity[]>; // 테스트용. 기본은 git.ts
+  focusOps?: (ops: unknown[]) => { applied: string[]; errors: string[]; notes: string[] }; // 채팅 focus_ops(집중하기 시작·멈춤 — main 의 Focus, focus-ops.ts)
   retitle?: (cfg: Config, text: string, reply: string, threadId: string) => Promise<string | undefined>; // 새 대화 제목(main 이 가벼운 모델로 붙임). 없으면 첫 말 제목 그대로
   followUp?: Partial<Pick<FollowUpPorts, "runs" | "prepare" | "fixDeps">>; // 작업 세션 이어서 하기(테스트용)
   actions?: Partial<ActionDeps>; // 확인 후 실행하는 쓰기 동작(테스트는 가짜 중계·조회)
@@ -197,6 +198,7 @@ export class Agent {
       projectOps: (ops) => this.applyProjectOps(ops),
       planOps: (ops) => this.plan.applyOps(ops),
       memoryOps: (ops) => applyMemoryOps(this.store, ops),
+      ...(this.deps.focusOps ? { focusOps: (ops: unknown[]) => this.deps.focusOps!(ops) } : {}),
       addRule: (rule) => this.ruleFromModel(rule),
       guideline: (op, ctx) => this.guidelineFromModel(op, ctx),
       summary: async () => dashboardSummary(await this.dashboard()),

@@ -52,6 +52,7 @@ import { mergePr } from "./fixer.ts";
 import { cleanupStaleCodexHomes } from "./codex-coder.ts";
 import { askBtw } from "./btw.ts";
 import { Focus, focusApi, focusDoneText } from "./focus.ts";
+import { applyFocusOps, chipFocusTodo, focusAsk, isFocusAsk, setFocusPeek } from "./focus-ops.ts";
 import { brainAuthFailed, brainCreditNeeded, onBrainAuthChange } from "./providers.ts";
 import { briefingHours } from "./calendar.ts";
 import { performance } from "node:perf_hooks";
@@ -100,6 +101,7 @@ const focus = new Focus(store);
 focus.onChange = (v) => bus.focusChanged(v);
 focus.onStop = (sec) => { if (sec > 0) bus.bubble({ id: "focus:done", text: focusDoneText(sec), kind: "done", ttlMs: 8000 }); };
 focus.startTimer();
+setFocusPeek(() => focus.view()); // 채팅 프롬프트의 「집중하기」 줄
 // 일정 알림(설정 calendarAlert, 기본 10분 전): 오늘·내일 일정(커넥터 calendar: ICS·MCP, 읽기 전용). 30분마다·깨어날 때 다시 가져온다
 const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind: "calendar", title: "캘린더 동기화", model: cfg.models.light }, fn) });
 calendar.onChange = () => bus.dashboardChanged();
@@ -114,7 +116,7 @@ let agent!: Agent;
 let slack = createSlack(cfg, () => agent);
 // 채팅 슬래시 명령 목록: 처음 물을 때 SDK 에서(모델 턴 없이), 10분마다 새로
 const commands = new SlashCommands(() => loadCommands());
-agent = new Agent(cfg, store, bus, slack?.port, { retitle: suggestTitle, commands, mergePr, greetOk: (part) => (part === "morning" ? !!workAlerts.claim("start") : Date.now() - startGreetAt > GREET_QUIET_MS),
+agent = new Agent(cfg, store, bus, slack?.port, { retitle: suggestTitle, commands, mergePr, focusOps: (ops) => applyFocusOps(focus, ops, () => store.openTodos()), greetOk: (part) => (part === "morning" ? !!workAlerts.claim("start") : Date.now() - startGreetAt > GREET_QUIET_MS),
   autoMergeOp: (op, slug) => settings.autoMergeOp(op, slug), beforeBriefing: () => (mailSync.enabled ? mailSync.sync() : Promise.resolve()) }); // 새 대화 제목: 가벼운 모델(답 뒤에 따로) · 자동 머지 레포는 설정 창과 같은 config.json 에
 // 캐릭터 반응(그림 말풍선·진행 보고·머지 승인). 하루 한 번 규칙은 reactions.json 에 남는다
 const reactions = new Reactions(bus, { logPath: join(HOME_DIR, "reactions.json"), lotsThreshold: Number(process.env.CY_LOTS_THRESHOLD) || 8 });
@@ -328,6 +330,10 @@ await bus.listen(cfg.port, {
   // AI 없이 고르는 질문(캐릭터 더블클릭 칩): 오늘 할 일·열린 할 일·캘린더만 보고 정해진 말로
   // 응원해 줘·춤춰 줘: 답과 함께 그 캐릭터의 응원·춤 영상(앱이 캐릭터마다 고른다)
   localAsk: (id) => {
+    // 「집중 시작할래?」·「집중 그만할래?」: 할 일은 진행 중(▶)인 것 → 오늘 할 일 중 안 끝낸 첫 번째 → 없이
+    if (isFocusAsk(id)) {
+      return focusAsk(id, focus, () => chipFocusTodo(store.openTodos().filter((t) => t.doing === true), agent.dailyPlan().state().items));
+    }
     const answer = localAsk(id, {
       today: () => agent.dailyPlan().state().items,
       open: () => store.openTodos(),

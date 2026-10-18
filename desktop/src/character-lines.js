@@ -175,7 +175,12 @@ export const CHARACTER_LINES = {
       "calNone": "오늘이랑 내일은 잡힌 일정이 없어. 여유 있게 보내자!",
       "calNow": "지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.",
       "calNext": "다음 일정은 〈{title}〉, {when}이야{where}.",
-      "calThen": "그다음은 〈{title}〉, {when}이야."
+      "calThen": "그다음은 〈{title}〉, {when}이야.",
+      "focusStart": "좋아, 지금부터 같이 집중해 보자. 파이팅!",
+      "focusStartTodo": "'{title}' 집중 시작! 같이 열심히 해 보자!",
+      "focusAlready": "벌써 {mins}분째 집중하고 있어! 이대로 쭉 가 보자.",
+      "focusStop": "{duration} 집중한 거야? 대단한데! 잠깐 쉬자.",
+      "focusIdle": "지금은 집중하고 있지 않아."
     },
     "cheer": [
       "안녕! 오늘도 열심히 해 보자. 파이팅!",
@@ -475,7 +480,12 @@ export const CHARACTER_LINES = {
       "calNone": "오늘과 내일은 잡힌 일정이 없군.",
       "calNow": "지금 〈{title}〉 일정 중이다. {end}에 끝난다{where}.",
       "calNext": "다음 일정은 〈{title}〉, {when}이다{where}.",
-      "calThen": "그다음은 〈{title}〉, {when}이다."
+      "calThen": "그다음은 〈{title}〉, {when}이다.",
+      "focusStart": "좋다, 집중 시작이다. 흐트러지지 말도록.",
+      "focusStartTodo": "'{title}'에 집중할 시간이군. 시작해 볼까.",
+      "focusAlready": "이미 {mins}분째 집중 중이다. 그대로 가지.",
+      "focusStop": "{duration} 집중했군. 잠깐 숨을 고르도록.",
+      "focusIdle": "지금은 집중하고 있지 않다."
     },
     "cheer": [
       "그래, 왔군. 오늘도 열심히 달려볼까.",
@@ -787,7 +797,12 @@ export const CHARACTER_LINES = {
       "calNone": "오늘이랑 내일은 일정이 없어. 한가하겠네.",
       "calNow": "지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.",
       "calNext": "다음 일정은 〈{title}〉, {when}이야{where}.",
-      "calThen": "그다음은 〈{title}〉, {when}이고."
+      "calThen": "그다음은 〈{title}〉, {when}이고.",
+      "focusStart": "집중한다고? 어디 얼마나 가나 보자구.",
+      "focusStartTodo": "'{title}' 한다고? 흥, 딴짓하면 다 보여.",
+      "focusAlready": "벌써 {mins}분째 집중 중이잖아. 또 누르게?",
+      "focusStop": "{duration} 집중했어? 흥, 그럭저럭이네.",
+      "focusIdle": "집중 안 하고 있잖아. 뭘 그만해?"
     },
     "cheer": [
       "냠냠, 엇, 뭐야. 응원해 달라구? 그래그래, 잘 하고 있다. (쩝~쩝)",
@@ -1070,7 +1085,12 @@ export const CHARACTER_LINES = {
       "calNone": "우나 야하(오늘이랑 내일은 잡힌 일정이 없어.)",
       "calNow": "우나(지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.)",
       "calNext": "우나(다음 일정은 〈{title}〉, {when}이야{where}.)",
-      "calThen": "우나(그다음은 〈{title}〉, {when}이야.)"
+      "calThen": "우나(그다음은 〈{title}〉, {when}이야.)",
+      "focusStart": "야하!(집중 시작! 같이 가 보자!)",
+      "focusStartTodo": "우나 야하('{title}' 집중 시작!)",
+      "focusAlready": "우나({mins}분째 집중 중이야. 계속 가자!)",
+      "focusStop": "푸루루루루루루루({duration} 집중 끝! 기지개 쭉)",
+      "focusIdle": "하아~~?(지금은 집중 안 하고 있어.)"
     },
     "cheer": [
       "우나 야하(한 칸만 같이 넘어가 보자!)",
@@ -1355,7 +1375,12 @@ export const CHARACTER_LINES = {
       "calNone": "헤헤헤 (오늘이랑 내일은 잡힌 일정이 없어.)",
       "calNow": "으응? (지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.)",
       "calNext": "으응? (다음 일정은 〈{title}〉, {when}이야{where}.)",
-      "calThen": "으응? (그다음은 〈{title}〉, {when}이야.)"
+      "calThen": "으응? (그다음은 〈{title}〉, {when}이야.)",
+      "focusStart": "으아아!! (집중 시작이야. 같이 힘내 보자!)",
+      "focusStartTodo": "헤헤 ('{title}' 집중 시작이야!)",
+      "focusAlready": "으응? (벌써 {mins}분째 집중하고 있어!)",
+      "focusStop": "헤헤헤... ({duration} 집중했어. 잠깐 쉬자!)",
+      "focusIdle": "으응? (지금은 집중 안 하고 있어.)"
     },
     "cheer": [
       "앗? 헤헤헤 (충분히 잘하고 있어!)",
@@ -1641,7 +1666,12 @@ export const CHARACTER_LINES = {
       "calNone": "헤헤 (오늘이랑 내일은 잡힌 일정이 없어.)",
       "calNow": "에? (지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.)",
       "calNext": "흠! (다음 일정은 〈{title}〉, {when}이야{where}.)",
-      "calThen": "흠! (그다음은 〈{title}〉, {when}이야.)"
+      "calThen": "흠! (그다음은 〈{title}〉, {when}이야.)",
+      "focusStart": "흠! (집중 시작이야. 같이 해 보자!)",
+      "focusStartTodo": "헤헤 ('{title}' 집중 시작이야!)",
+      "focusAlready": "에? (벌써 {mins}분째 집중하고 있어!)",
+      "focusStop": "이야!! ({duration} 집중했어. 잠깐 쉬자!)",
+      "focusIdle": "에? (지금은 집중 안 하고 있어.)"
     },
     "cheer": [
       "이야!! (잘하고 있어, 진짜로!)",
@@ -1928,7 +1958,12 @@ export const CHARACTER_LINES = {
       "calNone": "크으음. (오늘이랑 내일은 잡힌 일정이 없어.)",
       "calNow": "어이~ (지금 〈{title}〉 일정 중이야. {end}에 끝나{where}.)",
       "calNext": "으음~ (다음 일정은 〈{title}〉, {when}이야{where}.)",
-      "calThen": "으음~ (그다음은 〈{title}〉, {when}이야.)"
+      "calThen": "으음~ (그다음은 〈{title}〉, {when}이야.)",
+      "focusStart": "으음~ (집중 시작이야. 천천히 해 보자.)",
+      "focusStartTodo": "어이~ ('{title}' 집중 시작이야.)",
+      "focusAlready": "허허 (벌써 {mins}분째 집중 중이야. 그대로 가자.)",
+      "focusStop": "캬아 ({duration} 집중했어. 한숨 돌리자!)",
+      "focusIdle": "어이~ (지금은 집중 안 하고 있어.)"
     },
     "cheer": [
       "크아아아아 (잘하고 있어, 건배!)",

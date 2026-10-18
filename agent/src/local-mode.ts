@@ -153,6 +153,12 @@ export const QUICK_LINES = {
   calFail: "캘린더는 연결됐는데 일정을 가져오지 못했어요. 까닭은 아래에 적어 둘게요.",
   calNow: "지금 〈{title}〉 일정 중이에요. {end}에 끝나요{where}.",
   calNext: "다음 일정은 〈{title}〉, {when}이에요{where}.",
+  // 말로 집중하기(focus-ops.ts — 더블클릭 칩 「집중 시작할래?」·채팅 「집중 시작해 줘」)
+  focusStart: "좋아요, 지금부터 같이 집중해요. 옆에서 조용히 응원할게요!",
+  focusStartTodo: "'{title}' 집중 시작해요. 하나씩 차근차근 해 봐요!",
+  focusAlready: "이미 {mins}분째 집중하고 있어요. 이대로 쭉 가 봐요.",
+  focusStop: "{duration} 집중했어요. 잠깐 쉬어 가요!",
+  focusIdle: "지금은 집중하고 있지 않아요.",
   cheer: [
     "오늘도 잘하고 있어요. 제가 옆에서 응원할게요!",
     "천천히 해도 괜찮아요. 하나씩 하면 다 돼요.",

@@ -1,16 +1,19 @@
 // AI 없이 더블클릭 → 고르는 질문 칩, 패널 연결 안내 카드 숨기기
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { QUICK_CHIPS, QUICK_ID, ASK_IDS, isAskId, quickBubble, normQuick, chipsOf, chipAction, answerBubble } from '../src/quick-ask.js';
+import { QUICK_CHIPS, QUICK_ID, ASK_IDS, isAskId, isFocusChip, quickBubble, normQuick, chipsOf, chipAction, answerBubble } from '../src/quick-ask.js';
 import { normalizeBubble, clickTarget } from '../src/bubbles.js';
 import { brainView, connectCard, chatLock } from '../src/brain-state.js';
 import { createHoverAsk, hoverAskAllowed, HOVER_ASK_MS } from '../src/hover-ask.js';
 
 const noAi = brainView({ status: { brain: { provider: 'local', label: '로컬', ready: true, local: true }, chat: false, coder: {}, connectors: [] } });
 
-test('칩 목록: 질문 다섯 개(응원·춤 포함) + 마지막 AI 연결하기', () => {
-  assert.deepEqual(QUICK_CHIPS.map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '응원해 줘', '춤춰 줘', 'AI 연결하기']);
-  assert.deepEqual(ASK_IDS, ['today', 'next_todo', 'next_event', 'cheer', 'dance']);
+test('칩 목록: 질문 다섯 개(응원·춤 포함) + 집중 시작·그만 + 마지막 AI 연결하기', () => {
+  assert.deepEqual(QUICK_CHIPS.map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '집중 시작할래?', '집중 그만할래?', '응원해 줘', '춤춰 줘', 'AI 연결하기']);
+  assert.deepEqual(ASK_IDS, ['today', 'next_todo', 'next_event', 'focus_start', 'focus_stop', 'cheer', 'dance']);
+  assert.ok(isAskId('focus_start') && isAskId('focus_stop'), 'main 의 local-ask 가 받는다');
+  assert.ok(isFocusChip('focus_stop') && !isFocusChip('today'));
+  assert.deepEqual(chipAction('focus_start'), { type: 'ask', id: 'focus_start' });
   assert.ok(isAskId('cheer'));
   assert.ok(!isAskId('connect'));
   for (const c of QUICK_CHIPS) assert.ok(!c.label.includes('\u2014'));
@@ -21,9 +24,12 @@ test('quickBubble: 칩 말풍선이 normalizeBubble 을 거쳐도 칩이 남는�
   const raw = quickBubble(noAi);
   assert.equal(raw.id, QUICK_ID);
   const b = normalizeBubble(raw);
-  assert.deepEqual(b.quick, ['today', 'next_todo', 'next_event', 'cheer', 'dance', 'connect']);
+  assert.deepEqual(b.quick, ['today', 'next_todo', 'next_event', 'focus_start', 'cheer', 'dance', 'connect']);
   // AI가 있으면(입력창 ＋) 「AI 연결하기」는 빼고 같은 칩
-  assert.deepEqual(quickBubble({ ready: true }).quick, ['today', 'next_todo', 'next_event', 'cheer', 'dance']);
+  assert.deepEqual(quickBubble({ ready: true }).quick, ['today', 'next_todo', 'next_event', 'focus_start', 'cheer', 'dance']);
+  // 집중 중이면 「집중 시작할래?」 대신 「집중 그만할래?」(AI 있든 없든)
+  assert.deepEqual(normalizeBubble(quickBubble(noAi, 'sisa', true)).quick, ['today', 'next_todo', 'next_event', 'focus_stop', 'cheer', 'dance', 'connect']);
+  assert.deepEqual(chipsOf(quickBubble({ ready: true }, 'sisa', true).quick).map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '집중 그만할래?', '응원해 줘', '춤춰 줘']);
   assert.ok(b.ttlMs > 0);
   assert.deepEqual(clickTarget(b).type === 'open', false); // 말풍선 자체는 어디로도 안 연다(칩만)
   assert.match(quickBubble({ ready: false, provider: 'claude-code', known: true }).text, /Claude Code 로그인 전/);
@@ -113,7 +119,7 @@ function overlay({ ready }) {
   const queue = new BubbleQueue();
   const timers = [];
   const ctx = {
-    queue, QUICK_ID, dblclickAction, quickBubble, brain: { ready }, charA: { id: 'sisa' },
+    queue, QUICK_ID, dblclickAction, quickBubble, brain: { ready }, charA: { id: 'sisa' }, focus: null,
     ask: fakeEl(), askInput: fakeEl(),
     cy: { chatFocus: async () => true, togglePanel: () => { ctx.panelToggles++; } },
     panelToggles: 0,
@@ -143,6 +149,19 @@ test('렌더러(가짜 DOM): AI 없을 때 더블클릭 → 칩, 다시 더블�
   assert.equal(ctx.panelToggles, 0); // 더블클릭은 패널을 안 연다
   await dbl();
   assert.deepEqual(ids(), ['local-tour', 'local-ask-today', QUICK_ID]); // 또 열린다
+  assert.ok(queue_quick(ctx).includes('focus_start'));
+  // 집중 중에 열면 「집중 그만할래?」
+  await dbl();
+  ctx.focus = { active: { id: 'fs-1' } };
+  await dbl();
+  assert.ok(queue_quick(ctx).includes('focus_stop') && !queue_quick(ctx).includes('focus_start'));
+});
+const queue_quick = (ctx) => ctx.queue.visible().find((x) => x.id === QUICK_ID)?.quick ?? [];
+
+test('렌더러: 칩 답 뒤 집중 상태를 다시 읽고, 칩이 떠 있는 채로 집중이 시작·끝나면 칩을 바꿔 다시 띄운다', () => {
+  assert.match(RENDERER, /if \(isFocusChip\(a\.id\) && r\?\.ok\) await loadFocus\(\);/);
+  assert.match(RENDERER, /if \(was !== !!focus\?\.active && queue\.visible\(\)\.some\(\(x\) => x\.id === QUICK_ID\)\) showBubble\(quickBubble\(brain, charA\.id, !!focus\?\.active\)\);/);
+  assert.equal(RENDERER.match(/quickBubble\(brain, charA\.id\)/g), null, '칩을 띄우는 곳은 모두 집중 상태를 넘긴다');
 });
 
 test('렌더러(가짜 DOM): AI 있을 때 더블클릭 → 입력창, 다시 더블클릭 → 입력창·＋ 칩 닫힘, 쓰던 글은 남는다', async () => {
