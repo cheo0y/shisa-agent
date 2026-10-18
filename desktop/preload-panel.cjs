@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('cy', {
   projectCreate: (body) => ipcRenderer.invoke('project-create', body && typeof body === 'object' ? JSON.parse(JSON.stringify(body)) : null),
   projectEdit: (id, patch) => ipcRenderer.invoke('project-edit', String(id), patch && typeof patch === 'object' ? JSON.parse(JSON.stringify(patch)) : null),
   projectDelete: (id) => ipcRenderer.invoke('project-delete', String(id)),
+  // 프로젝트 안 할 일 순서: 그 프로젝트의 열린 할 일 id 를 원하는 순서로 모두
+  projectOrder: (id, todoIds) => ipcRenderer.invoke('project-order', String(id), Array.isArray(todoIds) ? todoIds.map(String) : null),
   projectCalendarEvents: () => ipcRenderer.invoke('project-calendar-events'),
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기({ enabled?, text? }) · 지우기
   todoRules: () => ipcRenderer.invoke('todo-rules'),

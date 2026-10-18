@@ -1,8 +1,10 @@
 // 프로젝트 탭 위쪽: 직접 만든 프로젝트 카드와 ＋ 만들기 창(새로 만들기 · 일정에서 가져오기).
 // 카드: 기한·할 일 수·메모·묶인 열린 할 일(체크로 끝내기, ✕로 빼기)·할 일 추가·기존 할 일 넣기, [고치기][끝내기][지우기(확인 한 번)].
+// 할 일 줄: 두 번 누르거나 ✎ 로 그 자리 이름 바꾸기(할 일 탭과 같은 POST /todos/:id), ⋮⋮ 를 끌거나 ↑↓(손잡이에서 ↑↓ 키)로 순서 바꾸기.
 // 데이터는 GET /dashboard 의 manualProjects(src/manual-projects.js 가 다듬은 vm.manualProjects)이고, 바꾼 뒤엔 onChanged 로 다시 읽는다.
 import { who } from './who.js';
-import { todoCountText, emptyDraft, draftFromPick, draftOf, createBody, editBody, eventWhen, shapePick } from '../src/manual-projects.js';
+import { todoCountText, emptyDraft, draftFromPick, draftOf, createBody, editBody, eventWhen, shapePick, applyOrder, moveId, stepId, dropSlot, sameOrder } from '../src/manual-projects.js';
+import { editKey, editPatch } from '../src/todo-edit.js';
 
 export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let vm = null;
@@ -13,6 +15,14 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let modal = null; // { step: 'choose'|'events'|'form', mode: 'new'|'edit', id?, draft, error, saving, pick? }
   let root = null; // 만들기 창 겉(body 끝에 붙인다)
   let redrawCards = () => {};
+  // 응답 오기 전 화면: 프로젝트 id → { ids, saved } 순서 · 할 일 id → { title, saved } 이름. 저장된 뒤 새 대시보드가 오면 버린다
+  const orders = new Map();
+  const titles = new Map();
+  let editing = null; // { pid, tid, value }: 이름 바꾸는 줄
+  let drag = null; // { pid, tid, ids, start, ul, ghost }: 끄는 중
+  let refocus = null; // 다시 그린 뒤 포커스할 { pid, tid, kind }
+  let redrawing = false; // 카드를 다시 그려 갈아 끼우는 중
+  const rowEls = new Map(); // 이번 그림의 'kind:tid' → 버튼·칸
 
   const why = (r) => (typeof r?.data?.error === 'string' ? r.data.error : r?.status ? `HTTP ${r.status}` : `${who()} 연결 확인`);
   let msgTimer = null;
@@ -38,8 +48,20 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
 
   // ---- 카드 ----
   function section(v, rerender) {
+    if (v !== vm) { // 새 대시보드: 저장이 끝난 덮어보기는 버린다(서버가 같은 걸 준다)
+      for (const [k, o] of orders) if (o.saved) orders.delete(k);
+      for (const [k, o] of titles) if (o.saved) titles.delete(k);
+    }
     vm = v;
     redrawCards = rerender;
+    // 다시 그리면 줄이 새로 생기니, 지금 포커스가 줄 안 버튼이면 새 줄의 같은 버튼으로 옮긴다
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (active && !refocus) for (const [k, x] of rowEls) if (x.el === active) { const [kind, ...rest] = k.split(':'); refocus = { pid: x.pid, tid: rest.join(':'), kind }; break; }
+    rowEls.clear();
+    // 패널이 이 그림으로 갈아 끼우는 동안 빠지는 이름 칸의 blur 는 저장으로 치지 않는다(바로 새 칸으로 포커스)
+    redrawing = true;
+    queueMicrotask(() => { redrawing = false; });
+    if (refocus || editing) queueMicrotask(focusAfter);
     const list = vm.manualProjects ?? [];
     const kids = [
       h('div.mp-head', null,
@@ -61,6 +83,141 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     return kids;
   }
 
+  // ---- 할 일 줄: 이름 바꾸기·순서 바꾸기 ----
+  const linkedOf = (p) => applyOrder(p.linked, drag?.pid === p.id ? drag.ids : orders.get(p.id)?.ids).map((t) => (titles.has(t.id) ? { ...t, title: titles.get(t.id).title } : t));
+  // 다시 그린 뒤 포커스: 이름 칸, 아니면 방금 누른 버튼(못 누르게 됐으면 손잡이·✎). 응답 기다리는 동안은 미뤄 둔다
+  function focusAfter() {
+    if (editing) {
+      const el = rowEls.get(`edit:${editing.tid}`)?.el;
+      el?.focus?.();
+      if (el?.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length);
+      return;
+    }
+    if (!refocus || busy.has(refocus.pid)) return;
+    const { tid, kind } = refocus;
+    refocus = null;
+    const el = [kind, 'grip', 'rename'].map((k) => rowEls.get(`${k}:${tid}`)?.el).find((x) => x && !x.disabled);
+    el?.focus?.();
+  }
+  function startRename(p, t) {
+    if (busy.has(p.id) || drag) return;
+    editing = { pid: p.id, tid: t.id, value: t.title };
+    redrawCards();
+  }
+  function finishRename(save) {
+    const e = editing;
+    if (!e) return;
+    editing = null;
+    refocus = { pid: e.pid, tid: e.tid, kind: 'rename' };
+    const p = (vm.manualProjects ?? []).find((x) => x.id === e.pid);
+    const t = p && linkedOf(p).find((x) => x.id === e.tid);
+    if (!save || !t) { redrawCards(); return; }
+    const { patch, notice } = editPatch(t, { title: e.value, desc: '', descBase: '' });
+    if (notice) { say(false, '이름은 비워 둘 수 없어서 원래 이름을 그대로 뒀어요.'); return; }
+    if (!patch) { redrawCards(); return; }
+    const prev = titles.get(t.id);
+    titles.set(t.id, { title: patch.title, saved: false });
+    act(p.id, () => cy.todoEdit(t.id, { title: patch.title }), '이름 바꾸기 실패').then((r) => {
+      if (r?.ok) { const o = titles.get(t.id); if (o) o.saved = true; } else { if (prev) titles.set(t.id, prev); else titles.delete(t.id); redrawCards(); }
+    });
+  }
+  function saveOrder(p, ids, before) {
+    if (sameOrder(ids, before)) { redrawCards(); return; }
+    const prev = orders.get(p.id); // 실패하면 바로 앞 화면으로
+    orders.set(p.id, { ids, saved: false });
+    act(p.id, () => cy.projectOrder(p.id, ids), '순서 바꾸기 실패').then((r) => {
+      if (r?.ok) { const o = orders.get(p.id); if (o) o.saved = true; } else { if (prev) orders.set(p.id, prev); else orders.delete(p.id); redrawCards(); }
+    });
+  }
+  function step(p, t, delta, kind) {
+    const ids = linkedOf(p).map((x) => x.id);
+    const next = stepId(ids, t.id, delta);
+    if (!next) return;
+    refocus = { pid: p.id, tid: t.id, kind };
+    saveOrder(p, next, ids);
+  }
+  // 끌기: ⋮⋮ 를 누르면 바로 시작. 줄 자리는 점선으로 비워 두고(끄는 중 자리 표시) 포인터를 따라 다른 줄을 밀어낸다
+  function startDrag(p, t, e) {
+    if (e.button !== 0 || busy.has(p.id) || editing) return;
+    e.preventDefault();
+    const ids = linkedOf(p).map((x) => x.id);
+    if (ids.length < 2) return;
+    const ghost = h('div.mp-drag-ghost', { text: t.title, 'aria-hidden': 'true' });
+    if (ghost.style) { ghost.style.left = `${e.clientX}px`; ghost.style.top = `${e.clientY}px`; }
+    document.body.append(ghost);
+    drag = { pid: p.id, tid: t.id, ids, start: ids, ul: null, ghost };
+    document.addEventListener('pointermove', onDragMove, true);
+    document.addEventListener('pointerup', onDragEnd, true);
+    document.addEventListener('pointercancel', onDragCancel, true);
+    document.addEventListener('keydown', onDragKey, true);
+    redrawCards();
+  }
+  function onDragMove(e) {
+    if (!drag) return;
+    e.preventDefault();
+    if (drag.ghost.style) { drag.ghost.style.left = `${e.clientX}px`; drag.ghost.style.top = `${e.clientY}px`; }
+    const rows = [...(drag.ul?.children ?? [])].map((li) => { const r = li.getBoundingClientRect(); return { id: li.dataset.tid, mid: r.top + r.height / 2 }; });
+    const next = moveId(drag.ids, drag.tid, dropSlot(rows, drag.tid, e.clientY));
+    if (!sameOrder(next, drag.ids)) { drag.ids = next; redrawCards(); }
+  }
+  function endDrag() {
+    const d = drag;
+    drag = null;
+    document.removeEventListener('pointermove', onDragMove, true);
+    document.removeEventListener('pointerup', onDragEnd, true);
+    document.removeEventListener('pointercancel', onDragCancel, true);
+    document.removeEventListener('keydown', onDragKey, true);
+    d?.ghost.remove();
+    return d;
+  }
+  function onDragEnd() {
+    const d = endDrag();
+    if (!d) return;
+    const p = (vm.manualProjects ?? []).find((x) => x.id === d.pid);
+    refocus = { pid: d.pid, tid: d.tid, kind: 'grip' };
+    if (p) saveOrder(p, d.ids, d.start); else redrawCards();
+  }
+  function onDragCancel() { if (endDrag()) redrawCards(); }
+  function onDragKey(e) {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation(); // 패널 닫기(Esc)보다 먼저 끌기만 그만
+    onDragCancel();
+  }
+
+  function todoRow(p, t, i, n, wait) {
+    const keep = (kind, el) => { rowEls.set(`${kind}:${t.id}`, { el, pid: p.id }); return el; };
+    const dragging = drag?.tid === t.id;
+    if (editing?.tid === t.id && editing.pid === p.id) {
+      const input = h('input.mp-edit', {
+        type: 'text', value: editing.value, 'aria-label': `이름 바꾸기: ${t.title}`, placeholder: '할 일 이름',
+        oninput: (e) => { if (editing?.tid === t.id) editing.value = e.target.value; },
+        onkeydown: (e) => { const k = editKey(e, 'title'); if (!k) return; e.preventDefault(); e.stopPropagation(); finishRename(k === 'save'); },
+        onblur: (e) => { if (editing?.tid === t.id && !redrawing && e.target.isConnected !== false) finishRename(true); }, // 다시 그려서 빠진 칸은 저장하지 않는다
+      });
+      input.value = editing.value;
+      return h('li.mp-row.editing', { dataset: { tid: t.id } }, keep('edit', input),
+        h('span.mp-edit-hint.muted.small', { text: 'Enter 저장 · Esc 취소' }));
+    }
+    return h(`li.mp-row${dragging ? '.mp-dragging' : ''}`, { dataset: { tid: t.id } },
+      n > 1 ? keep('grip', h('button.ghost.mp-grip', {
+        type: 'button', title: '끌어서 순서 바꾸기 · ↑↓ 키로도 옮겨요', 'aria-label': `순서 바꾸기: ${t.title} (${i + 1}/${n}번째)`, disabled: wait,
+        onpointerdown: (e) => startDrag(p, t, e),
+        onkeydown: (e) => {
+          if (e.isComposing || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          step(p, t, e.key === 'ArrowUp' ? -1 : 1, 'grip');
+        },
+      }, '⋮⋮')) : null,
+      h('button.ghost.mp-check', { type: 'button', title: '끝냈어요', 'aria-label': `끝내기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), '끝내기 실패') }, '○'),
+      h('span.t', { text: t.title, title: `${t.title} · 두 번 눌러 이름 바꾸기`, ondblclick: () => startRename(p, t) }),
+      h('span.mp-tools', null,
+        keep('rename', h('button.ghost.mp-rename', { type: 'button', title: '이름 바꾸기', 'aria-label': `이름 바꾸기: ${t.title}`, disabled: wait, onclick: () => startRename(p, t) }, '✎')),
+        n > 1 ? keep('up', h('button.ghost.mp-up', { type: 'button', title: '위로', 'aria-label': `위로: ${t.title}`, disabled: wait || i === 0, onclick: () => step(p, t, -1, 'up') }, '↑')) : null,
+        n > 1 ? keep('down', h('button.ghost.mp-down', { type: 'button', title: '아래로', 'aria-label': `아래로: ${t.title}`, disabled: wait || i === n - 1, onclick: () => step(p, t, 1, 'down') }, '↓')) : null,
+        h('button.ghost.mp-unlink', { type: 'button', title: '이 프로젝트에서 빼기(할 일은 남아요)', 'aria-label': `프로젝트에서 빼기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), '빼기 실패') }, '✕')));
+  }
+
   function card(p) {
     const wait = busy.has(p.id);
     const confirming = confirmDel === p.id;
@@ -77,6 +234,9 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       oninput: (e) => addDrafts.set(p.id, e.target.value),
       onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addTodo(e.target); } },
     });
+    const linked = linkedOf(p);
+    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, linked.map((t, i) => todoRow(p, t, i, linked.length, wait)));
+    if (drag?.pid === p.id) drag.ul = ul;
     return h(`article.card.proj.mp${p.done ? '.is-done' : ''}${wait ? '.busy' : ''}`, { dataset: { id: p.id } },
       h('div.head', null,
         h('span.name', { text: p.name, title: p.name }),
@@ -87,12 +247,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
         p.startText ? h('span', { text: `시작 ${p.startText}` }) : null,
         h('span', { text: todoCountText(p) })),
       p.note ? h('div.mp-note', { text: p.note }) : null,
-      p.linked.length
-        ? h('ul.mp-todos', { 'aria-label': `${p.name}의 할 일` }, p.linked.map((t) => h('li', null,
-          h('button.ghost.mp-check', { type: 'button', title: '끝냈어요', 'aria-label': `끝내기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), '끝내기 실패') }, '○'),
-          h('span.t', { text: t.title, title: t.title }),
-          h('button.ghost.mp-unlink', { type: 'button', title: '이 프로젝트에서 빼기(할 일은 남아요)', 'aria-label': `프로젝트에서 빼기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), '빼기 실패') }, '✕'))))
-        : null,
+      linked.length ? ul : null,
       p.done ? null : h('div.mp-add', null,
         input,
         h('button', { type: 'button', disabled: wait, onclick: () => addTodo(input) }, '추가'),

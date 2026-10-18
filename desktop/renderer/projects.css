@@ -91,3 +91,35 @@ button.mp-ev .sub:empty { display: none; }
   button.mp-ev .when { grid-row: auto; }
 }
 .todo .chip.mp-chip { max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
+
+/* 카드 안 할 일 줄: ⋮⋮ 끌기·↑↓ 순서, ✎·두 번 눌러 이름 바꾸기 */
+.mp-todos li.mp-row { border-radius: 7px; padding: 1px 2px; margin: 0 -2px; }
+button.mp-grip, button.mp-rename, button.mp-up, button.mp-down {
+  padding: 0 4px; line-height: 20px; font-size: 12px; flex: none; color: var(--faint);
+}
+button.mp-grip { cursor: grab; letter-spacing: -2px; padding-right: 6px; touch-action: none; user-select: none; }
+button.mp-grip:hover:not(:disabled), button.mp-rename:hover:not(:disabled), button.mp-up:hover:not(:disabled), button.mp-down:hover:not(:disabled) { color: var(--fg); }
+button.mp-up:disabled, button.mp-down:disabled { opacity: 0.35; }
+.mp-todos li .mp-tools { display: flex; align-items: center; gap: 0; flex: none; }
+.mp-todos li .mp-tools button { opacity: 0; }
+.mp-todos li:hover .mp-tools button, .mp-todos li:focus-within .mp-tools button { opacity: 1; }
+.mp-todos li:hover .mp-tools button.mp-up:disabled, .mp-todos li:hover .mp-tools button.mp-down:disabled,
+.mp-todos li:focus-within .mp-tools button.mp-up:disabled, .mp-todos li:focus-within .mp-tools button.mp-down:disabled { opacity: 0.35; }
+.mp-todos li .t { cursor: default; }
+.mp-todos.is-dragging, .mp-todos.is-dragging * { cursor: grabbing; user-select: none; }
+.mp-todos li.mp-dragging { outline: 1.5px dashed var(--accent); outline-offset: -1px; background: var(--accent-soft); }
+.mp-todos li.mp-dragging > * { opacity: 0.35; }
+.mp-drag-ghost {
+  position: fixed; z-index: 60; pointer-events: none; max-width: min(320px, 70vw); padding: 3px 10px; border-radius: 7px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
+  background: var(--pop); color: var(--fg); box-shadow: var(--pop-shadow); transform: translate(10px, -50%); opacity: 0.92;
+}
+.mp-todos li.editing { flex-wrap: wrap; gap: 4px 8px; padding: 2px 0; }
+input.mp-edit {
+  flex: 1 1 160px; min-width: 0; padding: 3px 7px; font-size: 13px; border-radius: 7px;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--fg); outline: none;
+}
+.mp-edit-hint { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+@media (max-width: 420px) {
+  .mp-edit-hint { display: none; }
+}

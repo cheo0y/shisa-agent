@@ -75,6 +75,7 @@ export function groupTodos(todos) {
       ...(typeof t.doing === 'boolean' ? { doing: t.doing } : {}), // 사용자가 누른 (진행중) 토글
       ...(str(t.today) ? { today: t.today } : {}), // 오늘 할 일로 고른 날(KST)
       ...(str(t.projectId) ? { projectId: t.projectId } : {}), // 묶인 직접 만든 프로젝트
+      ...(str(t.projectId) && Number.isFinite(t.projectOrder) ? { projectOrder: t.projectOrder } : {}), // 그 프로젝트 안 순서
     });
   }
   return [...groups.entries()]
