@@ -2,6 +2,7 @@
 // 값 모양: '' = 기본(설정의 뇌·모델) · 'provider|' = 그 뇌의 기본 모델 · 'provider|model' · 'provider|*' = 직접 입력
 // 고른 것은 그 대화(스레드)에 기억된다(데몬 chat_threads.pick). 화면 글은 해요체.
 
+import { t as tr } from './i18n.js';
 export const PICK_PROVIDERS = ['claude-code', 'codex', 'anthropic', 'gemini', 'openai', 'genspark'];
 const MODEL_RE = /^[A-Za-z0-9._:/-]{1,100}$/;
 export const okPickModel = (m) => typeof m === 'string' && MODEL_RE.test(m);
@@ -20,7 +21,7 @@ export function cleanChatModels(data) {
       why: typeof b.why === 'string' ? b.why.slice(0, 200) : '',
       tools: b.tools === true,
       defaultModel: okPickModel(b.defaults?.general) ? b.defaults.general : '',
-      defaultLabel: typeof b.defaultLabel === 'string' ? b.defaultLabel.slice(0, 60) : '기본',
+      defaultLabel: typeof b.defaultLabel === 'string' ? b.defaultLabel.slice(0, 60) : tr('panel.pick_default'),
       models: (Array.isArray(b.models) ? b.models : []).filter((m) => okPickModel(m?.id)).slice(0, 200)
         .map((m) => ({ id: m.id, label: typeof m.label === 'string' ? m.label.slice(0, 60) : '' })),
       listError: typeof b.listError === 'string' ? b.listError.slice(0, 200) : '',
@@ -51,19 +52,19 @@ const modelText = (m) => (m.label && m.label !== m.id ? `${m.label}` : m.id);
 export function pickGroups(models, current) {
   const data = models ?? { active: '', brains: [] };
   const active = data.brains.find((b) => b.active);
-  const head = { value: '', text: `기본${active ? ` · ${active.label} ${active.defaultLabel}` : ''}` };
+  const head = { value: '', text: active ? tr('panel.pick_head_active', { brain: active.label, model: active.defaultLabel }) : tr('panel.pick_default') };
   const cur = decodePick(current);
   const groups = [];
   for (const b of data.brains) {
     if (!b.ready) {
-      groups.push({ label: b.label, note: b.why, rows: [{ value: `${b.provider}|`, text: `${b.label}: ${b.why || '준비가 안 됐어요'}`, disabled: true }] });
+      groups.push({ label: b.label, note: b.why, rows: [{ value: `${b.provider}|`, text: `${b.label}: ${b.why || tr('panel.pick_not_ready')}`, disabled: true }] });
       continue;
     }
-    const rows = [{ value: `${b.provider}|`, text: `${b.label} · 기본(${b.defaultLabel})` }];
+    const rows = [{ value: `${b.provider}|`, text: tr('panel.pick_brain_default', { brain: b.label, model: b.defaultLabel }) }];
     for (const m of b.models) rows.push({ value: `${b.provider}|${m.id}`, text: `${b.label} · ${modelText(m)}` });
     if (cur?.provider === b.provider && cur.model && !b.models.some((m) => m.id === cur.model)) rows.push({ value: `${b.provider}|${cur.model}`, text: `${b.label} · ${cur.model}` });
-    rows.push({ value: `${b.provider}|*`, text: `${b.label} · 직접 입력…` });
-    groups.push({ label: `${b.label}${b.tools ? '' : ' (업무 도구 없이)'}`, note: [b.note, b.listError].filter(Boolean).join(' · '), rows });
+    rows.push({ value: `${b.provider}|*`, text: tr('panel.pick_custom', { brain: b.label }) });
+    groups.push({ label: b.tools ? b.label : tr('panel.pick_no_tools', { brain: b.label }), note: [b.note, b.listError].filter(Boolean).join(' · '), rows });
   }
   return { head, groups };
 }
@@ -74,7 +75,7 @@ export function pickTitle(models, current) {
   if (!cur) return '';
   const b = models?.brains?.find((x) => x.provider === cur.provider);
   const name = b?.label ?? cur.provider;
-  return cur.model ? `${name} · ${cur.model}` : `${name} · 기본`;
+  return cur.model ? `${name} · ${cur.model}` : tr('panel.pick_title_default', { brain: name });
 }
 
 // 답 말풍선 아래 작은 글(데몬이 준 by.label)

@@ -1,6 +1,7 @@
 // 채팅 입력창 슬래시 명령 자동완성 메뉴(패널 채팅·세션 창 입력창). 로직은 src/slash.js, 여기선 그리기와 키·마우스만.
 // 입력이 `/` 로 시작하고 공백이 아직 없으면 후보를 입력창 위에 띄운다. ↑/↓ 옮기기 · Tab/Enter 넣기(`/이름 `) · Esc 닫기 · 클릭.
 import { createCommandCache, menuFor, menuKey, applyMenuKey, closedMenu, slashQuery, withExtra } from '../src/slash.js';
+import { t as tr, onLanguage } from '../src/i18n.js';
 
 let cache = null; // 창 하나에 하나(10분 캐시)
 
@@ -12,7 +13,8 @@ export function attachSlashMenu(input, { listCommands, extra = [] }) {
   box.className = 'slash-menu';
   box.id = `${input.id || 'input'}-slash`;
   box.setAttribute('role', 'listbox');
-  box.setAttribute('aria-label', '슬래시 명령');
+  box.setAttribute('aria-label', tr('panel.slash_label'));
+  onLanguage(() => box.setAttribute('aria-label', tr('panel.slash_label'))); // 언어가 바뀌면
   box.hidden = true;
   document.body.append(box);
   input.setAttribute('aria-autocomplete', 'list');

@@ -1,5 +1,6 @@
 // 할 일 휴지통 — 순수 로직. 휴지통 묶음 모델(서버 trash + 응답 대기 중 변경 겹치기), 그 자리 확인 상태,
 // 되돌리기(5초) 창, 키 처리, 펼침 기억, IPC 인자 거르기.
+import { t as tr } from './i18n.js';
 import { PRIORITIES } from './todos.js';
 
 export const UNDO_MS = 5000;
@@ -15,7 +16,7 @@ export function daysAgo(iso, now = Date.now()) {
   const t = Date.parse(str(iso));
   if (!Number.isFinite(t)) return '';
   const d = Math.max(0, Math.floor((now - t) / DAY));
-  return d === 0 ? '오늘' : d === 1 ? '어제' : `${d}일 전`;
+  return d === 0 ? tr('date.today') : d === 1 ? tr('date.yesterday') : tr('date.day_ago', { n: d });
 }
 
 const shapeItem = (t, now) => {
@@ -86,9 +87,9 @@ export function confirmReducer(state, action) {
 export const isConfirming = (state, kind, id) => !!state && state.kind === kind && (kind === 'empty' || state.id === id);
 
 export const CONFIRM_TEXT = {
-  trash: { q: '휴지통으로 옮길까요?', yes: '옮기기' },
-  purge: { q: '영구 삭제할까요?', yes: '삭제' },
-  empty: { q: '휴지통을 비울까요?', yes: '비우기' },
+  trash: { get q() { return tr('panel.trash_q'); }, get yes() { return tr('panel.trash_yes'); } },
+  purge: { get q() { return tr('panel.purge_q'); }, get yes() { return tr('panel.purge_yes'); } },
+  empty: { get q() { return tr('panel.empty_q'); }, get yes() { return tr('panel.empty_yes'); } },
 };
 
 // 확인 중 키: Enter 확인, Esc 취소(한글 조합 중엔 무시)

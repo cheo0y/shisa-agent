@@ -1,6 +1,7 @@
 // 마크다운 → HTML. marked 를 주입받는다(렌더러는 vendor/marked.js, 테스트는 같은 파일).
 // 원시 HTML·이미지는 글자로만, 링크는 http/https/slack 만 살린다. 렌더러에서 DOMPurify 로 한 번 더 거른다.
 import { isSafeLink } from './bubbles.js';
+import { t as tr } from './i18n.js';
 
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -8,7 +9,7 @@ export function escapeHtml(s) {
 
 // 콜아웃 종류 → 제목. GitHub 문법 `> [!NOTE]` 를 따른다.
 export const CALLOUTS = {
-  NOTE: '📝 참고', TIP: '💡 팁', IMPORTANT: '📌 중요', WARNING: '⚠️ 주의', CAUTION: '🚨 위험',
+  get NOTE() { return tr('panel.co_note'); }, get TIP() { return tr('panel.co_tip'); }, get IMPORTANT() { return tr('panel.co_important'); }, get WARNING() { return tr('panel.co_warning'); }, get CAUTION() { return tr('panel.co_caution'); },
 };
 // 글자색은 이 목록만 — `:red[글자]`
 export const COLORS = ['red', 'green', 'blue', 'orange', 'purple', 'gray'];

@@ -9,6 +9,7 @@
 // 커서·투명창 문제가 있어 안 쓴다). 맥·윈도우 같은 코드. Esc·창 밖·포커스 잃음·pointercancel 이면 원래 순서로 취소.
 // 데이터는 GET /dashboard 의 manualProjects(src/manual-projects.js 가 다듬은 vm.manualProjects)이고, 바꾼 뒤엔 onChanged 로 다시 읽는다.
 import { who } from './who.js';
+import { t as tr } from '../src/i18n.js';
 import { progressText, dateRangeText, emptyDraft, draftFromPick, draftOf, createBody, editBody, eventWhen, shapePick, applyOrder, moveId, stepId, dropSlot, sameOrder, gridSlot, pastDragStart } from '../src/manual-projects.js';
 import { editKey, editPatch } from '../src/todo-edit.js';
 import { createUi } from './ui-kit.js';
@@ -42,7 +43,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let cardDrag = null;
   const cardEls = new Map(); // 이번 그림의 프로젝트 id → 카드(article)
 
-  const why = (r) => (typeof r?.data?.error === 'string' ? r.data.error : r?.status ? `HTTP ${r.status}` : `${who()} 연결 확인`);
+  const why = (r) => (typeof r?.data?.error === 'string' ? r.data.error : r?.status ? `HTTP ${r.status}` : tr('panel.pv1', { who: who() }));
   let msgTimer = null;
   const say = (ok, text) => {
     msg = { ok, text };
@@ -85,21 +86,21 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const list = vm.manualProjects ?? [];
     const kids = [
       h('div.mp-head', null,
-        h('h2.mp-title', { text: '내가 만든 프로젝트' }),
+        h('h2.mp-title', { text: tr('panel.pv2') }),
         h('span.spacer'),
-        h('button.primary.mp-new', { type: 'button', title: '프로젝트 만들기: 빈 칸에서 시작하거나 일정에서 가져와요', 'aria-label': '프로젝트 만들기', onclick: openCreate }, '＋ 새 프로젝트')),
+        h('button.primary.mp-new', { type: 'button', title: tr('panel.pv3'), 'aria-label': tr('panel.pv4'), onclick: openCreate }, tr('panel.pv5'))),
     ];
     if (msg) kids.push(h(`div.result.${msg.ok ? 'ok' : 'err'}`, { role: 'status', text: msg.text }));
     if (!list.length) {
       kids.push(h('div.card.mp-empty', null, ui.emptyState({
-        icon: '🗂', text: '아직 만든 프로젝트가 없어요',
-        sub: '직접 적거나 캘린더 일정에서 가져와 시작해 보세요.',
-        action: h('button.mp-empty-btn', { type: 'button', onclick: openCreate }, '＋ 새 프로젝트'),
+        icon: '🗂', text: tr('panel.pv6'),
+        sub: tr('panel.pv7'),
+        action: h('button.mp-empty-btn', { type: 'button', onclick: openCreate }, tr('panel.pv5')),
       })));
     } else {
       const open = openCards(list), done = list.filter((p) => p.done);
       if (open.length) kids.push(h(`div.projects.mp-list.mp-open${cardDrag?.started ? '.is-sorting' : ''}`, null, open.map((p, i) => card(p, i, open.length))));
-      if (done.length) kids.push(h('h3.mp-sub', { text: `끝난 프로젝트 (${done.length})` }), h('div.projects.mp-list.done', null, done.map((p) => card(p))));
+      if (done.length) kids.push(h('h3.mp-sub', { text: tr('panel.pv8', { n: done.length }) }), h('div.projects.mp-list.done', null, done.map((p) => card(p))));
     }
     return kids;
   }
@@ -135,7 +136,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const prev = cardOrder; // 실패하면 바로 앞 화면으로
     cardOrder = { ids, saved: false };
     orderBusy = true;
-    act(null, async () => { try { return await cy.projectsOrder(ids); } finally { orderBusy = false; } }, '프로젝트 순서 바꾸기 실패').then((r) => {
+    act(null, async () => { try { return await cy.projectsOrder(ids); } finally { orderBusy = false; } }, tr('panel.pv9')).then((r) => {
       if (r?.ok) { if (cardOrder?.ids === ids) cardOrder.saved = true; } else { cardOrder = prev; slide(redrawCards); }
     });
   }
@@ -245,11 +246,11 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const t = p && linkedOf(p).find((x) => x.id === e.tid);
     if (!save || !t) { redrawCards(); return; }
     const { patch, notice } = editPatch(t, { title: e.value, desc: '', descBase: '' });
-    if (notice) { say(false, '이름은 비워 둘 수 없어서 원래 이름을 그대로 뒀어요.'); return; }
+    if (notice) { say(false, tr('panel.pv10')); return; }
     if (!patch) { redrawCards(); return; }
     const prev = titles.get(t.id);
     titles.set(t.id, { title: patch.title, saved: false });
-    act(p.id, () => cy.todoEdit(t.id, { title: patch.title }), '이름 바꾸기 실패').then((r) => {
+    act(p.id, () => cy.todoEdit(t.id, { title: patch.title }), tr('panel.pv11')).then((r) => {
       if (r?.ok) { const o = titles.get(t.id); if (o) o.saved = true; } else { if (prev) titles.set(t.id, prev); else titles.delete(t.id); redrawCards(); }
     });
   }
@@ -257,7 +258,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     if (sameOrder(ids, before)) { redrawCards(); return; }
     const prev = orders.get(p.id); // 실패하면 바로 앞 화면으로
     orders.set(p.id, { ids, saved: false });
-    act(p.id, () => cy.projectOrder(p.id, ids), '순서 바꾸기 실패').then((r) => {
+    act(p.id, () => cy.projectOrder(p.id, ids), tr('panel.pv12')).then((r) => {
       if (r?.ok) { const o = orders.get(p.id); if (o) o.saved = true; } else { if (prev) orders.set(p.id, prev); else orders.delete(p.id); redrawCards(); }
     });
   }
@@ -324,19 +325,19 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const dragging = drag?.tid === t.id;
     if (editing?.tid === t.id && editing.pid === p.id) {
       const input = h('input.mp-edit', {
-        type: 'text', value: editing.value, 'aria-label': `이름 바꾸기: ${t.title}`, placeholder: '할 일 이름',
+        type: 'text', value: editing.value, 'aria-label': tr('panel.pv13', { title: t.title }), placeholder: tr('panel.pv14'),
         oninput: (e) => { if (editing?.tid === t.id) editing.value = e.target.value; },
         onkeydown: (e) => { const k = editKey(e, 'title'); if (!k) return; e.preventDefault(); e.stopPropagation(); finishRename(k === 'save'); },
         onblur: (e) => { if (editing?.tid === t.id && !redrawing && e.target.isConnected !== false) finishRename(true); }, // 다시 그려서 빠진 칸은 저장하지 않는다
       });
       input.value = editing.value;
       return h('li.mp-row.editing', { dataset: { tid: t.id } }, keep('edit', input),
-        h('span.mp-edit-hint.muted.small', { text: 'Enter 저장 · Esc 취소' }));
+        h('span.mp-edit-hint.muted.small', { text: tr('panel.pv15') }));
     }
     // 손잡이(⋮⋮)는 줄 왼쪽 여백에 떠 있고 마우스를 올리거나 키보드로 갔을 때만 보인다. 도구(✎ ↑ ↓ ✕)도 같다
     return h(`li.mp-row${dragging ? '.mp-dragging' : ''}`, { dataset: { tid: t.id } },
       n > 1 ? keep('grip', h('button.ghost.mp-grip', {
-        type: 'button', title: '끌어서 순서 바꾸기 · ↑↓ 키로도 옮겨요', 'aria-label': `순서 바꾸기: ${t.title} (${i + 1}/${n}번째)`, disabled: wait,
+        type: 'button', title: tr('panel.pv16'), 'aria-label': tr('panel.pv17', { title: t.title, i: i + 1, n }), disabled: wait,
         onpointerdown: (e) => startDrag(p, t, e),
         onkeydown: (e) => {
           if (e.isComposing || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
@@ -344,13 +345,13 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
           step(p, t, e.key === 'ArrowUp' ? -1 : 1, 'grip');
         },
       }, h('span.grip-dots', { 'aria-hidden': 'true' }))) : null,
-      h('button.ghost.mp-check', { type: 'button', title: '끝냈어요', 'aria-label': `끝내기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), '끝내기 실패') }, h('span.ring', { 'aria-hidden': 'true' })),
-      h('span.t', { text: t.title, title: `${t.title} · 두 번 눌러 이름 바꾸기`, ondblclick: () => startRename(p, t) }),
+      h('button.ghost.mp-check', { type: 'button', title: tr('panel.pv18'), 'aria-label': tr('panel.pv19', { title: t.title }), disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), tr('panel.pv20')) }, h('span.ring', { 'aria-hidden': 'true' })),
+      h('span.t', { text: t.title, title: tr('panel.pv21', { title: t.title }), ondblclick: () => startRename(p, t) }),
       h('span.mp-tools', null,
-        keep('rename', ui.iconBtn('mp-rename', { label: `이름 바꾸기: ${t.title}`, title: '이름 바꾸기', icon: '✎', size: 's', disabled: wait, onclick: () => startRename(p, t) })),
-        n > 1 ? keep('up', ui.iconBtn('mp-up', { label: `위로: ${t.title}`, title: '위로', icon: '↑', size: 's', disabled: wait || i === 0, onclick: () => step(p, t, -1, 'up') })) : null,
-        n > 1 ? keep('down', ui.iconBtn('mp-down', { label: `아래로: ${t.title}`, title: '아래로', icon: '↓', size: 's', disabled: wait || i === n - 1, onclick: () => step(p, t, 1, 'down') })) : null,
-        ui.iconBtn('mp-unlink', { label: `프로젝트에서 빼기: ${t.title}`, title: '이 프로젝트에서 빼기(할 일은 남아요)', icon: '✕', size: 's', disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), '빼기 실패') })));
+        keep('rename', ui.iconBtn('mp-rename', { label: tr('panel.pv13', { title: t.title }), title: tr('panel.pv22'), icon: '✎', size: 's', disabled: wait, onclick: () => startRename(p, t) })),
+        n > 1 ? keep('up', ui.iconBtn('mp-up', { label: tr('panel.pv23', { title: t.title }), title: tr('panel.pv24'), icon: '↑', size: 's', disabled: wait || i === 0, onclick: () => step(p, t, -1, 'up') })) : null,
+        n > 1 ? keep('down', ui.iconBtn('mp-down', { label: tr('panel.pv25', { title: t.title }), title: tr('panel.pv26'), icon: '↓', size: 's', disabled: wait || i === n - 1, onclick: () => step(p, t, 1, 'down') })) : null,
+        ui.iconBtn('mp-unlink', { label: tr('panel.pv27', { title: t.title }), title: tr('panel.pv28'), icon: '✕', size: 's', disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), tr('panel.pv29')) })));
   }
 
   // ---- ＋ 할 일: 누르면 그 자리에 입력칸(Enter 추가·계속 입력, Esc·바깥 누르기로 닫힘), 옆에 「기존 할 일」 찾기 메뉴 ----
@@ -377,8 +378,8 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   }
   function addRow(p, wait, others) {
     if (adding !== p.id) {
-      return keepAdd(p, 'add-open', h('button.ghost.mp-add-open', { type: 'button', 'aria-label': `할 일 추가: ${p.name}`, title: '이 프로젝트에 할 일 추가', onclick: () => openAdd(p) },
-        h('span.plus', { 'aria-hidden': 'true', text: '＋' }), h('span', { text: '할 일' })));
+      return keepAdd(p, 'add-open', h('button.ghost.mp-add-open', { type: 'button', 'aria-label': tr('panel.pv30', { name: p.name }), title: tr('panel.pv31'), onclick: () => openAdd(p) },
+        h('span.plus', { 'aria-hidden': 'true', text: '＋' }), h('span', { text: tr('panel.pv32') })));
     }
     const add = (input) => {
       const title = String(input.value ?? '').replace(/\s+/g, ' ').trim();
@@ -386,10 +387,10 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       addDrafts.delete(p.id);
       input.value = '';
       refocus = { pid: p.id, tid: p.id, kind: 'add' };
-      act(p.id, () => cy.todoAdd({ title, priority: 2, projectId: p.id }), '할 일 추가 실패');
+      act(p.id, () => cy.todoAdd({ title, priority: 2, projectId: p.id }), tr('panel.pv33'));
     };
     const input = keepAdd(p, 'add', h('input.mp-add-input', {
-      type: 'text', placeholder: '할 일 적고 Enter', 'aria-label': `새 할 일: ${p.name}`, value: addDrafts.get(p.id) ?? '',
+      type: 'text', placeholder: tr('panel.pv34'), 'aria-label': tr('panel.pv35', { name: p.name }), value: addDrafts.get(p.id) ?? '',
       oninput: (e) => addDrafts.set(p.id, e.target.value),
       onkeydown: (e) => {
         if (e.isComposing) return;
@@ -400,15 +401,15 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     input.value = addDrafts.get(p.id) ?? '';
     const pick = others.length
       ? ui.menuButton('mp-pick', {
-        label: `기존 할 일 넣기: ${p.name}`, title: '다른 할 일을 이 프로젝트로 가져와요', text: '기존 할 일', size: 's', disabled: wait,
-        search: '할 일 찾기', empty: '넣을 할 일이 없어요',
+        label: tr('panel.pv36', { name: p.name }), title: tr('panel.pv37'), text: tr('panel.pv38'), size: 's', disabled: wait,
+        search: tr('panel.pv39'), empty: tr('panel.pv40'),
         items: () => others.map((t) => {
           const at = t.projectId ? (vm.manualProjects ?? []).find((x) => x.id === t.projectId) : null; // 다른 프로젝트에 있으면 옮긴다
-          return { label: t.title, hint: at ? `${at.name}에서 옮기기` : '', onSelect: () => { refocus = { pid: p.id, tid: p.id, kind: 'add' }; act(p.id, () => cy.todoEdit(t.id, { projectId: p.id }), '넣기 실패'); } };
+          return { label: t.title, hint: at ? tr('panel.pv41', { name: at.name }) : '', onSelect: () => { refocus = { pid: p.id, tid: p.id, kind: 'add' }; act(p.id, () => cy.todoEdit(t.id, { projectId: p.id }), tr('panel.pv42')); } };
         }),
       })
       : null;
-    addBox = h('div.mp-add', null, input, pick, h('span.mp-add-hint', { text: 'Enter 추가 · Esc 닫기' }));
+    addBox = h('div.mp-add', null, input, pick, h('span.mp-add-hint', { text: tr('panel.pv43') }));
     return addBox;
   }
   const keepAdd = (p, kind, el) => { rowEls.set(`${kind}:${p.id}`, { el, pid: p.id }); return el; };
@@ -431,61 +432,61 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const linked = linkedOf(p);
     const folded = linked.length > FOLD_AT && !expanded.has(p.id) && drag?.pid !== p.id;
     const shown = folded ? linked.slice(0, FOLD_AT) : linked;
-    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, shown.map((t, j) => todoRow(p, t, j, linked.length, wait)));
+    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': tr('panel.pv44', { name: p.name }) }, shown.map((t, j) => todoRow(p, t, j, linked.length, wait)));
     const fold = linked.length > FOLD_AT
       ? keepCard('fold', h('button.ghost.mp-fold', {
         type: 'button', 'aria-expanded': String(!folded),
         onclick: () => { if (folded) expanded.add(p.id); else expanded.delete(p.id); refocus = { pid: p.id, tid: p.id, kind: 'fold' }; redrawCards(); },
-      }, folded ? `${linked.length - FOLD_AT}개 더 보기` : '접기'))
+      }, folded ? tr('panel.pv45', { n: linked.length - FOLD_AT }) : tr('panel.pv46')))
       : null;
     if (drag?.pid === p.id) drag.ul = ul;
-    const toggleDone = () => act(p.id, () => cy.projectEdit(p.id, { status: p.done ? 'open' : 'done' }), p.done ? '다시 열기 실패' : '끝내기 실패');
+    const toggleDone = () => act(p.id, () => cy.projectEdit(p.id, { status: p.done ? 'open' : 'done' }), p.done ? tr('panel.pv47') : tr('panel.pv20'));
     const menu = keepCard('card-menu', ui.menuButton('mp-menu', {
-      label: `프로젝트 메뉴: ${p.name}`, title: '더 보기', disabled: wait,
+      label: tr('panel.pv48', { name: p.name }), title: tr('panel.pv49'), disabled: wait,
       items: () => [
-        { label: '고치기', icon: '✎', onSelect: () => openEdit(p) },
+        { label: tr('panel.pv50'), icon: '✎', onSelect: () => openEdit(p) },
         ...(sortable ? [
-          { label: '위로 옮기기', icon: '↑', disabled: orderBusy || i === 0, onSelect: () => stepCard(p, -1, 'card-menu') },
-          { label: '아래로 옮기기', icon: '↓', disabled: orderBusy || i === n - 1, onSelect: () => stepCard(p, 1, 'card-menu') },
+          { label: tr('panel.pv51'), icon: '↑', disabled: orderBusy || i === 0, onSelect: () => stepCard(p, -1, 'card-menu') },
+          { label: tr('panel.pv52'), icon: '↓', disabled: orderBusy || i === n - 1, onSelect: () => stepCard(p, 1, 'card-menu') },
         ] : []),
-        { label: p.done ? '다시 진행' : '끝내기', icon: p.done ? '↺' : '✓', onSelect: toggleDone },
+        { label: p.done ? tr('panel.pv53') : tr('panel.pv54'), icon: p.done ? '↺' : '✓', onSelect: toggleDone },
         'sep',
-        { label: '지우기', danger: true, onSelect: () => { confirmDel = p.id; refocus = { pid: p.id, tid: p.id, kind: 'card-del' }; redrawCards(); } },
+        { label: tr('panel.pv55'), danger: true, onSelect: () => { confirmDel = p.id; refocus = { pid: p.id, tid: p.id, kind: 'card-del' }; redrawCards(); } },
       ],
     }));
     const due = p.dueBadge;
     const meta = [
       due ? h(`span.ui-badge.mp-due${p.dueTone === 'over' ? '.err' : p.dueTone === 'soon' ? '.warn' : ''}`, { text: due.badge, title: p.dueText }) : null,
       dateRangeText(p) ? h('span.mp-date', { text: dateRangeText(p), title: p.dueText || undefined }) : null,
-      p.fromCalendar ? h('span.chip.mp-cal', { text: `📅 일정에서${p.fromCalendar.calendar ? ` · ${p.fromCalendar.calendar}` : ''}`, title: p.fromCalendar.title ? `가져온 일정: ${p.fromCalendar.title}` : '일정에서 가져왔어요' }) : null,
-      p.done ? h('span.ui-badge.ok', { text: '끝남' }) : null,
+      p.fromCalendar ? h('span.chip.mp-cal', { text: p.fromCalendar.calendar ? tr('panel.pv_from_cal_name', { calendar: p.fromCalendar.calendar }) : tr('panel.pv_from_cal'), title: p.fromCalendar.title ? tr('panel.pv56', { title: p.fromCalendar.title }) : tr('panel.pv57') }) : null,
+      p.done ? h('span.ui-badge.ok', { text: tr('panel.pv58') }) : null,
     ].filter(Boolean);
     const empty = !p.todos && !linked.length;
     const el = h(`article.card.proj.mp.nodrag${p.done ? '.is-done' : ''}${wait ? '.busy' : ''}${empty ? '.is-empty' : ''}${cardDrag?.started && cardDrag.pid === p.id ? '.mp-card-dragging' : ''}`, { dataset: { id: p.id } },
       sortable ? keepCard('card-grip', h('button.ghost.mp-card-grip.nodrag', {
-        type: 'button', title: '끌어서 프로젝트 순서 바꾸기 · 화살표 키로도 옮겨요', 'aria-label': `프로젝트 순서 바꾸기: ${p.name} (${i + 1}/${n}번째)`, disabled: orderBusy,
+        type: 'button', title: tr('panel.pv59'), 'aria-label': tr('panel.pv60', { name: p.name, i: i + 1, n }), disabled: orderBusy,
         onpointerdown: (e) => cardPointerDown(p, e), onkeydown: cardKey,
       }, h('span.grip-dots', { 'aria-hidden': 'true' }))) : null,
       h('div.head', null,
         h('span.name', { text: p.name, title: p.name }),
         keepCard('card-done', ui.iconBtn(`mp-done${p.done ? '.on' : ''}`, {
-          label: `${p.done ? '다시 진행' : '프로젝트 끝내기'}: ${p.name}`, title: p.done ? '다시 진행' : '프로젝트 끝내기', icon: p.done ? '↺' : '✓', disabled: wait, onclick: toggleDone,
+          label: tr(p.done ? 'panel.pv61_reopen' : 'panel.pv61_done', { name: p.name }), title: p.done ? tr('panel.pv53') : tr('panel.pv62'), icon: p.done ? '↺' : '✓', disabled: wait, onclick: toggleDone,
         })),
         menu),
-      h('div.meta.mp-meta', null, meta.length ? meta : h('span.mp-date.none', { text: '기한 없음' })), // 줄 자리를 카드끼리 맞춘다
+      h('div.meta.mp-meta', null, meta.length ? meta : h('span.mp-date.none', { text: tr('panel.pv63') })), // 줄 자리를 카드끼리 맞춘다
       p.todos ? ui.progress(p.todos - p.openTodos, p.todos, progressText(p)) : null,
       p.note ? h('div.mp-note', { text: p.note, title: p.note }) : null,
       linked.length ? ul : null,
       fold,
       p.done ? null : empty
-        ? h('div.mp-empty-body', null, adding === p.id ? null : h('span', { text: '아직 할 일이 없어요' }), addRow(p, wait, others))
+        ? h('div.mp-empty-body', null, adding === p.id ? null : h('span', { text: tr('panel.pv64') }), addRow(p, wait, others))
         : h('div.mp-foot', null, addRow(p, wait, others)), // 카드 맨 아래에 붙는다(같은 줄 카드 높이를 맞춰도)
       confirming
         ? h('div.mp-actions.confirm', { role: 'alert' },
-          h('span', { text: p.todos ? `지울까요? 묶인 할 일 ${p.todos}개는 남아요.` : '이 프로젝트를 지울까요?' }),
+          h('span', { text: p.todos ? tr('panel.pv65', { todos: p.todos }) : tr('panel.pv66') }),
           h('span.spacer'),
-          keepCard('card-del', h('button.danger', { type: 'button', disabled: wait, onclick: () => { confirmDel = null; act(p.id, () => cy.projectDelete(p.id), '지우기 실패', `「${p.name}」 프로젝트를 지웠어요`); } }, '지우기')),
-          h('button.ghost', { type: 'button', onclick: () => { confirmDel = null; refocus = { pid: p.id, tid: p.id, kind: 'card-menu' }; redrawCards(); } }, '취소'))
+          keepCard('card-del', h('button.danger', { type: 'button', disabled: wait, onclick: () => { confirmDel = null; act(p.id, () => cy.projectDelete(p.id), tr('panel.pv67'), tr('panel.pv68', { name: p.name })); } }, tr('panel.pv55'))),
+          h('button.ghost', { type: 'button', onclick: () => { confirmDel = null; refocus = { pid: p.id, tid: p.id, kind: 'card-menu' }; redrawCards(); } }, tr('panel.pv69')))
         : null);
     if (!p.done) cardEls.set(p.id, el);
     return el;
@@ -520,10 +521,10 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     if (r?.ok) {
       const name = isNew ? b.name : (b.patch.name ?? modal.cur.name);
       close();
-      say(true, isNew ? `「${name}」 프로젝트를 만들었어요` : `「${name}」 프로젝트를 고쳤어요`);
+      say(true, isNew ? tr('panel.pv70', { name }) : tr('panel.pv71', { name }));
       onChanged();
     } else {
-      modal = { ...modal, saving: false, error: `저장하지 못했어요: ${why(r)}` };
+      modal = { ...modal, saving: false, error: tr('panel.pv72', { why: why(r) }) };
       drawModal();
     }
   }
@@ -532,37 +533,37 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   function form() {
     const d = modal.draft;
     const set = (k) => (e) => { modal.draft = { ...modal.draft, [k]: e.target.value }; };
-    const name = h('input.mp-in', { type: 'text', value: d.name, placeholder: '예: 가을 행사 준비', 'aria-label': '이름', oninput: set('name'), onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(); } } });
-    const note = h('textarea.mp-in', { rows: '5', placeholder: '무엇을 하는 프로젝트인지, 참고할 것', 'aria-label': '메모', oninput: set('note') });
+    const name = h('input.mp-in', { type: 'text', value: d.name, placeholder: tr('panel.pv73'), 'aria-label': tr('panel.pv74'), oninput: set('name'), onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save(); } } });
+    const note = h('textarea.mp-in', { rows: '5', placeholder: tr('panel.pv75'), 'aria-label': tr('panel.pv76'), oninput: set('note') });
     note.value = d.note;
     queueMicrotask(() => name.focus());
     return [
       h('div.mp-m-head', null,
-        modal.mode === 'new' ? h('button.ghost.mp-back', { type: 'button', 'aria-label': '뒤로', onclick: () => { modal = d.source ? { ...modal, step: 'events' } : { ...modal, step: 'choose' }; drawModal(); if (d.source && !modal.pick) loadEvents(); } }, '‹') : null,
-        h('h3', { id: 'mp-m-title', text: modal.mode === 'new' ? (d.source ? '일정으로 프로젝트 만들기' : '새 프로젝트') : '프로젝트 고치기' })),
-      d.source ? h('div.mp-from', null, h('span.chip.mp-cal', { text: `📅 일정에서${d.source.calendar ? ` · ${d.source.calendar}` : ''}` }), h('span.muted.small', { text: d.source.title || '' })) : null,
-      field('이름', name),
-      field('메모', note),
+        modal.mode === 'new' ? h('button.ghost.mp-back', { type: 'button', 'aria-label': tr('panel.pv77'), onclick: () => { modal = d.source ? { ...modal, step: 'events' } : { ...modal, step: 'choose' }; drawModal(); if (d.source && !modal.pick) loadEvents(); } }, '‹') : null,
+        h('h3', { id: 'mp-m-title', text: modal.mode === 'new' ? (d.source ? tr('panel.pv78') : tr('panel.pv79')) : tr('panel.pv80') })),
+      d.source ? h('div.mp-from', null, h('span.chip.mp-cal', { text: d.source.calendar ? tr('panel.pv_from_cal_name', { calendar: d.source.calendar }) : tr('panel.pv_from_cal') }), h('span.muted.small', { text: d.source.title || '' })) : null,
+      field(tr('panel.pv74'), name),
+      field(tr('panel.pv76'), note),
       h('div.mp-dates', null,
-        field('시작', h('input.mp-in', { type: 'date', value: d.start, 'aria-label': '시작', oninput: set('start') })),
-        field('기한', h('input.mp-in', { type: 'date', value: d.due, 'aria-label': '기한', oninput: set('due') }))),
+        field(tr('panel.pv81'), h('input.mp-in', { type: 'date', value: d.start, 'aria-label': tr('panel.pv81'), oninput: set('start') })),
+        field(tr('panel.pv82'), h('input.mp-in', { type: 'date', value: d.due, 'aria-label': tr('panel.pv82'), oninput: set('due') }))),
       modal.error ? h('div.result.err', { role: 'alert', text: modal.error }) : null,
       h('div.mp-m-foot', null,
         h('span.spacer'),
-        h('button.ghost', { type: 'button', onclick: close }, '취소'),
-        h('button.primary', { type: 'button', disabled: modal.saving, onclick: save }, modal.saving ? '저장 중…' : '저장')),
+        h('button.ghost', { type: 'button', onclick: close }, tr('panel.pv69')),
+        h('button.primary', { type: 'button', disabled: modal.saving, onclick: save }, modal.saving ? tr('panel.pv83') : tr('panel.pv84'))),
     ];
   }
 
   function choose() {
     return [
-      h('div.mp-m-head', null, h('h3', { id: 'mp-m-title', text: '프로젝트 만들기' })),
+      h('div.mp-m-head', null, h('h3', { id: 'mp-m-title', text: tr('panel.pv4') })),
       h('div.mp-choose', null,
         h('button.mp-way', { type: 'button', onclick: () => { modal = { ...modal, step: 'form', draft: emptyDraft() }; drawModal(); } },
-          h('span.i', { text: '✏️' }), h('span.t', { text: '새로 만들기' }), h('span.d', { text: '빈 칸에서 시작해요' })),
+          h('span.i', { text: '✏️' }), h('span.t', { text: tr('panel.pv85') }), h('span.d', { text: tr('panel.pv86') })),
         h('button.mp-way', { type: 'button', onclick: loadEvents },
-          h('span.i', { text: '📅' }), h('span.t', { text: '일정에서 가져오기' }), h('span.d', { text: '다가오는 일정을 골라 채워요' }))),
-      h('div.mp-m-foot', null, h('span.spacer'), h('button.ghost', { type: 'button', onclick: close }, '취소')),
+          h('span.i', { text: '📅' }), h('span.t', { text: tr('panel.pv87') }), h('span.d', { text: tr('panel.pv88') }))),
+      h('div.mp-m-foot', null, h('span.spacer'), h('button.ghost', { type: 'button', onclick: close }, tr('panel.pv69'))),
     ];
   }
 
@@ -576,26 +577,26 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     h('span.t', { text: ev.title, title: ev.title }),
     h('span.sub', { text: [ev.calendar, ev.location].filter(Boolean).join(' · ') }));
     let body;
-    if (p.state === 'loading') body = h('div.mp-ev-note', { role: 'status', text: '일정을 불러오고 있어요…' });
+    if (p.state === 'loading') body = h('div.mp-ev-note', { role: 'status', text: tr('panel.pv89') });
     else if (p.state === 'off') {
       body = h('div.mp-ev-note', null,
-        h('div', { text: '설정에서 캘린더를 연결하면 일정에서 가져올 수 있어요.' }),
-        h('button', { type: 'button', onclick: () => { close(); openSettings(); } }, '설정 열기'));
+        h('div', { text: tr('panel.pv90') }),
+        h('button', { type: 'button', onclick: () => { close(); openSettings(); } }, tr('panel.pv91')));
     } else if (p.state === 'error') {
-      body = h('div.mp-ev-note', null, h('div', { text: '일정을 불러오지 못했어요.' }), h('button', { type: 'button', onclick: loadEvents }, '다시 해 보기'));
-    } else if (p.state === 'empty') body = h('div.mp-ev-note', { text: '앞으로 2주 안의 일정이 없어요.' });
+      body = h('div.mp-ev-note', null, h('div', { text: tr('panel.pv92') }), h('button', { type: 'button', onclick: loadEvents }, tr('panel.pv93')));
+    } else if (p.state === 'empty') body = h('div.mp-ev-note', { text: tr('panel.pv94') });
     else {
       body = h('div.mp-ev-list', null,
-        p.partial ? h('div.muted.small', { text: '캘린더 하나를 못 읽었어요. 읽은 것만 보여 줘요.' }) : null,
-        ...(p.upcoming.length ? [h('div.mp-ev-sec', { text: '다가오는 일정' }), ...p.upcoming.map(pickRow)] : []),
-        ...(p.past.length ? [h('div.mp-ev-sec', { text: '지난 며칠' }), ...p.past.map(pickRow)] : []));
+        p.partial ? h('div.muted.small', { text: tr('panel.pv95') }) : null,
+        ...(p.upcoming.length ? [h('div.mp-ev-sec', { text: tr('panel.pv96') }), ...p.upcoming.map(pickRow)] : []),
+        ...(p.past.length ? [h('div.mp-ev-sec', { text: tr('panel.pv97') }), ...p.past.map(pickRow)] : []));
     }
     return [
       h('div.mp-m-head', null,
-        h('button.ghost.mp-back', { type: 'button', 'aria-label': '뒤로', onclick: () => { modal = { ...modal, step: 'choose' }; drawModal(); } }, '‹'),
-        h('h3', { id: 'mp-m-title', text: '일정 고르기' })),
+        h('button.ghost.mp-back', { type: 'button', 'aria-label': tr('panel.pv77'), onclick: () => { modal = { ...modal, step: 'choose' }; drawModal(); } }, '‹'),
+        h('h3', { id: 'mp-m-title', text: tr('panel.pv98') })),
       body,
-      h('div.mp-m-foot', null, h('span.spacer'), h('button.ghost', { type: 'button', onclick: close }, '취소')),
+      h('div.mp-m-foot', null, h('span.spacer'), h('button.ghost', { type: 'button', onclick: close }, tr('panel.pv69'))),
     ];
   }
 
@@ -622,5 +623,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   // 캘린더 탭 일정 카드의 「프로젝트로 만들기」: 일정에서 가져오기와 같은 칸으로 바로 연다
   function openFromPick(ev) { modal = { step: 'form', mode: 'new', draft: draftFromPick(ev), error: '' }; drawModal(); }
 
-  return { section, openCreate, openFromPick, isOpen: () => !!modal };
+  // 언어가 바뀜: 카드는 패널이 section() 으로 다시 그린다. 열린 만들기 창만 여기서 다시
+  const relang = () => { if (modal) drawModal(); };
+  return { section, openCreate, openFromPick, relang, isOpen: () => !!modal };
 }

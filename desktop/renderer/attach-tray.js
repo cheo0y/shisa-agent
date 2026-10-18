@@ -1,6 +1,7 @@
 // 입력창 첨부 칩(패널 채팅·캐릭터 빠른 대화·세션 창 공용). 📎 고르기 · 끌어다 놓기 · ⌘V(스크린샷·파일) →
 // 바로 데몬에 올리고(upload) 칩에 미리보기·이름·크기·✕. 보낼 때 ready() 로 id 들을 받는다. 로직은 src/attachments.js.
 import { admitFiles, filesFromTransfer, hasFiles, pastedName, downscaleTarget, chipView, sendable, ATTACH_ERRORS } from '../src/attachments.js';
+import { t as tr } from '../src/i18n.js';
 
 const el = (tag, cls, props = {}) => {
   const e = document.createElement(tag);
@@ -51,7 +52,7 @@ export function createAttachTray(opts) {
       const thumb = a.kind === 'image' && a.localUrl ? el('img', 'att-thumb', { src: a.localUrl, alt: '' }) : el('span', 'att-icon', { text: v.icon, 'aria-hidden': 'true' });
       const chip = el('div', `att-chip${a.status === 'error' ? ' error' : a.status === 'uploading' ? ' busy' : ''}`, { title: v.title });
       chip.append(thumb, el('span', 'att-name', { text: v.name }), el('span', 'att-size', { text: v.state || v.size }),
-        el('button', 'att-x', { type: 'button', title: '빼기', 'aria-label': `${v.name} 빼기`, text: '✕', onclick: (e) => { e.preventDefault(); remove(a.key); } }));
+        el('button', 'att-x', { type: 'button', title: tr('panel.att_remove'), 'aria-label': tr('panel.att_remove_name', { name: v.name }), text: '✕', onclick: (e) => { e.preventDefault(); remove(a.key); } }));
       return chip;
     }));
   }
@@ -72,8 +73,8 @@ export function createAttachTray(opts) {
       const at = r?.ok ? r.data?.attachment : null;
       if (!items.includes(a)) return; // 그 사이 뺐다
       if (at?.id) Object.assign(a, { status: 'ready', id: at.id, kind: at.kind ?? a.kind, size: at.size ?? a.size, name: at.name ?? a.name });
-      else Object.assign(a, { status: 'error', error: r?.data?.error || '못 올렸어요' });
-    } catch { if (items.includes(a)) Object.assign(a, { status: 'error', error: '못 올렸어요' }); }
+      else Object.assign(a, { status: 'error', error: r?.data?.error || tr('panel.att_failed') });
+    } catch { if (items.includes(a)) Object.assign(a, { status: 'error', error: tr('panel.att_failed') }); }
     a.done?.();
     changed();
   }

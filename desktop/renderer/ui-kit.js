@@ -2,6 +2,7 @@
 // h·fill 은 패널의 작은 DOM 헬퍼(테스트에선 가짜 DOM)를 받는다. 메뉴는 body 끝에 붙는 떠 있는 상자(한 번에 하나)라
 // 카드가 다시 그려져도 열린 채로 남고, 고른 뒤·Esc·Tab·바깥 누르기·창 포커스 잃음·바깥 스크롤이면 닫힌다(창 크기가 바뀌면 자리만 다시).
 // 키보드: 열면 첫 항목(검색이 있으면 검색 칸)에 포커스, ↑↓·Home·End 로 옮기고 Enter·Space 로 고른다. Esc 는 패널 닫기보다 먼저 메뉴만 닫는다.
+import { t as tr } from '../src/i18n.js';
 
 let current = null; // 열린 메뉴 { trigger, el, items, onClose }
 
@@ -32,7 +33,7 @@ export function createUi({ h, fill }) {
     const fillEl = h('span.ui-progress-fill');
     if (fillEl.style) fillEl.style.width = `${pct}%`;
     return h(`div.ui-progress${pct === 100 ? '.full' : ''}`, null,
-      h('span.ui-progress-track', { role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(done), 'aria-label': label ?? `${total}개 중 ${done}개 끝냄` }, fillEl),
+      h('span.ui-progress-track', { role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(done), 'aria-label': label ?? tr('panel.ui_progress', { total, done }) }, fillEl),
       label ? h('span.ui-progress-text', { text: label }) : null);
   }
 
@@ -58,7 +59,7 @@ export function createUi({ h, fill }) {
     let query = '';
     let rows = [];
     const list = h('div.ui-menu-list');
-    const el = h(`div.ui-menu${opts.search ? '.has-search' : ''}`, { role: 'menu', 'aria-label': opts.label ?? '메뉴', onkeydown: onKey });
+    const el = h(`div.ui-menu${opts.search ? '.has-search' : ''}`, { role: 'menu', 'aria-label': opts.label ?? tr('panel.ui_menu'), onkeydown: onKey });
     const search = opts.search
       ? h('input.ui-menu-search', { type: 'search', placeholder: opts.search, 'aria-label': opts.search, autocomplete: 'off', spellcheck: 'false', oninput: (e) => { query = String(e.target.value ?? ''); draw(); } })
       : null;
@@ -75,7 +76,7 @@ export function createUi({ h, fill }) {
         if (!it.disabled) rows.push(b);
         return b;
       });
-      if (!shown.some((it) => it !== 'sep')) kids.push(h('div.ui-menu-empty', { text: q ? '찾는 게 없어요' : (opts.empty ?? '고를 게 없어요') }));
+      if (!shown.some((it) => it !== 'sep')) kids.push(h('div.ui-menu-empty', { text: q ? tr('panel.ui_none_found') : (opts.empty ?? tr('panel.ui_none')) }));
       fill(list, ...kids);
     }
     draw();

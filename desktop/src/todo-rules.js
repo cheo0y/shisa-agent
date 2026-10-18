@@ -1,6 +1,7 @@
 // 할 일 규칙·백로그 — 순수 로직. 규칙 목록 다듬기(대시보드 todoRules), 낙관적 켜기/끄기·지우기 겹침,
 // 백로그 묶음 접힘 상태, IPC 인자 거르기.
 
+import { t as tr } from './i18n.js';
 const str = (v) => (typeof v === 'string' ? v : '');
 const arr = (v) => (Array.isArray(v) ? v : []);
 
@@ -19,7 +20,7 @@ export function shapeRules(list) {
 export function rulesChip(rules) {
   const all = arr(rules);
   const on = all.filter((r) => r.enabled).length;
-  return on === all.length ? `규칙 ${on}` : `규칙 ${on}/${all.length}`;
+  return on === all.length ? tr('panel.rules_chip', { n: on }) : tr('panel.rules_chip_of', { n: on, all: all.length });
 }
 
 // 응답 오기 전 바꾼 것 겹치기: pending = Map(id → { enabled } | 'delete')
@@ -31,7 +32,7 @@ export function overlayRules(rules, pending) {
 
 // 효과 한 줄(요약이 없을 때)
 export function hitsLabel(n) {
-  return n > 0 ? `${n}번 적용` : '미적용';
+  return n > 0 ? tr('panel.rule_hits', { n }) : tr('panel.rule_no_hits');
 }
 
 // ---- 백로그 묶음 ----

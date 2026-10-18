@@ -4,9 +4,11 @@ import { shapeRules } from './todo-rules.js';
 import { PRIORITIES } from './todos.js';
 import { shapeManualProjects } from './manual-projects.js';
 import { okCalendarColor, CAL_COLORS } from './calendar-tab.js';
+import { t as tr, monthDay } from './i18n.js';
 
 export const SECTIONS = ['setup', 'overview', 'projects', 'calendar', 'todos', 'today', 'chat', 'models'];
-export const SECTION_LABELS = { setup: '설치', overview: '개요', projects: '프로젝트', calendar: '캘린더', todos: '할 일', today: '오늘 할 일', chat: '채팅', models: '모델' };
+// 탭 이름(부를 때 지금 언어로: 게터)
+export const SECTION_LABELS = Object.defineProperties({}, Object.fromEntries(SECTIONS.map((s) => [s, { get: () => tr(`panel.sec_${s}`), enumerable: true }])));
 
 // 모르는 섹션은 null. 예전 말풍선 open.section=scrum 은 오늘 표로
 export function normalizeSection(s) {
@@ -28,13 +30,13 @@ export function relativeTime(iso, now = Date.now()) {
   const t = toMs(iso);
   if (!Number.isFinite(t)) return '';
   const d = now - t;
-  if (d < MIN) return '방금';
-  if (d < HOUR) return `${Math.floor(d / MIN)}분 전`;
-  if (d < DAY) return `${Math.floor(d / HOUR)}시간 전`;
-  if (d < 2 * DAY) return '어제';
-  if (d < 7 * DAY) return `${Math.floor(d / DAY)}일 전`;
+  if (d < MIN) return tr('date.just_now');
+  if (d < HOUR) return tr('date.min_ago', { n: Math.floor(d / MIN) });
+  if (d < DAY) return tr('date.hour_ago', { n: Math.floor(d / HOUR) });
+  if (d < 2 * DAY) return tr('date.yesterday');
+  if (d < 7 * DAY) return tr('date.day_ago', { n: Math.floor(d / DAY) });
   const x = new Date(t);
-  return `${x.getMonth() + 1}월 ${x.getDate()}일`;
+  return monthDay(x.getMonth() + 1, x.getDate());
 }
 
 // "14:05" (로컬 시각)
@@ -47,7 +49,7 @@ export function clockTime(iso) {
 
 // 우선순위 이름: todos.js PRIORITIES(오늘 꼭·이번 주·천천히·언젠가)
 export function priorityLabel(p) {
-  return PRIORITIES.find((x) => x.value === p)?.label ?? '기타';
+  return PRIORITIES.find((x) => x.value === p)?.label ?? tr('panel.other');
 }
 
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -115,7 +117,7 @@ export function isActiveProject(p, now = Date.now()) {
 
 function shapeProject(p, now) {
   return {
-    name: str(p.name) || '(이름 없음)',
+    name: str(p.name) || tr('panel.no_name'),
     path: str(p.path),
     lastActive: str(p.lastActive),
     lastActiveRel: relativeTime(p.lastActive, now),
@@ -135,8 +137,8 @@ function shapeProject(p, now) {
 // ---- 연결(커넥터) ----
 // GET /dashboard 의 connectors: 기능마다 어디서 읽는지(api·mcp·off)와 준비 상태
 export const CONNECTOR_CAPS = ['slack', 'calendar', 'mail', 'issues'];
-const CONNECTOR_DEFAULT_LABELS = { slack: 'Slack', calendar: '캘린더', mail: '메일', issues: '이슈' };
-export const CONNECTOR_MODE_LABELS = { api: 'API', mcp: 'MCP', imap: '앱 비밀번호', off: '꺼짐' };
+const CONNECTOR_DEFAULT_LABELS = { slack: 'Slack', get calendar() { return tr('panel.cap_calendar'); }, get mail() { return tr('panel.cap_mail'); }, get issues() { return tr('panel.cap_issues'); } };
+export const CONNECTOR_MODE_LABELS = { api: 'API', mcp: 'MCP', get imap() { return tr('panel.mode_imap'); }, get off() { return tr('panel.mode_off'); } };
 
 // 모르는 기능·모드나 모양이 이상한 항목은 건너뛴다. 같은 기능이 두 번 오면 앞의 것
 export function shapeConnectors(list) {
@@ -176,7 +178,7 @@ function shapeCardCalendars(list) {
     seen.add(c.id);
     const phase = ['pending', 'ok', 'failed', 'off'].includes(c.phase) ? c.phase : 'pending';
     out.push({
-      id: c.id, name: str(c.name).trim().slice(0, 80) || '캘린더', enabled: c.enabled !== false, phase, color: okCalendarColor(c.color) ? c.color : CAL_COLORS[0],
+      id: c.id, name: str(c.name).trim().slice(0, 80) || tr('panel.cap_calendar'), enabled: c.enabled !== false, phase, color: okCalendarColor(c.color) ? c.color : CAL_COLORS[0],
       ...(Number.isInteger(c.meetings) && c.meetings >= 0 ? { meetings: c.meetings } : {}),
       ...(phase === 'failed' && str(c.reason).trim() ? { reason: str(c.reason).trim().slice(0, 300) } : {}),
     });
@@ -210,7 +212,7 @@ function shapeSync(s) {
     ...(s.phase === 'ok' && str(s.reason).trim() ? { reason: str(s.reason).trim().slice(0, 600) } : {}),
     // 캘린더: ICS 캘린더마다 결과(별칭 · 일정 수 · 못 가져온 이유 · 꺼 둠)
     ...(Array.isArray(s.calendars) ? { calendars: arr(s.calendars).filter((c) => c && /^[0-9a-f]{16}$/.test(str(c.id)) && ['ok', 'failed', 'off'].includes(c.phase)).map((c) => ({
-      id: c.id, name: str(c.name).trim().slice(0, 80) || '캘린더', phase: c.phase,
+      id: c.id, name: str(c.name).trim().slice(0, 80) || tr('panel.cap_calendar'), phase: c.phase,
       ...(Number.isInteger(c.meetings) && c.meetings >= 0 ? { meetings: c.meetings } : {}),
       ...(c.phase === 'failed' && str(c.reason).trim() ? { reason: str(c.reason).trim().slice(0, 300) } : {}),
     })) } : {}),
@@ -226,37 +228,37 @@ function shapeSync(s) {
 export function calendarPartsHint(s) {
   const list = Array.isArray(s?.calendars) ? s.calendars : [];
   if (!list.length || (list.length === 1 && list[0].phase !== 'off')) return '';
-  return list.map((c) => `${c.name}: ${c.phase === 'off' ? '꺼 둠' : c.phase === 'failed' ? `못 가져옴${c.reason ? `(${c.reason})` : ''}` : `일정 ${c.meetings ?? 0}개`}`).join(' / ');
+  return list.map((c) => `${c.name}: ${c.phase === 'off' ? tr('panel.cal_part_off') : c.phase === 'failed' ? (c.reason ? tr('panel.cal_part_failed_why', { why: c.reason }) : tr('panel.cal_part_failed')) : tr('panel.cal_part_events', { n: c.meetings ?? 0 })}`).join(' / ');
 }
 
 // 연결 카드 칩·안내 줄: 설정만 보고 「연결됨」이라 하지 않는다(캘린더는 실제로 가져왔는지까지)
 // → { tone: 'ok'|'warn'|'', text, hint? }
 export function connectorChipView(c) {
-  if (!c || c.mode === 'off') return { tone: '', text: '연결 안 됨' };
-  if (!c.ready) return { tone: 'warn', text: `준비 안 됨 · ${c.modeLabel}` };
+  if (!c || c.mode === 'off') return { tone: '', text: tr('panel.chip_off') };
+  if (!c.ready) return { tone: 'warn', text: tr('panel.chip_not_ready', { mode: c.modeLabel }) };
   const s = c.sync;
   if (c.cap === 'mail' && c.mode === 'imap') {
     const n = c.accounts?.length ?? 0;
     if (n > 1) {
-      const head = `메일 ${n}개 계정`;
-      if (s?.phase === 'pending') return { tone: 'ok', text: `연결됨 · ${head}`, hint: '받은편지함을 읽고 있어요. 잠시만 기다려 주세요.' };
-      if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 메일을 못 가져옴', hint: s.reason || '메일을 가져오지 못했어요.' };
-      if (s?.phase === 'ok' && s.reason) return { tone: 'warn', text: `연결됨 · ${head}`, hint: `최근 메일 ${s.count ?? 0}통 · 못 가져온 계정: ${s.reason}` };
-      if (s?.phase === 'ok') return { tone: 'ok', text: `연결됨 · ${head}`, hint: `최근 메일 ${s.count ?? 0}통을 읽었어요. 읽기만 해요.` };
-      return { tone: 'ok', text: `연결됨 · ${head}` };
+      const head = tr('panel.chip_mail_accounts', { n });
+      if (s?.phase === 'pending') return { tone: 'ok', text: tr('panel.chip_on', { what: head }), hint: tr('panel.chip_mail_reading') };
+      if (s?.phase === 'failed') return { tone: 'warn', text: tr('panel.chip_mail_failed'), hint: s.reason || tr('panel.chip_mail_failed_hint') };
+      if (s?.phase === 'ok' && s.reason) return { tone: 'warn', text: tr('panel.chip_on', { what: head }), hint: tr('panel.chip_mail_partial', { n: s.count ?? 0, why: s.reason }) };
+      if (s?.phase === 'ok') return { tone: 'ok', text: tr('panel.chip_on', { what: head }), hint: tr('panel.chip_mail_read', { n: s.count ?? 0 }) };
+      return { tone: 'ok', text: tr('panel.chip_on', { what: head }) };
     }
-    if (s?.phase === 'pending') return { tone: 'ok', text: '연결됨 · 메일 가져오는 중', hint: '받은편지함을 읽고 있어요. 잠시만 기다려 주세요.' };
-    if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 메일을 못 가져옴', hint: s.reason || '메일을 가져오지 못했어요.' };
-    if (s?.phase === 'ok' && Number.isInteger(s.count)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `최근 메일 ${s.count}통을 읽었어요. 읽기만 해요.` };
-    return { tone: 'ok', text: `연결됨 · ${c.modeLabel}` };
+    if (s?.phase === 'pending') return { tone: 'ok', text: tr('panel.chip_mail_pending'), hint: tr('panel.chip_mail_reading') };
+    if (s?.phase === 'failed') return { tone: 'warn', text: tr('panel.chip_mail_failed'), hint: s.reason || tr('panel.chip_mail_failed_hint') };
+    if (s?.phase === 'ok' && Number.isInteger(s.count)) return { tone: 'ok', text: tr('panel.chip_on', { what: c.modeLabel }), hint: tr('panel.chip_mail_read', { n: s.count }) };
+    return { tone: 'ok', text: tr('panel.chip_on', { what: c.modeLabel }) };
   }
   // 캘린더가 여럿이면 캘린더마다: 「회사: 일정 5개 / 개인: 못 가져옴(이유) / 가족: 꺼 둠」
   const parts = calendarPartsHint(s);
-  if (s?.phase === 'pending') return { tone: 'ok', text: `연결됨 · 일정 가져오는 중`, hint: '일정을 가져오고 있어요. 잠시만 기다려 주세요.' };
-  if (parts && (s?.phase === 'ok' || s?.phase === 'failed')) return { tone: s.phase === 'failed' ? 'warn' : 'ok', text: s.phase === 'failed' ? '연결됨 · 일부 일정을 못 가져옴' : `연결됨 · ${c.modeLabel}`, hint: parts };
-  if (s?.phase === 'failed') return { tone: 'warn', text: '연결됨 · 일정을 못 가져옴', hint: s.reason || '일정을 가져오지 못했어요.' };
-  if (s?.phase === 'ok' && Number.isInteger(s.meetings)) return { tone: 'ok', text: `연결됨 · ${c.modeLabel}`, hint: `오늘·내일 일정 ${s.meetings}개를 가져왔어요.` };
-  return { tone: 'ok', text: `연결됨 · ${c.modeLabel}` };
+  if (s?.phase === 'pending') return { tone: 'ok', text: tr('panel.chip_cal_pending'), hint: tr('panel.chip_cal_pending_hint') };
+  if (parts && (s?.phase === 'ok' || s?.phase === 'failed')) return { tone: s.phase === 'failed' ? 'warn' : 'ok', text: s.phase === 'failed' ? tr('panel.chip_cal_partial') : tr('panel.chip_on', { what: c.modeLabel }), hint: parts };
+  if (s?.phase === 'failed') return { tone: 'warn', text: tr('panel.chip_cal_failed'), hint: s.reason || tr('panel.chip_cal_failed_hint') };
+  if (s?.phase === 'ok' && Number.isInteger(s.meetings)) return { tone: 'ok', text: tr('panel.chip_on', { what: c.modeLabel }), hint: tr('panel.chip_cal_ok', { n: s.meetings }) };
+  return { tone: 'ok', text: tr('panel.chip_on', { what: c.modeLabel }) };
 }
 
 export function visibleSections(_vm) {

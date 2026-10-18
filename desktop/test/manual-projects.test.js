@@ -355,7 +355,7 @@ test('화면: 할 일이 많으면 「N개 더 보기」로 접고 펼치면 다
 test('패널 연결: 프로젝트 탭이 위에 직접 만든 것, 아래 「코드 작업에서 모은 것」, 할 일 줄에 📁 칩, IPC 와 프리로드', () => {
   const panel = readFileSync(new URL('../renderer/panel.js', import.meta.url), 'utf8');
   assert.match(panel, /projectsView\.section\(vm, renderProjects\)/);
-  assert.match(panel, /코드 작업에서 모은 것/);
+  assert.match(panel, /tr\('panel\.proj_auto'\)/);
   assert.match(panel, /projectChip\(t\)/);
   assert.match(readFileSync(new URL('../renderer/panel.html', import.meta.url), 'utf8'), /projects\.css/);
   const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8');

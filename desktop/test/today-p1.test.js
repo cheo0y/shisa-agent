@@ -13,7 +13,7 @@ test('오늘 할 일 탭: 추가는 오늘 꼭으로, 「오늘」 토글은 우
   assert.doesNotMatch(panel, /today: !on/, '예전 날짜 고르기 패치는 안 보낸다');
   assert.match(panel, /if \(t\.carry\?\.n\) kids\.push\(carryBox\(t\)\)/);
   assert.match(panel, /cy\.todayCarry\(cmd\)/);
-  assert.match(panel, /'\(오늘 할 일\)'/, '할 일 탭 「오늘 꼭」 칸 이름 옆 표시');
+  assert.match(panel, /tr\('panel\.prio_today'\)/, '할 일 탭 「오늘 꼭」 칸 이름 옆 표시');
 });
 
 test('아침 질문 단추: 오버레이 → today-carry IPC → POST /today/carry', () => {

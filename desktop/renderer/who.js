@@ -12,7 +12,7 @@ export function setWho(next) {
   if (n === id && characterName(n) === shown) return false;
   id = n;
   shown = characterName(n);
-  if (/ 비서$/.test(document.title)) document.title = appName(id); // 앱 이름을 제목으로 쓰는 창만(설정 창은 「설정」 그대로)
+  if (/ 비서$|秘書$/.test(document.title)) document.title = appName(id); // 앱 이름을 제목으로 쓰는 창만(설정 창은 「설정」 그대로)
   for (const fn of listeners) { try { fn(id); } catch { /* 한 곳이 실패해도 나머지는 바뀐다 */ } }
   return true;
 }

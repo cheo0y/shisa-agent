@@ -19,7 +19,7 @@ test('denied: status 400 과 data.error 를 채워 화면이 이유를 보여 �
   assert.match(read('../renderer/renderer.js'), /r\?\.status === 400 && r\.data\?\.error \? t\('overlay\.not_sent', \{ why: r\.data\.error \}\)/);
   assert.match(read('../renderer/panel.js'), /const why = r\?\.status === 400 && typeof r\.data\?\.error === 'string'/);
   // 대시보드: 데몬에 닿지 못했을 때(status 없음)만 「연결되지 않았어요」
-  assert.match(read('../renderer/panel.js'), /error = r\?\.error && !r\?\.status \? `\$\{who\(\)\}에 연결되지 않았어요\.`/); // 이름은 고른 캐릭터
+  assert.match(read('../renderer/panel.js'), /error = r\?\.error && !r\?\.status \? \(\) => tr\('panel\.err_not_connected', \{ who: who\(\) \}\)/); // 이름은 고른 캐릭터
   // 연결 해제 실패는 data.error 를 먼저
   assert.equal(read('../renderer/settings.js').match(/res\?\.data\?\.error \|\| res\?\.error \|\| t\('settings\.disc_fail_off'/g)?.length, 2);
 });

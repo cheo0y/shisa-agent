@@ -241,7 +241,7 @@ test('화면 연결: 패널·설정 창·마법사·프리로드·main 이 연�
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
   const panel = read('../renderer/panel.js');
   assert.match(panel, /cy\.connectorDisconnect\(c\.cap\)/);
-  assert.match(panel, /text: '연결하기'/);
+  assert.match(panel, /text: tr\('panel\.connect'\)/);
   assert.match(panel, /onDisconnectExtra/);
   assert.match(read('../renderer/setup-view.js'), /onConfirm: \(\) => onDisconnect\(item\.id, cap\)/);
   const settings = read('../renderer/settings.js');

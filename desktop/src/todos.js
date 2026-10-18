@@ -1,14 +1,15 @@
 // 할 일 편집 — 순수 로직. 낙관적 반영(대기 중인 변경을 서버 목록 위에 겹쳐 보기)과 입력 검증.
 import { isSafeLink } from './bubbles.js';
 import { reorderLocal } from './todo-rows.js';
+import { t as tr } from './i18n.js';
 
 
 // 화면에 보이는 우선순위 이름(데이터는 1~4 그대로 — 모델 프롬프트는 P1~P4 로 쓴다)
 export const PRIORITIES = [
-  { value: 1, label: '오늘 꼭' },
-  { value: 2, label: '이번 주' },
-  { value: 3, label: '천천히' },
-  { value: 4, label: '언젠가' }, // 기한 없고 안 중요(예전 「백로그」)
+  { value: 1, get label() { return tr('panel.p1'); } },
+  { value: 2, get label() { return tr('panel.p2'); } },
+  { value: 3, get label() { return tr('panel.p3'); } },
+  { value: 4, get label() { return tr('panel.p4'); } }, // 기한 없고 안 중요(예전 「백로그」)
 ];
 
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -39,7 +40,7 @@ export function clampPriority(p) {
 // 상세 편집(링크·메모) 저장 시 바뀐 필드만. 오류면 { error }
 export function detailPatch(todo, draft) {
   const link = cleanLink(draft.link);
-  if (link === undefined) return { error: '링크는 http(s) 또는 slack 주소만 돼요' };
+  if (link === undefined) return { error: tr('panel.err_link') };
   const note = cleanNote(draft.note);
   const patch = {};
   if (link !== (todo.linkRaw || null)) patch.link = link;

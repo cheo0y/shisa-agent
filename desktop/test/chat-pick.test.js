@@ -91,6 +91,6 @@ test('배선: 입력줄 드롭다운·직접 입력 칸, preload chatModels·cha
   assert.match(main, /const pick = hover \? \{\} : chatPickBody\(o\);/);
   assert.match(html, /<input id="chat-model-custom"[^>]*hidden>/);
   assert.match(panel, /useDefault: true/);
-  assert.match(panel, /기본 모델로 다시 보내기/);
+  assert.match(panel, /tr\('panel\.retry_default'\)/);
   assert.match(panel, /m\.by \? h\('span\.by'/);
 });

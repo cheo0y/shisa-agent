@@ -4,7 +4,7 @@
 const str = (v) => (typeof v === 'string' ? v : '');
 const arr = (v) => (Array.isArray(v) ? v : []);
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+import { t as tr, monthDayWeek } from './i18n.js';
 
 // 이 컴퓨터 시간대의 YYYY-MM-DD
 export function localDay(ms = Date.now()) {
@@ -16,17 +16,16 @@ const dayMs = (ymd) => Date.parse(`${ymd}T00:00:00Z`);
 export function dayLabel(ymd, now = Date.now()) {
   if (!DAY_RE.test(str(ymd))) return '';
   const [y, m, d] = ymd.split('-').map(Number);
-  const w = WEEK[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-  return `${y !== new Date(now).getFullYear() ? `${y}년 ` : ''}${m}월 ${d}일(${w})`;
+  return monthDayWeek(new Date(y, m - 1, d), { year: y !== new Date(now).getFullYear() });
 }
 // 기한 글: 「10월 30일(금)까지 · D-13」 · 「오늘까지」 · 「내일까지」 · 「3일 지남」
 export function dueText(due, now = Date.now()) {
   if (!DAY_RE.test(str(due))) return '';
   const left = Math.round((dayMs(due) - dayMs(localDay(now))) / 864e5);
-  if (left === 0) return '오늘까지';
-  if (left === 1) return '내일까지';
-  if (left < 0) return `${dayLabel(due, now)} · ${-left}일 지남`;
-  return `${dayLabel(due, now)}까지 · D-${left}`;
+  if (left === 0) return tr('panel.pj_due_today');
+  if (left === 1) return tr('panel.pj_due_tomorrow');
+  if (left < 0) return tr('panel.pj_overdue_day', { day: dayLabel(due, now), n: -left });
+  return tr('panel.pj_due_d', { day: dayLabel(due, now), n: left });
 }
 export function dueTone(due, now = Date.now()) {
   if (!DAY_RE.test(str(due))) return '';
@@ -37,21 +36,21 @@ export function dueTone(due, now = Date.now()) {
 export function dueParts(due, now = Date.now()) {
   if (!DAY_RE.test(str(due))) return null;
   const left = Math.round((dayMs(due) - dayMs(localDay(now))) / 864e5);
-  const badge = left === 0 ? '오늘' : left === 1 ? '내일' : left < 0 ? `${-left}일 지남` : `D-${left}`;
-  return { badge, day: dayLabel(due, now), date: left < 0 ? dayLabel(due, now) : `${dayLabel(due, now)}까지`, tone: dueTone(due, now) };
+  const badge = left === 0 ? tr('date.today') : left === 1 ? tr('date.tomorrow') : left < 0 ? tr('panel.pj_overdue', { n: -left }) : `D-${left}`;
+  return { badge, day: dayLabel(due, now), date: left < 0 ? dayLabel(due, now) : tr('panel.pj_until', { day: dayLabel(due, now) }), tone: dueTone(due, now) };
 }
 // 카드 날짜 한 줄: 시작·기한이 다 있으면 「10월 11일(일) ~ 10월 20일(화)」(같은 날이면 하루), 기한만 「…까지」, 시작만 「…부터」
 export function dateRangeText(p) {
   const due = p?.dueBadge;
   if (p?.startText && due) return p.start === p.due ? due.day : `${p.startText} ~ ${due.day}`;
   if (due) return due.date;
-  if (p?.startText) return `${p.startText}부터`;
+  if (p?.startText) return tr('panel.pj_from', { day: p.startText });
   return '';
 }
 // 진행 글: 「3개 남음 · 모두 5개」 · 「다 끝냈어요 · 5개」
 export function progressText(p) {
   if (!p.todos) return '';
-  return p.openTodos ? `${p.openTodos}개 남음 · 모두 ${p.todos}개` : `다 끝냈어요 · ${p.todos}개`;
+  return p.openTodos ? tr('panel.today_progress', { n: p.openTodos, total: p.todos }) : tr('panel.today_all_done', { total: p.todos });
 }
 
 // 프로젝트 안 순서(projectOrder 작은 것 위, 없는 건 뒤). 같으면 받은 순서 그대로
@@ -86,9 +85,9 @@ export function shapeManualProjects(list, todos = [], now = Date.now()) {
 
 // 카드 할 일 수 글: 「할 일 2개 남음 · 모두 3개」 · 「할 일 다 끝냄 (3개)」 · 「할 일 없음」
 export function todoCountText(p) {
-  if (!p.todos) return '할 일 없음';
-  if (!p.openTodos) return `할 일 다 끝냄 (${p.todos}개)`;
-  return `할 일 ${p.openTodos}개 남음 · 모두 ${p.todos}개`;
+  if (!p.todos) return tr('panel.no_todos');
+  if (!p.openTodos) return tr('panel.pj_todos_done', { n: p.todos });
+  return tr('panel.pj_todos_left', { n: p.openTodos, total: p.todos });
 }
 
 // ---- 카드 안 할 일 순서(끌기·↑↓) ----
@@ -157,11 +156,11 @@ export const draftOf = (p) => ({ name: str(p?.name), note: str(p?.note), start: 
 // 칸 → POST /projects/manual 본문. 이름이 없거나 기한이 시작보다 앞이면 { error }
 export function createBody(d) {
   const name = str(d?.name).replace(/\s+/g, ' ').trim();
-  if (!name) return { error: '이름을 적어 주세요' };
+  if (!name) return { error: tr('panel.pj_err_name') };
   const start = str(d?.start), due = str(d?.due);
-  if (start && !DAY_RE.test(start)) return { error: '시작 날짜 모양이 이상해요' };
-  if (due && !DAY_RE.test(due)) return { error: '기한 날짜 모양이 이상해요' };
-  if (start && due && due < start) return { error: '기한이 시작보다 앞이에요' };
+  if (start && !DAY_RE.test(start)) return { error: tr('panel.pj_err_start') };
+  if (due && !DAY_RE.test(due)) return { error: tr('panel.pj_err_due') };
+  if (start && due && due < start) return { error: tr('panel.pj_err_order') };
   const note = str(d?.note).replace(/\r\n?/g, '\n').trim();
   return { name, ...(note ? { note } : {}), ...(start ? { start } : {}), ...(due ? { due } : {}), ...(d?.source ? { source: d.source } : {}) };
 }
@@ -187,7 +186,7 @@ export function eventWhen(ev, now = Date.now()) {
   const sd = localDay(s);
   if (ev.allDay) {
     const last = Number.isFinite(e) ? localDay(e - 1) : sd;
-    return last > sd ? `${dayLabel(sd, now)} ~ ${dayLabel(last, now)}` : `${dayLabel(sd, now)} 종일`;
+    return last > sd ? `${dayLabel(sd, now)} ~ ${dayLabel(last, now)}` : tr('panel.pj_all_day', { day: dayLabel(sd, now) });
   }
   return `${dayLabel(sd, now)} ${hhmm(s)}${Number.isFinite(e) ? `–${localDay(e) === sd ? hhmm(e) : `${dayLabel(localDay(e), now)} ${hhmm(e)}`}` : ''}`;
 }

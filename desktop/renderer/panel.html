@@ -18,7 +18,7 @@
         <img id="brand-img" alt="" draggable="false">
         <span id="brand-name">시사 비서</span>
       </div>
-      <nav id="nav" role="tablist" aria-label="섹션"></nav>
+      <nav id="nav" role="tablist" aria-label="섹션" data-i18n-aria-label="panel.h_nav"></nav>
       <div id="side-foot">
         <span id="conn" class="conn off" title="시사 꺼짐">시사 꺼짐</span>
       </div>
@@ -28,10 +28,10 @@
       <header id="top" class="drag">
         <h1 id="title">개요</h1>
         <span id="updated"></span>
-        <button id="open-session" type="button" class="ghost nodrag" title="시사가 Claude Code 로 스스로 고치는 작업 보기">작업 세션</button>
-        <button id="refresh" type="button" class="ghost nodrag" title="새로고침: Slack·메일을 지금 다시 읽어 할 일에 넣어요">새로고침</button>
-        <button id="open-settings" type="button" class="ghost nodrag" title="설정: 모델·브리핑 출처·연결 상태 (⌘,)" aria-label="설정"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-        <button id="close" type="button" class="ghost nodrag close" title="닫기 (Esc)" aria-label="닫기">✕</button>
+        <button id="open-session" type="button" class="ghost nodrag" title="시사가 Claude Code 로 스스로 고치는 작업 보기" data-i18n="panel.h_session">작업 세션</button>
+        <button id="refresh" type="button" class="ghost nodrag" title="새로고침: Slack·메일을 지금 다시 읽어 할 일에 넣어요" data-i18n="panel.h_refresh" data-i18n-title="panel.h_refresh_title">새로고침</button>
+        <button id="open-settings" type="button" class="ghost nodrag" title="설정: 모델·브리핑 출처·연결 상태 (⌘,)" aria-label="설정" data-i18n-title="panel.h_settings_title" data-i18n-aria-label="panel.h_settings"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+        <button id="close" type="button" class="ghost nodrag close" title="닫기 (Esc)" aria-label="닫기" data-i18n-title="panel.h_close_title" data-i18n-aria-label="common.close">✕</button>
       </header>
       <div id="banner" role="status" hidden></div>
 
@@ -48,35 +48,35 @@
 
         <!-- 채팅: 왼쪽 대화 목록(스레드) + 오른쪽 그 대화 — 좁으면 목록을 접는다 -->
         <section id="sec-chat" class="sec chat" role="tabpanel" hidden>
-          <aside id="th-side" aria-label="대화 목록">
+          <aside id="th-side" aria-label="대화 목록" data-i18n-aria-label="panel.th_list">
             <div id="th-tools">
-              <button id="th-new" type="button" class="primary" title="새 대화 (⌘N)">+ 새 대화</button>
-              <input id="th-search" type="search" placeholder="대화 검색" aria-label="대화 검색" autocomplete="off" spellcheck="false">
+              <button id="th-new" type="button" class="primary" title="새 대화 (⌘N)" data-i18n="panel.th_new_btn" data-i18n-title="panel.th_new_title">+ 새 대화</button>
+              <input id="th-search" type="search" placeholder="대화 검색" aria-label="대화 검색" data-i18n-placeholder="panel.th_search" data-i18n-aria-label="panel.th_search" autocomplete="off" spellcheck="false">
             </div>
-            <div id="th-list" role="listbox" aria-label="대화"></div>
+            <div id="th-list" role="listbox" aria-label="대화" data-i18n-aria-label="panel.kind_chat"></div>
             <button id="th-archive-toggle" type="button" class="ghost small">보관함</button>
           </aside>
           <div id="th-scrim" hidden></div>
           <div id="th-main">
             <div id="th-head">
-              <button id="th-toggle" type="button" class="ghost" title="대화 목록" aria-label="대화 목록" aria-expanded="false">☰</button>
+              <button id="th-toggle" type="button" class="ghost" title="대화 목록" aria-label="대화 목록" data-i18n-title="panel.th_list" data-i18n-aria-label="panel.th_list" aria-expanded="false">☰</button>
               <span id="th-kind" aria-hidden="true"></span>
               <button id="th-title" type="button" class="th-title" title="눌러서 이름 바꾸기">새 대화</button>
-              <input id="th-title-input" type="text" aria-label="대화 이름" hidden>
+              <input id="th-title-input" type="text" aria-label="대화 이름" data-i18n-aria-label="panel.th_name" hidden>
               <button id="th-todo" type="button" class="th-todo" hidden></button>
-              <button id="th-sync" type="button" class="ghost th-sync" hidden title="터미널 Claude Code 에서 이어 간 대화(서브에이전트 포함)를 불러와요" aria-label="새로고침: 터미널에서 이어 간 대화 불러오기">↻</button>
+              <button id="th-sync" type="button" class="ghost th-sync" hidden title="터미널 Claude Code 에서 이어 간 대화(서브에이전트 포함)를 불러와요" aria-label="새로고침: 터미널에서 이어 간 대화 불러오기" data-i18n-title="panel.th_sync_title" data-i18n-aria-label="panel.th_sync_aria">↻</button>
             </div>
             <div id="chat-log" aria-live="polite"></div>
-            <div id="chat-agents" role="region" aria-label="돌고 있는 에이전트" hidden></div>
+            <div id="chat-agents" role="region" aria-label="돌고 있는 에이전트" data-i18n-aria-label="panel.agents_region" hidden></div>
             <div id="chat-att-err" class="att-err" role="alert" hidden></div>
-            <div id="chat-tray" class="att-tray" aria-label="붙인 파일" hidden></div>
+            <div id="chat-tray" class="att-tray" aria-label="붙인 파일" data-i18n-aria-label="panel.att_region" hidden></div>
             <div id="chat-compose">
-              <button id="chat-canned-btn" type="button" class="ghost att-pick" title="정해진 답 고르기: 오늘 할 일·응원·춤(AI 없이 바로)" aria-label="정해진 답 고르기">＋</button>
-              <button id="chat-attach" type="button" class="ghost att-pick" title="파일 붙이기: 이미지·PDF·문서·아무 파일(끌어다 놓거나 ⌘V 로 붙여도 돼요)" aria-label="파일 붙이기">📎</button>
-              <textarea id="chat-input" rows="1" placeholder="물어보세요. 예: 오늘 할 일 뭐 있어? (Shift+Enter 줄바꿈)" aria-label="메시지"></textarea>
-              <select id="chat-model" aria-label="AI·모델" title="이 대화에 쓸 AI·모델" hidden></select>
-              <input id="chat-model-custom" type="text" aria-label="모델 이름 직접 입력" placeholder="모델 이름" spellcheck="false" hidden>
-              <button id="chat-send" type="button" class="primary">보내기</button>
+              <button id="chat-canned-btn" type="button" class="ghost att-pick" title="정해진 답 고르기: 오늘 할 일·응원·춤(AI 없이 바로)" aria-label="정해진 답 고르기" data-i18n-title="panel.canned_title" data-i18n-aria-label="panel.canned_label">＋</button>
+              <button id="chat-attach" type="button" class="ghost att-pick" title="파일 붙이기: 이미지·PDF·문서·아무 파일(끌어다 놓거나 ⌘V 로 붙여도 돼요)" aria-label="파일 붙이기" data-i18n-title="panel.attach_title" data-i18n-aria-label="panel.attach_label">📎</button>
+              <textarea id="chat-input" rows="1" placeholder="물어보세요. 예: 오늘 할 일 뭐 있어? (Shift+Enter 줄바꿈)" aria-label="메시지" data-i18n-placeholder="panel.input_first_ph" data-i18n-aria-label="panel.input_aria"></textarea>
+              <select id="chat-model" aria-label="AI·모델" title="이 대화에 쓸 AI·모델" data-i18n-aria-label="panel.model_sel" data-i18n-title="panel.model_sel_title" hidden></select>
+              <input id="chat-model-custom" type="text" aria-label="모델 이름 직접 입력" placeholder="모델 이름" data-i18n-aria-label="panel.model_custom" data-i18n-placeholder="panel.model_name" spellcheck="false" hidden>
+              <button id="chat-send" type="button" class="primary" data-i18n="panel.send">보내기</button>
             </div>
           </div>
         </section>

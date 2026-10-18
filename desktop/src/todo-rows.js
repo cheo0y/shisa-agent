@@ -1,5 +1,6 @@
 // 할 일 줄 상호작용 — 순수 로직. 한 번 누르기(설명 펼치기) / 두 번 누르기(제목·설명 고치기) 구분, 꾹 눌러 끌기(순서·우선순위),
 // 키보드 이동(Alt+↑↓, Alt+1/2/3/4 — 4 = 백로그), 상세(원본) 보여줄 줄 만들기.
+import { t as tr } from './i18n.js';
 import { isSafeLink } from './bubbles.js';
 
 export const CLICK_DELAY = 220; // 이 안에 두 번째 클릭이 오면 더블클릭
@@ -104,7 +105,7 @@ export function keyMove(todos, id, key) {
 
 // ---- 상세(펼침) ----
 const str = (v) => (typeof v === 'string' ? v : '');
-const KIND_LABEL = { slack: 'Slack', commit: '커밋', mail: '메일', session: '작업 세션', calendar: '일정', jira: 'Jira', user: '직접 추가', other: '기타' };
+const KIND_LABEL = { slack: 'Slack', get commit() { return tr('panel.src_commit'); }, get mail() { return tr('panel.cap_mail'); }, get session() { return tr('panel.src_session'); }, get calendar() { return tr('panel.src_calendar'); }, jira: 'Jira', get user() { return tr('panel.src_user'); }, get other() { return tr('panel.other'); } };
 
 const KST = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 function when(iso, now) {
@@ -113,7 +114,7 @@ function when(iso, now) {
   const p = Object.fromEntries(KST.formatToParts(new Date(t)).map((x) => [x.type, x.value]));
   const md = `${p.month}/${p.day} ${p.hour === '24' ? '00' : p.hour}:${p.minute}`;
   const days = Math.floor((now - t) / 864e5);
-  return days >= 1 ? `${md} (${days}일 전)` : md;
+  return days >= 1 ? tr('panel.when_days', { when: md, n: days }) : md;
 }
 
 // GET /todos/:id/detail 응답 → 그릴 것. { description, link, source: { kindLabel, meta: [..], excerpt, quote, permalink } | null }

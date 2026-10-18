@@ -3,9 +3,10 @@
 // 스레드: { id, title, kind: 'chat'|'todo'|'hover', todoId?, created, updated, archived, preview?, count }
 // 말:     { n?, role: 'user'|'assistant'|'system', text, at, todoId?, todoTitle?, local?, error?, attachments? }
 import { normAttachments } from './attachments.js';
+import { t as tr } from './i18n.js';
 
 export const KIND_ICONS = { chat: '💬', todo: '✅', hover: '🫧' };
-export const KIND_LABELS = { chat: '대화', todo: '할 일 대화', hover: '캐릭터에게 한 말' };
+export const KIND_LABELS = { get chat() { return tr('panel.kind_chat'); }, get todo() { return tr('panel.kind_todo'); }, get hover() { return tr('panel.kind_hover'); } };
 const KINDS = Object.keys(KIND_ICONS);
 export const MAX_THREAD_MESSAGES = 400;
 
@@ -14,7 +15,7 @@ export function normThread(t) {
   const updated = typeof t.updated === 'string' ? t.updated : '';
   return {
     id: t.id,
-    title: typeof t.title === 'string' && t.title.trim() ? t.title : '새 대화',
+    title: typeof t.title === 'string' && t.title.trim() ? t.title : tr('panel.new_chat'),
     kind: KINDS.includes(t.kind) ? t.kind : 'chat',
     ...(typeof t.todoId === 'string' && t.todoId ? { todoId: t.todoId } : {}),
     created: typeof t.created === 'string' ? t.created : updated,
@@ -57,10 +58,10 @@ export function groupThreads(threads, now = new Date()) {
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
   const week = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
   const groups = [
-    { key: 'today', label: '오늘', items: [] },
-    { key: 'yesterday', label: '어제', items: [] },
-    { key: 'week', label: '이전 7일', items: [] },
-    { key: 'older', label: '그 이전', items: [] },
+    { key: 'today', label: tr('date.today'), items: [] },
+    { key: 'yesterday', label: tr('date.yesterday'), items: [] },
+    { key: 'week', label: tr('panel.th_week'), items: [] },
+    { key: 'older', label: tr('panel.th_older'), items: [] },
   ];
   for (const t of threads) {
     const at = Date.parse(t.updated);

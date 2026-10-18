@@ -1,4 +1,5 @@
 // 할 일 줄 그 자리 고치기(제목·설명). 순수 로직이다. 줄을 두 번 누르거나 Shift+Enter 로 연다. AI 없이 POST /todos/:id 패치.
+import { t as tr } from './i18n.js';
 import { cleanTitle, descriptionPatch } from './todos.js';
 
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -36,7 +37,7 @@ export function editPatch(t, s) {
   const patch = {};
   let notice = null;
   const title = cleanTitle(s.title);
-  if (!title) notice = '제목은 비워 둘 수 없어서 원래 제목을 그대로 뒀어요.';
+  if (!title) notice = tr('panel.title_kept');
   else if (title !== (cleanTitle(t.title) ?? '')) patch.title = title;
   const d = descriptionPatch(s.descBase, s.desc).patch;
   if (d) Object.assign(patch, d);
