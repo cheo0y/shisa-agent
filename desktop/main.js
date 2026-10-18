@@ -860,7 +860,11 @@ function onSSE({ event, data }) {
   }
   if (event === 'state') {
     lastState = payload;
-    if (typeof payload?.language === 'string') setLanguage(payload.language); // 화면 글 언어 → onLanguage 가 메뉴·창마다
+    // 화면 글 언어 → onLanguage 가 메뉴·창마다. 바뀌었으면 캐릭터 목록(새 언어 이름)부터 받고 바꾼다 — 그 안에서 applyCharacters 가 언어를 바꾼다
+    if (typeof payload?.language === 'string' && payload.language !== language()) {
+      const want = payload.language;
+      loadCharacters().catch(() => {}).finally(() => { setLanguage(want); });
+    }
     if (typeof payload?.character === 'string') onCharacter(payload.character);
   }
   if (event === 'characters') loadCharacters(); // 만들거나 고치거나 지움 → 다시 읽어 창마다

@@ -10,12 +10,16 @@ let current = DEFAULT_LANGUAGE;
 const listeners = new Set();
 export const language = () => current;
 // 바뀌었으면 true(듣는 쪽에 알린다: 창이 화면 글을 다시 그린다)
-export function setLanguage(v) {
+// quiet: 값만 바꾸고 알리지 않는다(캐릭터 이름까지 다 넣은 뒤 notifyLanguage() 로 알리려고)
+export function setLanguage(v, { quiet = false } = {}) {
   const next = isLang(v) ? v : DEFAULT_LANGUAGE;
   if (next === current) return false;
   current = next;
-  for (const f of [...listeners]) { try { f(next); } catch { /* 한 창이 실패해도 나머지는 */ } }
+  if (!quiet) notifyLanguage();
   return true;
+}
+export function notifyLanguage() {
+  for (const f of [...listeners]) { try { f(current); } catch { /* 한 창이 실패해도 나머지는 */ } }
 }
 // 언어가 바뀔 때마다 f(새 언어). 떼는 함수를 돌려준다
 export function onLanguage(f) {

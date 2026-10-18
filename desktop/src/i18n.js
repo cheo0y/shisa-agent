@@ -78,7 +78,15 @@ export function applyStatic(root = globalThis.document, whoName = null) {
 export async function bindLanguage(cy, rerender, { whoName = () => null, root = globalThis.document } = {}) {
   const apply = () => { applyStatic(root, whoName()); };
   onLanguage(() => { apply(); try { rerender?.(); } catch (e) { console.error('[i18n] rerender', e); } });
-  cy?.onLang?.((l) => { setLanguage(l); });
+  // 새 언어의 캐릭터 이름부터 받아 넣고(applyCharacters 가 언어를 바꾸고 알린다), 못 받으면 언어만
+  cy?.onLang?.(async (l) => {
+    if (l === language()) return;
+    try {
+      const d = await cy.getCharacters?.();
+      if (d && d.language === l) { const { applyCharacters } = await import('./character-registry.js'); applyCharacters(d); if (language() === l) return; } // 늦게 읽는다(모듈 순환 피하기)
+    } catch { /* 이름은 다음 characters 알림에 */ }
+    setLanguage(l);
+  });
   apply();
   try { const l = await cy?.getLang?.(); if (typeof l === 'string') setLanguage(l); } catch { /* 메인이 모르면 지금 그대로 */ }
 }

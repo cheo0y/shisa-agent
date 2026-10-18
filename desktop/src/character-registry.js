@@ -9,7 +9,7 @@ import { CHARACTER_BASES, SISA_BASE } from './persona.js';
 import { CANNED_DEFAULTS } from './canned.js';
 import { SISA_SAY } from './ai-onboard.js';
 import { SISA_TOUR } from './tour.js';
-import { language, setLanguage } from './lang.js';
+import { language, setLanguage, notifyLanguage } from './lang.js';
 import { t } from './i18n.js';
 import { CHARACTER_LINES_JA } from './character-lines.ja.js';
 
@@ -78,8 +78,12 @@ export function staticCharacters(lang) {
 }
 
 // data: GET /characters(language 도 — 그 언어로 화면 글을 바꾼다). 모양이 틀리면 기본값만 남기고 false
+// 언어가 바뀌었으면 이름·대사를 다 넣은 뒤에 알린다(창이 다시 그릴 때 새 언어의 캐릭터 이름이 보이게)
 export function applyCharacters(data) {
-  if (isObj(data) && typeof data.language === 'string') setLanguage(data.language);
+  const changed = isObj(data) && typeof data.language === 'string' && setLanguage(data.language, { quiet: true });
+  try { return applyCharactersNow(data); } finally { if (changed) notifyLanguage(); }
+}
+function applyCharactersNow(data) {
   resetTo(CHARACTERS, BASE.characters);
   resetTo(LOCAL_SAY, BASE.localSay);
   resetTo(SETUP_SAY, BASE.setup);
