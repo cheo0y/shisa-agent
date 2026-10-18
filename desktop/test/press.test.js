@@ -42,8 +42,8 @@ test('렌더러: 놓친 누름을 클릭으로 · 오래된 누름 풀기 · 집
   assert.match(r, /function recheckHit\(\) \{\n  if \(staleHold\(down, dragging, Date\.now\(\)\)\) resetPress\(\);/);
   assert.match(r, /if \(down\) down\.movedAt = Date\.now\(\);/);
   assert.match(r, /if \(document\.hidden\) resetPress\(\);/);
-  assert.match(r, /Promise\.race\(\[cy\.focusCmd\(cmd\)/);
-  assert.match(r, /finally \{ focusBusy = false; \}/);
+  // 답이 안 와도 focusSend(src/focus.js)가 시간 안에 끝내고 focusBusy 를 푼다
+  assert.match(r, /const r = await focusSend\(cy\.focusCmd, cmd\);\n  focusBusy = false;/);
 });
 
 test('윈도우 캐릭터 숨기기는 창을 숨기지 않고(hide → showInactive 가 누름을 삼키게 만든다) 그림만 감춘다', () => {
