@@ -52,6 +52,17 @@ export const UI = {
     doing_more: (n) => ` 외 ${n}개`,
     stop: '답하던 걸 멈춰요',
     app_name: (name) => `${name} 비서`,
+    // 아침 질문 「어제 남은 N개, 오늘도 할까요?」 단추·결과
+    carry_keep: '그대로 둘게요',
+    carry_demote: '이번 주로 내려요',
+    carry_open: '하나씩 볼게요',
+    carry_keep_title: '어제 남은 일을 오늘 할 일에 그대로 둬요',
+    carry_demote_title: '아직 안 끝난 어제 일을 이번 주로 옮겨요',
+    carry_open_title: '오늘 할 일 탭에서 하나씩 골라요',
+    carry_kept: '좋아요, 오늘도 같이 해요',
+    carry_moved: (n) => `${n}개를 이번 주로 내렸어요`,
+    carry_none: '내릴 게 없었어요',
+    carry_fail: '지금은 못 바꿨어요. 패널 오늘 할 일 탭에서 골라 주세요',
   },
   ja: {
     chip_today: '今日のやること、どれくらいできた？',
@@ -88,6 +99,16 @@ export const UI = {
     stop: '答えるのを止めます',
     // 「ハチワレ秘書」. カニちゃん は アプリ名では「カニ秘書」
     app_name: (name) => `${String(name).replace(/ちゃん$/, '')}秘書`,
+    carry_keep: 'このままにする',
+    carry_demote: '今週に下げる',
+    carry_open: 'ひとつずつ見る',
+    carry_keep_title: '昨日の残りを今日やることにそのまま置きます',
+    carry_demote_title: 'まだ終わっていない昨日の分を今週に移します',
+    carry_open_title: '今日やることタブでひとつずつ選びます',
+    carry_kept: 'わかりました、今日も一緒にやりましょう',
+    carry_moved: (n) => `${n}件を今週に下げました`,
+    carry_none: '下げるものはありませんでした',
+    carry_fail: 'いまは変えられませんでした。パネルの今日やることタブで選んでください',
   },
 };
 // 지금 언어의 화면 글(없으면 한국어). 함수 글은 args 를 넣어 부른다

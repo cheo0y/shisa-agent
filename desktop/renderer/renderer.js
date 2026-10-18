@@ -404,8 +404,8 @@ function fillEl(item, b) {
   } else if (carryButtons(b).length) {
     // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: 그대로 둘게요 · 이번 주로 내려요(데몬에 보낸다) · 하나씩 볼게요(패널 오늘 할 일 탭)
     for (const c of carryButtons(b)) {
-      const btn = button(c.label, c.primary ? 'primary' : '', () => (c.cmd === 'open' ? (cy.openItem('today', null), dismiss(b.id)) : carryDecide(b, c.cmd)));
-      btn.title = c.title;
+      const btn = button(ui(`carry_${c.cmd}`), c.primary ? 'primary' : '', () => (c.cmd === 'open' ? (cy.openItem('today', null), dismiss(b.id)) : carryDecide(b, c.cmd)));
+      btn.title = ui(`carry_${c.cmd}_title`);
       btn.disabled = !!b.pending;
       meta.append(btn);
     }
@@ -484,8 +484,8 @@ async function carryDecide(b, decision) {
   let r;
   try { r = await cy.todayCarry(decision); } catch { r = { ok: false }; }
   const moved = Number(r?.data?.moved) || 0;
-  const text = !r?.ok ? '지금은 못 바꿨어요. 패널 오늘 할 일 탭에서 골라 주세요'
-    : decision === 'demote' ? (moved ? `${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '좋아요, 오늘도 같이 해요';
+  const text = !r?.ok ? ui('carry_fail')
+    : decision === 'demote' ? (moved ? ui('carry_moved', moved) : ui('carry_none')) : ui('carry_kept');
   const it = queue.update(b.id, { pending: false, decided: true, carry: undefined, kind: r?.ok ? 'done' : 'error', text, ttlMs: 5000 });
   if (it) schedule(it);
   render();
