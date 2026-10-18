@@ -44,6 +44,8 @@ export function normalizeBubble(raw) {
   }
   if (typeof raw.link === 'string' && isSafeLink(raw.link)) b.link = raw.link;
   // 링크 버튼 이름을 정해 줄 때(새 버전 알림의 「받으러 가기」 등). 없으면 linkLabel(url)
+  // 오른쪽 위 ✕ 로 바로 닫을 수 있는 말풍선(새 버전 알림 등). 시간이 지나면 사라지는 건 그대로
+  if (raw.closable === true) b.closable = true;
   if (b.link && typeof raw.linkLabel === 'string' && raw.linkLabel.trim()) b.linkLabel = raw.linkLabel.trim().slice(0, 20);
   if (b.open && typeof raw.openLabel === 'string' && raw.openLabel.trim()) b.openLabel = raw.openLabel.trim().slice(0, 20);
   // 사용법 둘러보기(tour.js) 장면: [다음]/[끝] · [그만 볼래요]

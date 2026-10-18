@@ -76,3 +76,95 @@ test('chatLock: AI 없으면 카드, 숨겼으면 다시 보기 링크만, AI �
   assert.equal(card.hide, '숨기기');
   assert.equal(card.reopen, 'AI 연결 안내 보기');
 });
+
+// ---- 더블클릭 토글 ----
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { dblclickAction } from '../src/quick-ask.js';
+import { BubbleQueue } from '../src/bubbles.js';
+
+test('더블클릭: 닫혀 있으면 연다(AI 없으면 칩, 있으면 입력창), 열려 있으면 닫는다', () => {
+  assert.equal(dblclickAction({ ready: false, askOpen: false, quickShown: false }), 'quick');
+  assert.equal(dblclickAction({ ready: true, askOpen: false, quickShown: false }), 'ask');
+  assert.equal(dblclickAction({ ready: undefined, askOpen: false, quickShown: false }), 'ask'); // 모르면 막지 않는다
+  assert.equal(dblclickAction({ ready: false, askOpen: false, quickShown: true }), 'close');
+  assert.equal(dblclickAction({ ready: true, askOpen: true, quickShown: false }), 'close');
+  assert.equal(dblclickAction({ ready: true, askOpen: false, quickShown: true }), 'close'); // ＋ 로 띄운 칩만 남은 경우
+});
+
+// 렌더러의 진짜 함수(onCharacterClick·talk·closeQuick·showAsk·hideAsk·noBrain)를 가짜 DOM 위에서 돌린다
+const RENDERER = fs.readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+function fnSource(name) {
+  const m = new RegExp(`^(async )?function ${name}\\(`, 'm').exec(RENDERER);
+  assert.ok(m, `renderer.js 에 ${name}`);
+  let i = RENDERER.indexOf('{', m.index), depth = 0;
+  for (let j = i; j < RENDERER.length; j++) {
+    if (RENDERER[j] === '{') depth++;
+    else if (RENDERER[j] === '}' && --depth === 0) return RENDERER.slice(m.index, j + 1);
+  }
+  throw new Error(name);
+}
+function fakeEl() {
+  const cls = new Set();
+  return { hidden: true, value: '', focused: false, classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) }, focus() { this.focused = true; }, blur() { this.focused = false; } };
+}
+function overlay({ ready }) {
+  const queue = new BubbleQueue();
+  const timers = [];
+  const ctx = {
+    queue, QUICK_ID, dblclickAction, quickBubble, brain: { ready }, charA: { id: 'sisa' },
+    ask: fakeEl(), askInput: fakeEl(),
+    cy: { chatFocus: async () => true, togglePanel: () => { ctx.panelToggles++; } },
+    panelToggles: 0,
+    showBubble: (b) => queue.add(normalizeBubble(b)),
+    dismiss: (id) => queue.remove(id),
+    requestAnimationFrame: () => {}, recheckHit: () => {},
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeout: (t) => { if (t && timers[t - 1]) timers[t - 1].fn = null; },
+    DOUBLE_CLICK_MS: 280,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`var askOpen = false, askFocused = false, askPauseTimer = null, hoverArmed = true, leaveTimer = null, clickTimer = null, chipSeq = 0, quickGen = 0;
+${['showAsk', 'hideAsk', 'noBrain', 'talk', 'closeQuick', 'onCharacterClick'].map(fnSource).join('\n')}`, ctx);
+  const ids = () => queue.visible().map((x) => x.id);
+  const dbl = async () => { ctx.onCharacterClick(); ctx.onCharacterClick(); await new Promise((r) => setImmediate(r)); };
+  return { ctx, ids, dbl };
+}
+
+test('렌더러(가짜 DOM): AI 없을 때 더블클릭 → 칩, 다시 더블클릭 → 바로 닫힘. 답 말풍선·둘러보기는 남는다', async () => {
+  const { ctx, ids, dbl } = overlay({ ready: false });
+  ctx.showBubble({ id: 'local-tour', text: '둘러보기', kind: 'info', ttlMs: 600000, tour: { step: 1, total: 5 } });
+  await dbl();
+  assert.deepEqual(ids(), ['local-tour', QUICK_ID]);
+  ctx.showBubble({ id: 'local-ask-today', text: '두 개 했어요', kind: 'done', ttlMs: 12000 });
+  await dbl();
+  assert.deepEqual(ids(), ['local-tour', 'local-ask-today']);
+  assert.equal(ctx.panelToggles, 0); // 더블클릭은 패널을 안 연다
+  await dbl();
+  assert.deepEqual(ids(), ['local-tour', 'local-ask-today', QUICK_ID]); // 또 열린다
+});
+
+test('렌더러(가짜 DOM): AI 있을 때 더블클릭 → 입력창, 다시 더블클릭 → 입력창·＋ 칩 닫힘, 쓰던 글은 남는다', async () => {
+  const { ctx, ids, dbl } = overlay({ ready: true });
+  await dbl();
+  assert.equal(ctx.askOpen, true);
+  assert.equal(ctx.ask.hidden, false);
+  assert.equal(ctx.askInput.focused, true);
+  ctx.askInput.value = '내일 회의 몇 시';
+  ctx.showBubble(quickBubble({ ready: true }, 'sisa')); // ＋ 로 띄운 칩
+  await dbl();
+  assert.equal(ctx.askOpen, false);
+  assert.equal(ctx.ask.hidden, true);
+  assert.deepEqual(ids(), []);
+  assert.equal(ctx.askInput.value, '내일 회의 몇 시');
+  assert.ok(ctx.quickGen > 0); // 앞서 누른 칩의 「다시 띄우기」를 막는다
+  await dbl();
+  assert.equal(ctx.askOpen, true);
+  assert.equal(ctx.askInput.value, '내일 회의 몇 시');
+});
+
+test('렌더러: Esc 는 입력창과 ＋ 칩을 같이 닫고, 창이 키를 받으면 칩만 떠 있어도 닫는다 · 칩 다시 띄우기는 닫은 뒤엔 안 한다', () => {
+  assert.match(RENDERER, /quickGen\+\+;\n    dismiss\(QUICK_ID\); \/\/ ＋ 로 띄운 칩도 같이 닫는다\n    return hideAsk\(\);/);
+  assert.match(RENDERER, /if \(e\.key !== 'Escape' \|\| e\.defaultPrevented\) return;\n  if \(queue\.visible\(\)\.some\(\(x\) => x\.id === QUICK_ID\)\) \{ e\.preventDefault\(\); closeQuick\(\); \}/);
+  assert.match(RENDERER, /if \(seq === chipSeq && gen === quickGen\) showBubble\(quickBubble/);
+});

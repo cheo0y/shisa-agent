@@ -1,6 +1,6 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
 import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
-import { quickBubble, chipsOf, chipAction, answerBubble, QUICK_ID } from '../src/quick-ask.js';
+import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
@@ -13,6 +13,7 @@ import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
+import { BubbleExpiry } from '../src/bubble-expiry.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -230,24 +231,58 @@ wrap.dataset.view = 'idle';
 // 한 항목 = (그림 말풍선) + 글 말풍선. 그림이 먼저 뜨고 글은 SEQUENCE_GAP 뒤에.
 const queue = new BubbleQueue();
 const els = new Map(); // id → .item
-const timers = new Map(); // id → timeout
 const current = (id) => queue.items.find((x) => x.id === id);
 
+// 만료: 말풍선마다 만료 시각(보인 시각 + ttl)을 적어 두고 타이머는 가장 이른 것 하나만 건다.
+// 맥에서 타이머가 몇 분씩 늦게 깨도(App Nap·배경 타이머 억제) 깨는 순간·새 말풍선·마우스·창 보임 때 지난 것을 한꺼번에 치운다
+const expiry = new BubbleExpiry();
+let expiryTimer = null;
+
 function schedule(b) {
-  clearTimeout(timers.get(b.id));
-  timers.delete(b.id);
-  if (!b.ttlMs) return;
-  timers.set(b.id, setTimeout(() => {
-    const el = els.get(b.id);
-    // 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다
-    if (el && (el.matches(':hover') || el.querySelector('.merge-ask:not([hidden])'))) return schedule({ ...b, ttlMs: 3000 });
-    dismiss(b.id);
-  }, b.ttlMs));
+  if (!b) return;
+  expiry.set(b.id, b.ttlMs);
+  armExpiry();
+}
+
+function armExpiry() {
+  clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const n = expiry.next();
+  if (n === null) return;
+  expiryTimer = setTimeout(() => { expiryTimer = null; catchUp(); }, Math.max(0, n - Date.now()) + 15);
+}
+
+// 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다(만료 시각을 3초씩 미룬다)
+function bubbleBusy(id) {
+  const el = els.get(id);
+  return !!el && (el.matches(':hover') || !!el.querySelector('.merge-ask:not([hidden])'));
+}
+
+// 만료 시각이 지난 말풍선을 큐에서 뺀다(그리기는 render 가)
+function dropExpired() {
+  let n = 0;
+  for (const id of expiry.sweep(bubbleBusy)) if (queue.remove(id)) n++;
+  return n;
+}
+
+// 늦게 깬 타이머·이벤트에서 부른다: 지난 말풍선 치우기 + 그림→글 순서·그림 내리기도 시각으로 맞춘다
+function catchUp() {
+  const t = Date.now();
+  let hit = false;
+  for (const el of els.values()) {
+    if (el._textAt && el._textAt <= t && el.classList.contains('text-pending')) { el.classList.remove('text-pending'); hit = true; }
+    if (el._stickerGoneAt && el._stickerGoneAt <= t && !el.classList.contains('sticker-gone')) { el.classList.add('sticker-gone'); hit = true; }
+  }
+  if (expiry.due().length) render();
+  else {
+    armExpiry();
+    if (hit) requestAnimationFrame(recheckHit);
+  }
 }
 
 function dismiss(id) {
-  clearTimeout(timers.get(id));
-  timers.delete(id);
+  expiry.delete(id);
+  armExpiry();
   if (queue.remove(id)) render();
 }
 
@@ -278,6 +313,7 @@ function buildEl(b) {
   const steps = sequence(b);
   if (steps.length === 2) {
     item.classList.add('text-pending');
+    item._textAt = Date.now() + steps[1].delay;
     setTimeout(() => { item.classList.remove('text-pending'); requestAnimationFrame(recheckHit); }, steps[1].delay);
   }
   fillEl(item, b);
@@ -314,6 +350,7 @@ function setSticker(item, b) {
   item.classList.remove('sticker-gone');
   st.src = assetUrl(b.image);
   clearTimeout(item._stickerTimer);
+  item._stickerGoneAt = Date.now() + stickerTtl(b);
   item._stickerTimer = setTimeout(() => { item.classList.add('sticker-gone'); requestAnimationFrame(recheckHit); }, stickerTtl(b));
 }
 
@@ -377,6 +414,15 @@ function fillEl(item, b) {
     meta.append(n);
   }
   if (b.link) meta.append(button(b.linkLabel ?? linkLabel(b.link), 'link', () => cy.openLink(b.link)));
+  // ✕ 닫기(closable): 다시 그릴 때 겹치지 않게 하나만
+  const bub = meta.parentElement;
+  bub?.querySelector(':scope > button.close')?.remove();
+  if (b.closable && bub) {
+    const x = button('✕', 'close', () => dismiss(b.id));
+    x.setAttribute('aria-label', '닫기');
+    x.title = '닫기';
+    bub.append(x);
+  }
   if (b.open) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
   else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
@@ -560,6 +606,8 @@ async function sendMergeAsk(id, q) {
 }
 
 function render() {
+  dropExpired();
+  expiry.keep(new Set(queue.items.map((x) => x.id))); // 큐에서 밀려난 것은 잊는다
   const vis = queue.visible();
   const ids = new Set(vis.map((b) => b.id));
 
@@ -587,6 +635,7 @@ function render() {
     el.classList.add(age === 0 ? 'newest' : `age-${Math.min(age, 2)}`);
     stack.append(el); // 순서 맞추기(이미 있으면 이동)
   });
+  armExpiry();
   requestAnimationFrame(recheckHit);
 }
 
@@ -595,11 +644,8 @@ function showBubble(raw) {
   const b = normalizeBubble(raw);
   if (!b) return;
   queue.add(b);
-  // 큐에서 밀려난 것들 타이머 정리
-  const alive = new Set(queue.items.map((x) => x.id));
-  for (const id of timers.keys()) if (!alive.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); }
   schedule(b);
-  render();
+  render(); // 밀려난 것의 만료 시각 정리 · 그새 지난 것도 같이 치운다
 }
 
 cy.onClear((p) => { if (p && typeof p.id === 'string') dismiss(p.id); });
@@ -635,6 +681,8 @@ function takeCharacters(data) {
 cy.getCharacters?.().then(takeCharacters).catch(() => {});
 cy.onCharacters?.(takeCharacters);
 cy.onState((p) => { if (typeof p?.character === 'string') setCharacter(p.character); setMood(p?.mood); dispatchActivity({ type: 'state', activity: p?.activity, runs: p?.runs, danceId: p?.danceId, danceClip: p?.danceClip, danceVariant: p?.danceVariant }); }); // danceClip: 일정 알림·춤·응원·점심 중 어느 칸 · danceVariant: 그 칸의 몇 번째 영상(데몬이 고른다)
+
+cy.onState(catchUp); // 데몬 상태가 올 때마다(타이머가 늦게 깨도) 지난 말풍선을 치운다
 
 cy.onConnection(({ connected }) => {
   wrap.classList.toggle('sleepy', !connected);
@@ -769,7 +817,7 @@ function showReply(r) {
   if (r.show) cy.openPanel(r.show);
 }
 
-cy.onChat((ev) => dispatchChat({ type: 'event', ev }));
+cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
 cy.onAgents?.((p) => { agentsRunning = Math.max(0, Number(p?.running) || 0); syncChat(); });
 
 // ids: 먼저 올려 둔 첨부 id(있으면 글 없이도)
@@ -857,6 +905,8 @@ askInput.addEventListener('keydown', async (e) => {
     e.preventDefault();
     askInput.value = '';
     tray.clear();
+    quickGen++;
+    dismiss(QUICK_ID); // ＋ 로 띄운 칩도 같이 닫는다
     return hideAsk();
   }
   // 한글 조합 중 Enter 는 글자 확정용 — 보내지 않는다
@@ -901,6 +951,7 @@ function updateHover(el) {
 }
 
 cy.onVisibility(({ hidden }) => {
+  catchUp();
   stack.classList.toggle('hidden', !!hidden);
   requestAnimationFrame(recheckHit);
 });
@@ -935,7 +986,13 @@ function resetPress() {
   dragging = false;
 }
 
+// 렌더러 타이머가 늦게 깨도 사용자가 보거나 움직이는 순간엔 지난 말풍선을 바로 치운다
+document.addEventListener('visibilitychange', catchUp);
+window.addEventListener('focus', catchUp);
+window.addEventListener('pageshow', catchUp);
+
 document.addEventListener('mousemove', (e) => {
+  catchUp();
   last = { x: e.clientX, y: e.clientY };
   if (down && (e.buttons & 1) === 0) resetPress();
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
@@ -972,6 +1029,7 @@ cy.onBrain?.((v) => { if (v) brain = v; if (brain.ready === false && askOpen) hi
 // 뇌 없이 더블클릭: 고르는 질문 칩(오늘 할 일·지금 할 일·다음 일정·응원·AI 연결하기). 춤은 「응원해 줘」 때만
 let danceOff = null;
 let chipSeq = 0; // 칩을 새로 누르면 앞선 「다시 띄우기」는 버린다
+let quickGen = 0; // 더블클릭·Esc 로 칩을 닫으면 늘린다 — 그 전에 누른 칩의 「다시 띄우기」는 안 한다(답은 그대로 보인다)
 const CHIPS_AGAIN_MS = 2000; // 답을 보여 주고 이만큼 뒤에 칩을 다시
 // 데몬이 꺼져 있을 때만 쓴다(켜져 있으면 데몬이 영상 번호를 골라 state 로 알린다). 영상 번호는 여기서 고르고 그 영상의 한마디를 돌려준다
 const lastLocal = {};
@@ -994,6 +1052,7 @@ async function quickChip(id) {
   dismiss(QUICK_ID); // 누르면 칩은 내리고 답만 보인다
   if (a.type === 'open') { cy.openItem(a.section, a.id); return; }
   const seq = ++chipSeq;
+  const gen = quickGen;
   const acting = a.id === 'cheer' || a.id === 'dance';
   // 데몬과 끊겨 있으면 바로 앱이 고른 영상으로(꺼져 있어도 보이게). 붙어 있으면 데몬이 영상 번호를 골라 state 로 알린다(대사와 같은 번호)
   let ownSay = null;
@@ -1007,7 +1066,7 @@ async function quickChip(id) {
   for (const x of queue.items.filter((x) => x.id.startsWith('local-ask-'))) dismiss(x.id); // 앞선 답은 내린다
   // 앱이 혼자 춘 영상에 한마디가 있으면 그 말(데몬 답이 없을 때)
   showBubble(!r?.ok && ownSay ? answerBubble(a.id, { ok: true, data: { answer: { id: a.id, kind: 'done', text: ownSay } } }) : answerBubble(a.id, r));
-  setTimeout(() => { if (seq === chipSeq) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
+  setTimeout(() => { if (seq === chipSeq && gen === quickGen) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
 }
 // 입력창 잠깐 숨기기(열린 채로 — 포커스·내용은 그대로). ms 뒤 아직 열려 있으면 다시 보인다. 그 사이 또 부르면 늘린다
 function pauseAsk(ms) {
@@ -1022,9 +1081,18 @@ function pauseAsk(ms) {
     requestAnimationFrame(recheckHit);
   }, ms);
 }
+// 더블클릭 = 열기, 열린 채로 또 더블클릭 = 바로 닫기(칩·입력창·칩 안내 말풍선). 입력창에 쓰던 글·첨부는 남겨 두고 다음에 열 때 그대로
 function talk() {
-  if (brain.ready === false) return noBrain();
+  const quickShown = queue.visible().some((x) => x.id === QUICK_ID);
+  const a = dblclickAction({ ready: brain.ready, askOpen, quickShown });
+  if (a === 'close') return closeQuick();
+  if (a === 'quick') return noBrain();
   showAsk();
+}
+function closeQuick() {
+  quickGen++;
+  dismiss(QUICK_ID); // 칩을 눌러 나온 답 말풍선(local-ask-*)·둘러보기 말풍선은 그대로
+  hideAsk();
 }
 // AI가 있어도 입력창 ＋ 로 정해진 답 칩(오늘 할 일·지금 할 일·다음 일정·응원·춤)
 document.getElementById('ask-more')?.addEventListener('click', (e) => {
@@ -1058,6 +1126,11 @@ window.addEventListener('mouseup', (e) => {
 });
 
 window.addEventListener('blur', resetPress);
+// 창이 키를 받을 때(입력창 밖) Esc = 칩 닫기. 입력창·추가질문 줄은 자기 Esc 를 먼저 쓴다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (queue.visible().some((x) => x.id === QUICK_ID)) { e.preventDefault(); closeQuick(); }
+});
 
 wrap.addEventListener('contextmenu', (e) => {
   e.preventDefault();

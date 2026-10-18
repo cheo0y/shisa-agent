@@ -31,6 +31,14 @@ export function quickBubble(view, character) {
   return { id: QUICK_ID, text, kind: 'info', ttlMs: QUICK_TTL, quick: ai ? CHIP_IDS.filter((id) => id !== 'connect') : CHIP_IDS.slice() };
 }
 
+// 캐릭터 더블클릭: 칩 말풍선이나 입력창이 열려 있으면 닫고(토글), 아니면 연다.
+// AI 없으면 칩, 있으면 입력창. 칩을 눌러 나온 답 말풍선은 여기 안 친다(클릭으로 닫힌다)
+// → 'close' | 'quick' | 'ask'
+export function dblclickAction({ ready, askOpen, quickShown } = {}) {
+  if (askOpen || quickShown) return 'close';
+  return ready === false ? 'quick' : 'ask';
+}
+
 // 말풍선 quick 정리: 아는 칩 id 만, 순서는 QUICK_CHIPS 대로. 없으면 null
 export function normQuick(raw) {
   if (!Array.isArray(raw)) return null;

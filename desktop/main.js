@@ -500,6 +500,9 @@ function createWindow() {
       sandbox: true,
       webSecurity: true,
       spellcheck: false,
+      // 오버레이는 늘 떠 있지만 포커스를 안 받아 Chromium 이 배경 창으로 보고 타이머를 늦춘다 — 말풍선이 제때 안 사라졌다.
+      // 끄면 말풍선 만료·깜빡임 타이머가 제때 돈다(패널·세션 창은 숨겨 둘 때가 많아 그대로 둔다)
+      backgroundThrottling: false,
     },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
