@@ -191,8 +191,8 @@ test('화면: 카드 — 위계(이름 → 기한 배지·날짜·📅 칩 → �
   const draw = () => d.fill(sec, view.section(vm, draw));
   draw();
   const card = d.find(sec, (e) => e.tag === 'article');
-  const order = card.kids.filter((k) => typeof k === 'object' && !k.cls.includes('mp-card-grip')).map((k) => k.cls.find((c) => ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-add-open'].includes(c)));
-  assert.deepEqual(order, ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-add-open'], '정보 위계 순서');
+  const order = card.kids.filter((k) => typeof k === 'object' && !k.cls.includes('mp-card-grip')).map((k) => k.cls.find((c) => ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-foot'].includes(c)));
+  assert.deepEqual(order, ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-foot'], '정보 위계 순서(＋ 할 일은 맨 아래 줄)');
   const t = d.text(sec);
   for (const want of ['가을 행사', 'D-13', '10월 30일(금)까지', '📅 일정에서 · 회사', '1개 남음 · 모두 2개', '장소 섭외', '현수막']) assert.ok(t.includes(want), want);
   const badge = d.find(sec, (e) => e.cls?.includes('mp-due'));
@@ -302,6 +302,8 @@ test('화면: 빈 프로젝트는 낮은 카드(「아직 할 일이 없어요 �
   assert.ok(empty.cls.includes('is-empty'), '빈 카드 표시(낮게)');
   assert.equal(d.find(empty, (e) => e.cls?.includes('ui-progress')), undefined, '빈 카드엔 진행 막대 없음');
   assert.match(d.text(empty), /아직 할 일이 없어요/);
+  assert.ok(d.find(empty, (e) => e.cls?.includes('mp-empty-body')), '빈 상태 글은 카드 가운데(같은 줄 카드 높이에 맞춰)');
+  assert.match(d.text(empty), /기한 없음/, '기한이 없어도 배지·날짜 줄 자리는 같다');
   d.find(empty, (e) => e.props['aria-label'] === '할 일 추가: 빈 것').props.onclick();
   const input = d.find(card('proj:e'), (e) => e.tag === 'input');
   assert.equal(input.props['aria-label'], '새 할 일: 빈 것', '빈 카드도 그 자리에 입력칸');
@@ -323,6 +325,31 @@ test('화면: 빈 프로젝트는 낮은 카드(「아직 할 일이 없어요 �
   const e2 = d.find(sec2, (e) => e.cls?.includes('ui-empty'));
   assert.match(d.text(e2), /아직 만든 프로젝트가 없어요/);
   assert.ok(d.button(e2, '＋ 새 프로젝트'));
+});
+
+test('화면: 할 일이 많으면 「N개 더 보기」로 접고 펼치면 다 보임(상한 아님), 순서를 바꾸면 펼친다', async () => {
+  const { createProjectsView, FOLD_AT } = await import('../renderer/projects-view.js');
+  const d = fakeDom();
+  const cy = { projectOrder: async () => ({ ok: true }) };
+  const view = createProjectsView({ h: d.h, cy, fill: d.fill, onChanged: () => {}, openSettings: () => {} });
+  const todos = Array.from({ length: FOLD_AT + 3 }, (_, i) => ({ id: `t${i}`, title: `일 ${i}`, priority: 2, projectId: 'proj:a' }));
+  const vm = shapeDashboard({ manualProjects: [{ id: 'proj:a', name: '많은 것', status: 'open', todos: todos.length, openTodos: todos.length }], todos }, NOW);
+  const sec = { kids: [], props: {} };
+  const draw = () => d.fill(sec, view.section(vm, draw));
+  draw();
+  const rows = () => d.find(sec, (e) => e.tag === 'ul').kids.length;
+  assert.equal(rows(), FOLD_AT);
+  const more = () => d.find(sec, (e) => e.cls?.includes('mp-fold'));
+  assert.equal(d.text(more()).trim(), '3개 더 보기');
+  assert.equal(more().props['aria-expanded'], 'false');
+  more().props.onclick();
+  assert.equal(rows(), FOLD_AT + 3, '펼치면 다 보임');
+  assert.equal(d.text(more()).trim(), '접기');
+  more().props.onclick();
+  assert.equal(rows(), FOLD_AT);
+  d.find(sec, (e) => e.props['aria-label'] === `아래로: 일 ${FOLD_AT - 1}`).props.onclick();
+  await flush();
+  assert.equal(rows(), FOLD_AT + 3, '접힌 쪽으로 옮기면 펼쳐 보여 준다');
 });
 
 test('패널 연결: 프로젝트 탭이 위에 직접 만든 것, 아래 「코드 작업에서 모은 것」, 할 일 줄에 📁 칩, IPC 와 프리로드', () => {

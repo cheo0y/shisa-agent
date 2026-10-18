@@ -50,10 +50,19 @@ button.mp-add-open .plus { font-size: 13px; line-height: 1; }
 .mp-add-hint { flex: none; color: var(--faint); font-size: 11px; white-space: nowrap; }
 .mp-add input:focus, .mp-in:focus { border-color: var(--accent); }
 .mp-add .mp-pick { color: var(--muted); }
-.mp-empty-line { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; color: var(--muted); font-size: 12.5px; }
-.mp-empty-line .dot { color: var(--faint); }
-.mp-empty-line button.mp-add-open { margin: 0 -8px 0 -4px; }
-.mp-empty-line .mp-add { flex: 1 1 100%; }
+/* 줄 자리 맞추기: 배지·날짜 줄과 메모는 늘 같은 높이, 「＋ 할 일」은 카드 맨 아래 */
+.mp-meta { min-height: 20px; }
+.mp-meta .mp-date.none { color: var(--faint); }
+.mp-note { min-height: 3em; }
+.mp-foot { margin-top: auto; padding-top: 2px; }
+.mp-empty-body {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 64px; color: var(--muted); font-size: 12.5px; text-align: center;
+}
+.mp-empty-body button.mp-add-open { align-self: center; margin: 0; }
+.mp-empty-body .mp-add { align-self: stretch; }
+button.mp-fold { align-self: flex-start; height: 24px; padding: 0 8px; margin: -4px -8px 0 18px; font-size: 12px; color: var(--accent); }
+button.mp-fold:hover:not(:disabled) { background: var(--accent-soft); }
 .mp-actions { display: flex; align-items: center; gap: 4px; }
 .mp-actions.confirm { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--del-bg); color: var(--del-fg); font-size: 12.5px; gap: 6px; flex-wrap: wrap; }
 .mp-actions.confirm button { padding: 3px 10px; font-size: 12px; }
@@ -145,7 +154,7 @@ input.mp-edit {
 
 /* 카드끼리 순서: 카드 왼쪽 여백의 손잡이(마우스를 올리거나 키보드로 갔을 때만 보임) 끌기(포인터 이벤트)·화살표 키·⋯ 메뉴 위로·아래로.
    윈도우 무테 창에서 drag 영역(-webkit-app-region: drag)이 포인터를 먹지 않게 카드·손잡이는 no-drag */
-.mp-list { position: relative; align-items: start; gap: 14px; } /* 카드 offsetLeft·Top 기준(끄는 중 자리 재기). 카드는 제 높이(빈 카드는 낮게) */
+.mp-list { position: relative; align-items: stretch; gap: 14px; } /* 카드 offsetLeft·Top 기준(끄는 중 자리 재기). 같은 줄 카드는 높이를 맞추고 「＋ 할 일」은 맨 아래 */
 .mp, button.mp-card-grip { -webkit-app-region: no-drag; }
 button.mp-card-grip {
   position: absolute; left: 1px; top: 15px; width: 14px; height: 28px; padding: 0; background: none;

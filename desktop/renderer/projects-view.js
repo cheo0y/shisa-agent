@@ -13,6 +13,8 @@ import { progressText, dateRangeText, emptyDraft, draftFromPick, draftOf, create
 import { editKey, editPatch } from '../src/todo-edit.js';
 import { createUi } from './ui-kit.js';
 
+export const FOLD_AT = 5; // 카드에 처음 보이는 할 일 수. 넘으면 「N개 더 보기」
+
 export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let vm = null;
   let msg = null; // { ok, text } — 카드 위 한 줄
@@ -20,6 +22,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let confirmDel = null; // 지우기 확인 중인 프로젝트 id
   const addDrafts = new Map(); // 프로젝트 id → 할 일 추가 칸 글
   let adding = null; // ＋ 할 일 칸을 연 프로젝트 id(한 번에 하나)
+  const expanded = new Set(); // 「N개 더 보기」로 펼친 프로젝트 id(할 일이 FOLD_AT 개 넘으면 접어 옆 카드와 높이를 맞춘다. 상한 아님)
   let addBox = null; // 그 칸(바깥 누르기 판단)
   const ui = createUi({ h, fill });
   let modal = null; // { step: 'choose'|'events'|'form', mode: 'new'|'edit', id?, draft, error, saving, pick? }
@@ -56,7 +59,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     try { r = await call(); } catch { r = { ok: false }; }
     if (id) busy.delete(id);
     if (r?.ok) { if (okText) say(true, okText); onChanged(); }
-    else msg = { ok: false, text: `${failText} — ${why(r)}` };
+    else msg = { ok: false, text: `${failText}: ${why(r)}` };
     redrawCards();
     return r;
   }
@@ -259,6 +262,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     });
   }
   function step(p, t, delta, kind) {
+    expanded.add(p.id); // 접힌 줄로 옮겨도 보이게
     const ids = linkedOf(p).map((x) => x.id);
     const next = stepId(ids, t.id, delta);
     if (!next) return;
@@ -267,6 +271,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   }
   // 끌기: ⋮⋮ 를 누르면 바로 시작. 줄 자리는 점선으로 비워 두고(끄는 중 자리 표시) 포인터를 따라 다른 줄을 밀어낸다
   function startDrag(p, t, e) {
+    expanded.add(p.id);
     if (e.button !== 0 || busy.has(p.id) || editing || cardDrag) return;
     e.preventDefault();
     const ids = linkedOf(p).map((x) => x.id);
@@ -424,7 +429,15 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     const confirming = confirmDel === p.id;
     const others = (vm.todoGroups ?? []).flatMap((g) => g.items).filter((t) => t.projectId !== p.id && !t.pending);
     const linked = linkedOf(p);
-    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, linked.map((t, j) => todoRow(p, t, j, linked.length, wait)));
+    const folded = linked.length > FOLD_AT && !expanded.has(p.id) && drag?.pid !== p.id;
+    const shown = folded ? linked.slice(0, FOLD_AT) : linked;
+    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, shown.map((t, j) => todoRow(p, t, j, linked.length, wait)));
+    const fold = linked.length > FOLD_AT
+      ? keepCard('fold', h('button.ghost.mp-fold', {
+        type: 'button', 'aria-expanded': String(!folded),
+        onclick: () => { if (folded) expanded.add(p.id); else expanded.delete(p.id); refocus = { pid: p.id, tid: p.id, kind: 'fold' }; redrawCards(); },
+      }, folded ? `${linked.length - FOLD_AT}개 더 보기` : '접기'))
+      : null;
     if (drag?.pid === p.id) drag.ul = ul;
     const toggleDone = () => act(p.id, () => cy.projectEdit(p.id, { status: p.done ? 'open' : 'done' }), p.done ? '다시 열기 실패' : '끝내기 실패');
     const menu = keepCard('card-menu', ui.menuButton('mp-menu', {
@@ -459,13 +472,14 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
           label: `${p.done ? '다시 진행' : '프로젝트 끝내기'}: ${p.name}`, title: p.done ? '다시 진행' : '프로젝트 끝내기', icon: p.done ? '↺' : '✓', disabled: wait, onclick: toggleDone,
         })),
         menu),
-      meta.length ? h('div.meta.mp-meta', null, meta) : null,
+      h('div.meta.mp-meta', null, meta.length ? meta : h('span.mp-date.none', { text: '기한 없음' })), // 줄 자리를 카드끼리 맞춘다
       p.todos ? ui.progress(p.todos - p.openTodos, p.todos, progressText(p)) : null,
       p.note ? h('div.mp-note', { text: p.note, title: p.note }) : null,
       linked.length ? ul : null,
-      p.done ? null : empty && adding !== p.id
-        ? h('div.mp-empty-line', null, h('span', { text: '아직 할 일이 없어요' }), h('span.dot', { text: '·', 'aria-hidden': 'true' }), addRow(p, wait, others))
-        : addRow(p, wait, others),
+      fold,
+      p.done ? null : empty
+        ? h('div.mp-empty-body', null, adding === p.id ? null : h('span', { text: '아직 할 일이 없어요' }), addRow(p, wait, others))
+        : h('div.mp-foot', null, addRow(p, wait, others)), // 카드 맨 아래에 붙는다(같은 줄 카드 높이를 맞춰도)
       confirming
         ? h('div.mp-actions.confirm', { role: 'alert' },
           h('span', { text: p.todos ? `지울까요? 묶인 할 일 ${p.todos}개는 남아요.` : '이 프로젝트를 지울까요?' }),
@@ -509,7 +523,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       say(true, isNew ? `「${name}」 프로젝트를 만들었어요` : `「${name}」 프로젝트를 고쳤어요`);
       onChanged();
     } else {
-      modal = { ...modal, saving: false, error: `저장하지 못했어요 — ${why(r)}` };
+      modal = { ...modal, saving: false, error: `저장하지 못했어요: ${why(r)}` };
       drawModal();
     }
   }
