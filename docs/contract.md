@@ -280,11 +280,16 @@ type Bubble = {
 - `GET /focus` → `FocusView`
 - `POST /focus/start` · `/focus/pause` · `/focus/resume` · `/focus/stop` → `FocusView`(같은 걸 두 번 눌러도 안전). `stop`은 `stopped: { id, seconds } | null`도 주고, 1초 이상이면 「25분 집중했어요」 말풍선을 띄운다
 - `GET /focus/stats?from=YYYY-MM-DD&to=YYYY-MM-DD` → `{ from, to, days: [{ date, seconds, longest }], total }` (양끝 포함, 집중 중인 것은 지금까지. longest = 그날 일시정지 없이 가장 길게 이어서 집중한 초). `from > to`이거나 3660일보다 넓으면 400
+- `POST /focus/start`는 본문 없이 정한 시간·할 일 없이 시작한다. 정한 시간과 할 일은 채팅 `focus_ops`와 칩으로만 정한다
+- 말로 시작·멈춤: AI가 있으면 채팅 답의 `focus_ops`(위 「채팅」), AI가 없으면 캐릭터 더블클릭 칩(AI가 있으면 입력창 ＋ 칩도 같다). 칩 id는 `focus_start`(「집중 시작할래?」)와 `focus_stop`(「집중 그만할래?」)이고, 앱은 지금 집중 중이면 `focus_stop`, 아니면 `focus_start` 하나만 보인다. 누르면 `POST /local/ask { id }`가 바로 시작하거나 멈추고 `{ answer: { id, kind, text } }`를 준다. 시작할 할 일은 진행 중(▶)인 할 일, 없으면 오늘 할 일 중 안 끝낸 첫 번째, 그것도 없으면 할 일 없이다. 대사는 캐릭터 `local`의 `focusStart`·`focusStartTodo`(`{title}`)·`focusAlready`(`{mins}`)·`focusStop`(`{duration}`)·`focusIdle`이고, 칩으로 멈출 때는 「N분 집중했어요」 말풍선 대신 이 답이 말한다
+- 정한 시간을 채우면 저절로 그만한다(일시정지한 동안은 빼고 센다). 그만할 때는 보통 그만하기처럼 마무리 말풍선이 뜬다
 - 맥이 잠들었다 깨서 마지막 저장에서 3분 넘게 지났으면, 돌던 구간을 마지막 저장 시각에 닫고 깬 때부터 새 구간을 연다(잠든 시간은 빠진다). `stop`의 초와 `today`는 둘 다 버림이라 서로 맞는다
 
 ```ts
 type FocusView = {
-  active: null | { id: string; startedAt: number; paused: boolean; baseMs: number; since: number | null; seconds: number };
+  active: null | { id: string; startedAt: number; paused: boolean; baseMs: number; since: number | null; seconds: number;
+    goalSec: number | null;                       // 정한 시간(초). 없으면 null
+    todo: { id: string; title: string } | null }; // 이 집중의 할 일. 없으면 null
   day: string; today: number; now: number; // today = 오늘 집중한 초(집중 중인 것 포함)
 };
 ```
@@ -327,6 +332,12 @@ type FocusView = {
 같은 대화 안에서는 차례로, 다른 대화끼리는 동시에 돈다.
 
 채팅 답의 `project_ops`(만들기 `add`·고치기 `edit`·끝내기 `done`·다시 열기 `reopen`, 지우기는 패널에서만)는 `todo_ops`보다 먼저 적용된다. `todo_ops`의 `project`(id 나 이름, `null`은 빼기)로 할 일을 묶으니, 한 답에서 프로젝트를 만들고 할 일을 넣을 수 있다.
+
+채팅 답의 `focus_ops`는 집중하기를 시작하거나 멈춘다(모든 뇌, 아래 「집중하기」). 모양은 `[{ op: "start", minutes: number | null, todo: string | null } | { op: "stop" }]`이다. 데몬이 적용하고 대화에 「✓ 집중 시작 (25분 · 할 일: 보고서)」·「✓ 집중 그만: 25분」 줄을 남긴다. 채팅 프롬프트 맥락에는 지금 집중 상태 한 줄(`- 집중하기: 5분째 집중 중 · 정한 시간 25분 · 할 일 "…"(id=…)`)이 붙는다.
+
+- `minutes`: 1분 이상이면 그 시간을 채울 때 저절로 그만한다. 그 밖의 값은 정한 시간 없이 시작한다.
+- `todo`: 열린 할 일의 id 나 이름이다. id 가 같은 것, 제목이 같은 것, 제목에 그 이름이 든 것 순서로 찾는다. 못 찾으면 할 일 없이 시작하고 답에 「⚠️ '…' 할 일을 못 찾아서 할 일 없이 집중을 시작했어요」를 붙인다.
+- 이미 집중 중이면 새로 시작하지 않고 답에 「ℹ️ 이미 N분째 집중하고 있어요」(캐릭터 대사 `local.focusAlready`)를 붙인다. 집중 중이 아닐 때 `stop`은 「ℹ️ 지금은 집중하고 있지 않아요」(`local.focusIdle`)다.
 
 | | |
 |---|---|
