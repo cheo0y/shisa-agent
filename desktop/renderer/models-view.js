@@ -121,8 +121,8 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
   function pickHint() {
     return h('div.card.models-card.models-hint', null,
       h('p.muted.small', null,
-        h('span', { text: '대화와 코드 작업에 쓸 AI·모델은 설정 창 「세부 모델」에서 골라요(코드 작업 AI는 「세부 모델」의 코드 작업 칸). 패널 채팅은 입력줄 옆에서 대화마다 바꿀 수 있어요. ' }),
-        cy.openSettings ? h('button.ghost.small', { type: 'button', text: '설정 열기', onclick: () => cy.openSettings() }) : null));
+        h('span', { text: t('setup.models_pick_hint') }),
+        cy.openSettings ? h('button.ghost.small', { type: 'button', text: t('setup.models_voicecard_text'), onclick: () => cy.openSettings() }) : null));
   }
 
   function disconnectFor(p) {

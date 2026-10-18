@@ -57,7 +57,8 @@ test('코드 작업 AI·모델은 앱 저장(sisa)에 두지 않는다 — 데�
   const m = fs.readFileSync(new URL('../main.js', import.meta.url), 'utf8');
   assert.doesNotMatch(m, /writeCodeModel/, '앱이 데몬 config.json 의 코드 모델을 따로 쓰지 않는다');
   const v = fs.readFileSync(new URL('../renderer/models-view.js', import.meta.url), 'utf8');
-  assert.match(v, /세부 모델」의 코드 작업 칸/);
+  assert.match(v, /t\('setup\.models_pick_hint'\)/);
+  assert.match(fs.readFileSync(new URL('../src/i18n/setup.js', import.meta.url), 'utf8'), /세부 모델」의 코드 작업 칸/);
   assert.doesNotMatch(v, /save\(\{ code:/);
 });
 

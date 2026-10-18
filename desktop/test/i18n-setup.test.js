@@ -177,6 +177,6 @@ test('모델 탭: 일본어면 한글 없음(연결 없음·연결된 AI 목록�
     assert.deepEqual(bad, []);
     ko();
     view.update();
-    assert.match(section.textContent, /단순 채팅/);
+    assert.match(section.textContent, /세부 모델/);
   } finally { ko(); }
 });
