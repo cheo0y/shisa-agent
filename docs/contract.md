@@ -51,6 +51,12 @@ type Bubble = {
   - 점심(`lunchAlert`): 점심 시각부터 한 시간 안에 `danceClip: "lunch"`로 추고 점심 인사(`local.lunch`, 그 영상에 한마디가 있으면 그 말)를 띄운다.
   - 퇴근(`leaveAlert`): 퇴근 10분 전부터 퇴근 시각 전까지 `danceClip: "plan"`(그 캐릭터의 일정 알림 영상)으로 추고 퇴근 인사(`local.leave`, `{mins}` = 퇴근까지 남은 분)를 띄운다. 일정 알림 영상의 한마디는 일정용이라 쓰지 않는다.
 - 채팅 맥락 머리말에 근무 시간 한 줄(`- 근무: 월~금 09:00~18:00 · 점심 12:00 · 퇴근까지 1시간 5분`)이 붙는다.
+- 날씨 알리미(`weather.ts`·`weather-say.ts`, 설정 `weather`): `weather.place`(사용자가 고른 지역)가 있을 때만 돈다. AI 없이 Open-Meteo 예보를 정해진 말로 말풍선 id `weather:<키>`에 띄운다(비·눈 소식이 있으면 `kind: "todo"`, 아니면 `info`). 근무 요일에 하루 한 번씩이고, 날짜는 근무 시간과 같은 `lunch.json`에 키 `weatherMorning`·`weatherLeave`·`weather@HH:MM`로 남긴다. 예보를 못 가져오면 남기지 않고 다음 확인(1분마다) 때 다시 본다.
+  - 출근 후(`weather.morning`, 기본 켬): 출근 시각부터 퇴근 20분 전까지. 출근 인사(`startAlert`)가 켜져 있으면 그 인사(로컬 뇌 브리핑의 아침 인사 포함) 뒤에만 뜬다. 브리핑이 도는 중이면 기다렸다가 끝나고 3초쯤 뒤에, 브리핑이 없으면 인사 1분 30초 뒤에 뜬다. 출근 인사를 껐으면 출근 시각(또는 데몬을 켠 때)을 기준으로 한다. 대사 `local.weatherMorning`.
+  - 퇴근 20분 전(`weather.leave`, 기본 켬): 퇴근 20분 전부터 퇴근 시각 전까지, 퇴근 10분 전 인사와 따로다. 퇴근 2시간 전부터 3시간 뒤까지 비·눈(강수 확률 50% 이상 또는 0.5mm 이상)이 있으면 `local.weatherLeaveRain`(☔ 「퇴근길 비 와요, 우산!」), 없으면 퇴근 시각 즈음 날씨로 `local.weatherLeave`. 일정 알림 춤 중이면 다음 확인에.
+  - 정한 시각(`weather.times`, 여섯 개까지): 그 시각부터 한 시간 안에 한 번. 대사 `local.weatherNow`.
+  - 채팅·브리핑 맥락(도구 머리말·큰 맥락 블록 둘 다)에 예보가 캐시에 있으면 한 줄(`- 오늘 날씨(서울 · Open-Meteo 예보): 맑음, 지금 14°C(맑음) · 최고 21°C/최저 11°C · 오후 3시쯤 비 60%`)이 붙는다. 프롬프트 때문에 바깥에 묻지는 않는다.
+  - 대사 자리표시: `weatherMorning`·`weatherNow`는 `{place}` `{summary}` `{now}` `{max}` `{min}` `{rain}`, `weatherLeave`는 `{place}` `{summary}` `{now}` `{max}` `{min}`, `weatherLeaveRain`은 `{place}` `{what}` `{when}` `{prob}` `{now}`, `weatherRain`(`{rain}` 자리에 들어가는 조각)은 `{when}`(「오후 3시」) `{what}`(비·눈) `{prob}`(「60%」). `weatherNoPlace`·`weatherFail`은 없다. 앞에 날씨 이모지 하나(비·눈이면 ☔)는 코드가 붙인다. 날씨 코드(WMO)는 맑음·구름 조금·구름 많음·흐림·안개·이슬비·비·소나기·눈·뇌우 같은 낱말로 바꾼다.
 
 ## 상태·설정
 
@@ -93,6 +99,7 @@ type Bubble = {
 - `user{name?}`, `repoRoots[]`, `configPath`
 - `onboarded`(설치 마법사를 마쳤나), `readSessions`(이 맥의 Claude Code·Codex 작업 기록을 읽나)
 - `character`(고른 캐릭터 id), `characters[{id,name}]`(고를 수 있는 캐릭터)
+- `weather{place,morning,leave,times,attribution}`: `place`는 `{ name, label, latitude, longitude, timezone }` 또는 `null`(꺼짐), `morning`·`leave` 기본 `true`, `times` 기본 `[]`, `attribution`은 `{ label: "날씨: Open-Meteo", url, license: "CC BY 4.0" }`
 
 `PUT` 본문(전부 선택, 모르는 키는 400):
 
@@ -112,6 +119,8 @@ type Bubble = {
   "workStart": "09:30", "lunchTime": "12:30", "workEnd": "18:30", // HH:MM(24시간). 아니면 400, 출근이 퇴근보다 늦거나 같아도 400
   "workDays": [1, 2, 3, 4, 5],                            // 0 일~6 토, 하나 이상
   "startAlert": true, "leaveAlert": true,                 // 출근 인사·퇴근 10분 전 인사 켜고 끄기(기본 켬)
+  "weather": { "place": { "name": "서울", "label": "서울특별시 · 대한민국", "latitude": 37.566, "longitude": 126.9784, "timezone": "Asia/Seoul" } | null,
+               "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 여섯 개까지
   "character": "hachi"                                    // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
 }
 ```
@@ -150,12 +159,21 @@ type Bubble = {
 - 모델 프롬프트에 들어가는 건 `prompt.intro`와 `prompt.tone` 두 칸뿐이고, 둘 다 한 줄로 다듬는다. 프롬프트의 시사 첫 문장·말투 줄 자리만 바꾸므로 그 밖의 규칙과 안전 지시는 그대로다.
 - 앱은 `cy-asset`으로 사용자 캐릭터 파일을 줄 때 `GET /characters` 목록에 그 캐릭터의 그 파일이 있는지, 심볼릭 링크를 풀었을 때 그 캐릭터 폴더 안의 보통 파일인지 본다.
 
+### 날씨 지역 검색 `GET /weather/search?q=`
+
+- `q`는 1~60자(아니면 400). 두 글자 미만이면 묻지 않고 빈 목록이다.
+- Open-Meteo Geocoding(`language=ko`)에 묻는다. 한글이고 시·도·구·군·읍·면·동·리로 끝나지 않으면 「서울」→「서울시」·「서울특별시」·「서울광역시」도 같이 물어 모은다(한국 지명이 「서울특별시」로 실려 있어서).
+- 응답: `{ ok: true, items: [{ id, name, label, latitude, longitude, timezone, country?, admin1?, admin2? }] }`(큰 곳부터 열 개까지, 같은 곳은 하나). `name`은 짧은 이름(「서울」, 「서울 마포구」), `label`은 「마포구 · 서울특별시 · 대한민국」이다. 못 물으면 `{ ok: false, error }`.
+- 같은 글자는 데몬이 기억해 두고 다시 묻지 않는다(설정 창도 따로 기억한다). 설정 창은 칸에서 300ms 멈추면 묻는다.
+- 칩 「오늘 날씨?」: `POST /local/ask { id: "weather" }`. 지역이 없으면 `local.weatherNoPlace`(「설정에서 지역을 고르면 알려 줄게요」), 있으면 예보(캐시 45분, 없으면 그때 가져온다)로 `local.weatherNow`와 `detail`(지역 이름 · 예보: Open-Meteo). 못 가져오면 `local.weatherFail`과 `detail`에 이유. AI가 있어도 입력창 ＋ 칩에 같이 있다.
+
 ### `GET /connections` · `POST /connections/check { id? }`
 
 - 설정 창의 「연결 상태」 줄이다. 응답은 `{ rows: ConnRow[], checkedAt }`.
 - `ConnRow` 필드: `id`, `label`, `group: core|service|local`, `state: ok|warn|error|off|unknown`, `detail`, `error?`(가림), `check`, `pending?`, `doc?`, `used?`, `briefing?`.
 - `check`는 `id`(`net|claude|gh|local`)만 다시 확인한다.
 - 캘린더 두 줄(`connector:calendar`·`calendar`)은 설정만 보지 않고 실제 동기화 결과(아래 「캘린더 동기화 상태」)를 따른다. 가져오는 중이면 `detail`에 「일정 가져오는 중」, 가져왔으면 일정 수, 못 가져왔으면 `state: error`와 `error`에 사람이 읽는 이유가 들어간다.
+- 날씨 줄(`weather`, 「날씨(Open-Meteo)」): 지역을 안 골랐으면 `off`, 가져왔으면 `detail` 「서울 마포구 · 방금 · 14°C」, 못 가져왔으면 `error`(예전에 가져온 게 있으면 `warn`)와 이유. 아직 안 가져왔으면 `GET /connections`가 한 번 가져오게 건다.
 - 메일 줄(`connector:mail`)도 `imap` 모드면 실제 동기화 결과(아래 「메일(앱 비밀번호)」)를 따른다. `summary`는 「직접 연결(IMAP, 읽기만)」, `detail`에 가져온 메일 수와 때(계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통 (때, 읽기만)」), 모든 계정을 못 가져왔으면 `state: error`와 `error`에 이유가 들어간다. 일부 계정만 못 가져왔으면 `state: warn`, `error`는 「주소: 이유」(여럿이면 « / »로 잇는다). 한 시간 넘게 못 가져왔으면 `warn`이다. 뇌가 `local`이면 「AI를 연결하면 메일에서 할 일을 뽑아요」가 붙는다.
 
 ### 그 밖
