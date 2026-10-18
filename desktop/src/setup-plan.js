@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // 설치 마법사의 단계 전이(순수 함수). 화면(renderer/setup-view.js)과 상태(renderer/panel.js)가 같이 쓴다.
 // 처음 켤 때: 이름(name) → 뇌 고르기(brain) → [키 붙여 넣기(ai-key) | 설치·로그인 안내(connect)] → 더 연결하기(extras: 캘린더·Slack·레포 폴더) → 끝(done)
 // 모든 단계는 건너뛸 수 있고, 나중에 설정·패널에서 다시 할 수 있다. extras 의 항목은 connect 안내로 들어갔다가 extras 로 돌아온다.
@@ -48,12 +49,12 @@ export function agentFrom({ done = {}, connected = [] } = {}) {
 // 끝 화면 요약: 무엇이 됐고 무엇을 나중에 할 수 있나
 export function setupSummary({ brain = {}, done = {}, repos = [], name = '', readSessions = false } = {}) {
   return [
-    { id: 'name', label: '이름', ok: !!name, text: name ? `${name} 님` : '나중에' },
-    { id: 'brain', label: '뇌(대화 AI)', ok: brain.ready === true && !brain.local, text: brain.ready === true && !brain.local ? (brain.label || '연결됨') : brain.local ? 'AI 없이 쓰기 (나중에 설정에서 연결할 수 있어요)' : '나중에 설정에서 연결' },
-    { id: 'calendar', label: '캘린더', ok: !!(done.gcal || done.outlook), text: done.gcal || done.outlook ? '연결함' : '나중에' },
-    { id: 'slack', label: 'Slack', ok: !!done.slack, text: done.slack ? '연결함' : '나중에' },
-    { id: 'repos', label: '레포 폴더', ok: repos.length > 0, text: repos.length ? repos.join(', ') : '나중에' },
-    { id: 'sessions', label: '작업 기록', ok: readSessions === true, text: readSessions === true ? 'Claude Code·Codex 작업 기록을 읽어요' : '읽지 않아요 (설정에서 켤 수 있어요)' },
+    { id: 'name', label: t('setup.plan_name_label'), ok: !!name, text: name ? t('setup.plan_name_text', { name }) : t('setup.plan_name_text_2') },
+    { id: 'brain', label: t('setup.plan_brain_label'), ok: brain.ready === true && !brain.local, text: brain.ready === true && !brain.local ? (brain.label || t('setup.plan_brain_text')) : brain.local ? t('setup.plan_brain_text_2') : t('setup.plan_brain_text_3') },
+    { id: 'calendar', label: t('setup.plan_calendar_label'), ok: !!(done.gcal || done.outlook), text: done.gcal || done.outlook ? t('setup.plan_calendar_text') : t('setup.plan_name_text_2') },
+    { id: 'slack', label: 'Slack', ok: !!done.slack, text: done.slack ? t('setup.plan_calendar_text') : t('setup.plan_name_text_2') },
+    { id: 'repos', label: t('setup.plan_repos_label'), ok: repos.length > 0, text: repos.length ? repos.join(', ') : t('setup.plan_name_text_2') },
+    { id: 'sessions', label: t('setup.plan_sessions_label'), ok: readSessions === true, text: readSessions === true ? t('setup.plan_sessions_text') : t('setup.plan_sessions_text_2') },
   ];
 }
 

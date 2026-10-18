@@ -1,3 +1,4 @@
+import { t, onLanguage } from './i18n.js';
 // 「더 연결하기」 메일(앱 비밀번호) 카드: 서비스 고르기(Gmail·네이버·다음·그 밖의 IMAP) · 주소로 서비스 짐작 · 서비스별 안내·링크 · 보낼 본문.
 // 화면(setup-view.js)과 메인(main.js 'mail-connect')이 같이 쓴다. Electron 없음. 비밀번호는 여기서 저장하지 않는다(데몬이 확인하고 config.json 에).
 
@@ -6,104 +7,104 @@ export const MAIL_SERVICES = [
     id: 'gmail',
     title: 'Gmail',
     domains: ['gmail.com', 'googlemail.com'],
-    password: '앱 비밀번호',
+    get password() { return t('setup.mail_mail_modelabel'); },
     placeholder: 'abcd efgh ijkl mnop',
-    steps: [
-      'Google 계정에 **2단계 인증**이 켜져 있어야 해요.',
-      '아래 **앱 비밀번호 만들기**에서 이름(예: 시사)을 적고 만들어요.',
-      '나온 **16자리**를 여기에 붙여요. Google 계정 비밀번호가 아니에요.',
-    ],
-    guide: [
-      '**2단계 인증 켜기**: 위 「2단계 인증 켜기」를 눌러 Google 계정에 로그인하고, 안내대로 휴대폰 번호나 인증 앱을 등록해요. 이미 켜져 있으면 넘어가요.',
-      '**앱 비밀번호 만들기**: 위 「앱 비밀번호 만들기」를 누르면 「앱 비밀번호」 화면이 열려요. 「앱 이름」에 시사라고 적고 **만들기**를 눌러요.',
-      '**16자리 복사**: 노란 칸에 나온 16자리(예: abcd efgh ijkl mnop)를 복사해요. 이 화면을 닫으면 다시 볼 수 없으니 바로 붙여 넣어요.',
-      '**시사에 넣기**: 위 칸에 Gmail 주소와 16자리를 넣고 **연결**을 눌러요. 띄어쓰기는 있어도 돼요.',
-      '「앱 비밀번호」 메뉴가 안 보이면 2단계 인증이 꺼져 있거나, 회사·학교 계정이라 관리자가 막아 둔 경우예요.',
-    ],
+    get steps() { return [
+      t('setup.mail_gmail_steps_0'),
+      t('setup.mail_gmail_steps_1'),
+      t('setup.mail_gmail_steps_2'),
+    ]; },
+    get guide() { return [
+      t('setup.mail_gmail_guide_0'),
+      t('setup.mail_gmail_guide_1'),
+      t('setup.mail_gmail_guide_2'),
+      t('setup.mail_gmail_guide_3'),
+      t('setup.mail_gmail_guide_4'),
+    ]; },
     links: [
-      { label: '앱 비밀번호 만들기', url: 'https://myaccount.google.com/apppasswords' },
-      { label: '2단계 인증 켜기', url: 'https://myaccount.google.com/signinoptions/twosv' },
+      { get label() { return t('setup.mail_gmail_label_2'); }, url: 'https://myaccount.google.com/apppasswords' },
+      { get label() { return t('setup.mail_gmail_label'); }, url: 'https://myaccount.google.com/signinoptions/twosv' },
     ],
-    note: '프로모션·소셜 탭 메일은 빼고 읽어요.',
+    get note() { return t('setup.mail_gmail_note'); },
   },
   {
     id: 'naver',
-    title: '네이버 메일',
+    get title() { return t('setup.mail_naver_title'); },
     domains: ['naver.com'],
-    password: '비밀번호',
-    placeholder: '네이버 비밀번호 또는 애플리케이션 비밀번호',
-    steps: [
-      '네이버 메일 **환경설정 → POP3/IMAP 설정**에서 **IMAP/SMTP 사용**을 **사용함**으로 켜요.',
-      '2단계 인증을 쓰면 **내정보 → 보안설정 → 2단계 인증 → 애플리케이션 비밀번호 관리**에서 만든 비밀번호를 넣어요.',
-      '2단계 인증을 안 쓰면 네이버 비밀번호를 넣어요.',
-    ],
-    guide: [
-      '**IMAP 켜기**: PC에서 네이버 메일(위 「네이버 메일 열기」)을 열고, 왼쪽 아래 **환경설정**을 눌러요.',
-      '위쪽 탭에서 **POP3/IMAP 설정**을 고르고, **IMAP/SMTP 설정** 탭에서 **IMAP/SMTP 사용**을 **사용함**으로 바꾼 뒤 **저장**을 눌러요.',
-      '**비밀번호 고르기**: 네이버 로그인에 **2단계 인증을 안 쓰면** 평소 네이버 비밀번호를 넣으면 돼요. 여기서 끝이에요.',
-      '**2단계 인증을 쓰면** 네이버 비밀번호로는 안 돼요. 위 「네이버 내정보」를 열고 **보안설정 → 2단계 인증 → 관리하기 → 애플리케이션 비밀번호 관리**로 가요.',
-      '**애플리케이션 비밀번호 만들기**: 종류에서 「직접 입력」을 고르고 시사라고 적은 뒤 **생성하기**를 눌러요. 나온 비밀번호를 복사해요.',
-      '**시사에 넣기**: 위 칸에 네이버 메일 주소(아이디@naver.com)와 비밀번호를 넣고 **연결**을 눌러요.',
-    ],
+    get password() { return t('setup.mail_custom_password'); },
+    get placeholder() { return t('setup.mail_naver_placeholder'); },
+    get steps() { return [
+      t('setup.mail_naver_steps_0'),
+      t('setup.mail_naver_steps_1'),
+      t('setup.mail_naver_steps_2'),
+    ]; },
+    get guide() { return [
+      t('setup.mail_naver_guide_0'),
+      t('setup.mail_naver_guide_1'),
+      t('setup.mail_naver_guide_2'),
+      t('setup.mail_naver_guide_3'),
+      t('setup.mail_naver_guide_4'),
+      t('setup.mail_naver_guide_5'),
+    ]; },
     links: [
-      { label: '네이버 메일 열기', url: 'https://mail.naver.com/' },
-      { label: '네이버 내정보', url: 'https://nid.naver.com/' },
+      { get label() { return t('setup.mail_naver_label_2'); }, url: 'https://mail.naver.com/' },
+      { get label() { return t('setup.mail_naver_label'); }, url: 'https://nid.naver.com/' },
     ],
-    note: '광고·뉴스레터는 할 일로 만들지 않게 걸러요.',
+    get note() { return t('setup.mail_daum_note'); },
   },
   {
     id: 'daum',
-    title: '다음 메일',
+    get title() { return t('setup.mail_daum_title'); },
     domains: ['daum.net', 'hanmail.net'],
-    password: '비밀번호',
-    placeholder: '카카오계정 앱 비밀번호 또는 비밀번호',
-    steps: [
-      '다음 메일 **환경설정 → IMAP/POP3**에서 **IMAP 사용**을 켜요.',
-      '2단계 인증을 쓰면 카카오계정 보안 설정에서 만든 **앱 비밀번호**를 넣어요.',
-    ],
-    guide: [
-      '**IMAP 켜기**: PC에서 다음 메일(위 「다음 메일 열기」)을 열고 **환경설정**을 눌러요.',
-      '**IMAP/POP3** 메뉴에서 **IMAP 사용**을 **사용함**으로 바꾸고 **저장**을 눌러요.',
-      '**비밀번호 고르기**: 2단계 인증을 안 쓰면 카카오계정(다음) 비밀번호를 넣어요. 2단계 인증을 쓰면 카카오계정 보안 설정에서 만든 **앱 비밀번호**를 넣어요.',
-      '**시사에 넣기**: 위 칸에 다음 메일 주소와 비밀번호를 넣고 **연결**을 눌러요.',
-    ],
-    links: [{ label: '다음 메일 열기', url: 'https://mail.daum.net/' }],
-    note: '광고·뉴스레터는 할 일로 만들지 않게 걸러요.',
+    get password() { return t('setup.mail_custom_password'); },
+    get placeholder() { return t('setup.mail_daum_placeholder'); },
+    get steps() { return [
+      t('setup.mail_daum_steps_0'),
+      t('setup.mail_daum_steps_1'),
+    ]; },
+    get guide() { return [
+      t('setup.mail_daum_guide_0'),
+      t('setup.mail_daum_guide_1'),
+      t('setup.mail_daum_guide_2'),
+      t('setup.mail_daum_guide_3'),
+    ]; },
+    links: [{ get label() { return t('setup.mail_daum_label'); }, url: 'https://mail.daum.net/' }],
+    get note() { return t('setup.mail_daum_note'); },
   },
   {
     id: 'custom',
-    title: '다른 메일(IMAP)',
+    get title() { return t('setup.mail_custom_title'); },
     domains: [],
-    password: '비밀번호',
-    placeholder: '메일 비밀번호(앱 비밀번호)',
-    steps: [
-      '메일 서비스의 **IMAP 서버 주소**와 포트(보통 993)를 적어요.',
-      '메일 설정에서 IMAP 을 켜고, 앱 비밀번호가 있으면 그걸 넣어요.',
-    ],
-    guide: [
-      '메일 서비스의 도움말에서 **IMAP 서버 주소**와 **포트**를 찾아요(보통 imap.서비스주소, 993).',
-      '메일 설정에서 **IMAP 사용**을 켜요. 2단계 인증을 쓰면 그 서비스의 **앱 비밀번호**를 만들어요.',
-      '위 칸에 주소, 비밀번호, IMAP 서버, 포트를 넣고 **연결**을 눌러요.',
-    ],
+    get password() { return t('setup.mail_custom_password'); },
+    get placeholder() { return t('setup.mail_custom_placeholder'); },
+    get steps() { return [
+      t('setup.mail_custom_steps_0'),
+      t('setup.mail_custom_steps_1'),
+    ]; },
+    get guide() { return [
+      t('setup.mail_custom_guide_0'),
+      t('setup.mail_custom_guide_1'),
+      t('setup.mail_custom_guide_2'),
+    ]; },
     links: [],
     note: '',
   },
 ];
 
 // 연결한 뒤 잘 됐는지 보는 순서(카드의 「연결한 뒤 확인하기」)
-export const MAIL_CHECK = [
-  '**연결**을 누르면 시사가 바로 로그인해 봐요. 「연결했어요. 최근 메일 N통」이 뜨면 된 거예요. 안 되면 카드 아래에 이유가 떠요.',
-  '설정(⚙) → **연결 상태**의 메일 줄에 가져온 메일 수가 보여요. 15분마다, 그리고 브리핑 전에 새로 가져와요.',
-  '채팅에서 「메일 온 거 있어?」라고 물어보거나 브리핑을 기다려요. 답장이나 할 일이 필요한 메일이 할 일로 들어와요(AI를 연결했을 때).',
-  '원래 메일함에서 안 읽은 메일이 그대로 안 읽음인지 봐요. 시사는 읽기만 해요.',
-  '메일 계정은 여러 개 붙일 수 있어요. 위 목록에서 계정마다 가져온 메일 수나 못 가져온 이유가 보여요.',
-  '계정 하나만 그만 쓰려면 그 줄의 **빼기**, 모두 끊으려면 **연결 해제**를 눌러요. 비밀번호와 가져온 메일이 지워져요.',
+export let MAIL_CHECK = [
+  t('setup.mail_mail_check_0'),
+  t('setup.mail_mail_check_1'),
+  t('setup.mail_mail_check_2'),
+  t('setup.mail_mail_check_3'),
+  t('setup.mail_mail_check_4'),
+  t('setup.mail_mail_check_5'),
 ];
 
-export const MAIL_TITLE = '메일(앱 비밀번호)';
-export const MAIL_BLURB = '받은 메일 중 답장이나 할 일이 필요한 걸 시사가 골라 줘요. 메일은 읽기만 하고, 읽음 표시도 바꾸지 않아요.';
-export const MAIL_ADVANCED = '고급: Claude Code에 메일 MCP 서버를 등록해서 읽을 수도 있어요. 방법은 docs/connect/mail.md 의 「MCP로 연결하기」를 봐 주세요.';
-export const MAIL_NO_AI = 'AI를 연결하면 메일에서 할 일을 뽑아요. 지금은 메일만 가져와 둬요.';
+export let MAIL_TITLE = t('setup.mail_mail_title');
+export let MAIL_BLURB = t('setup.mail_mail_blurb');
+export let MAIL_ADVANCED = t('setup.mail_mail_advanced');
+export let MAIL_NO_AI = t('setup.mail_mail_no_ai');
 
 export function mailService(id) {
   return MAIL_SERVICES.find((s) => s.id === id) ?? MAIL_SERVICES[0];
@@ -121,11 +122,11 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 칸이 다 찼나 → { ok, why }
 export function mailFormCheck(f = {}) {
   const user = String(f.user ?? '').trim();
-  if (!EMAIL.test(user)) return { ok: false, why: '메일 주소를 적어 주세요.' };
+  if (!EMAIL.test(user)) return { ok: false, why: t('setup.mail_mailformcheck_why_4') };
   const svc = mailService(f.service);
-  if (!String(f.password ?? '').trim()) return { ok: false, why: `${svc.password}를 넣어 주세요.` };
-  if (svc.id === 'gmail' && String(f.password).replace(/\s+/g, '').length !== 16) return { ok: false, why: '앱 비밀번호는 16자리예요. Google 계정 비밀번호가 아니에요.' };
-  if (svc.id === 'custom' && !/^[a-z0-9.-]+$/i.test(String(f.host ?? '').trim())) return { ok: false, why: 'IMAP 서버 주소를 적어 주세요(예: imap.example.com).' };
+  if (!String(f.password ?? '').trim()) return { ok: false, why: t('setup.mail_mailformcheck_why_3', { password: svc.password }) };
+  if (svc.id === 'gmail' && String(f.password).replace(/\s+/g, '').length !== 16) return { ok: false, why: t('setup.mail_mailformcheck_why_2') };
+  if (svc.id === 'custom' && !/^[a-z0-9.-]+$/i.test(String(f.host ?? '').trim())) return { ok: false, why: t('setup.mail_mailformcheck_why') };
   return { ok: true, why: '' };
 }
 
@@ -179,10 +180,10 @@ export function mailConnected(connectors) {
 // 계정 한 줄 뒤쪽: 가져온 메일 수 / 가져오는 중 / 못 가져온 이유
 export function mailAccountState(a) {
   if (!a) return '';
-  if (!a.ready) return '비밀번호가 없어요';
-  if (!a.phase || a.phase === 'pending') return '메일 가져오는 중';
-  if (a.phase === 'failed') return `못 가져왔어요: ${a.reason || '이유를 몰라요'}`;
-  return `최근 메일 ${a.count ?? 0}통 읽음`;
+  if (!a.ready) return t('setup.mail_mailaccountstate_5');
+  if (!a.phase || a.phase === 'pending') return t('setup.mail_mailaccountstate_4');
+  if (a.phase === 'failed') return t('setup.mail_mailaccountstate_3', { v0: a.reason || t('setup.mail_mailaccountstate_2') });
+  return t('setup.mail_mailaccountstate', { v0: a.count ?? 0 });
 }
 
 // 연결된 메일 줄 글. 계정 하나: 서비스 · 주소 · 결과. 여럿: 메일 N개 계정 · 최근 메일 M통(일부 실패면 그 계정)
@@ -191,30 +192,30 @@ export function mailStatusText(m) {
   const accounts = m.accounts?.length ? m.accounts : [{ user: m.account, preset: m.preset, ready: m.ready, ...(m.sync ? { phase: m.sync.phase, count: m.sync.count, reason: m.sync.reason } : {}) }];
   if (accounts.length === 1) return `${mailService(accounts[0].preset).title} · ${accounts[0].user} · ${mailAccountState(accounts[0])}`;
   const s = m.sync;
-  const head = `메일 ${accounts.length}개 계정`;
-  if (!s || s.phase === 'pending') return `${head} · 메일 가져오는 중`;
+  const head = t('setup.mail_head', { length: accounts.length });
+  if (!s || s.phase === 'pending') return t('setup.mail_mailstatustext_3', { head });
   const bad = accounts.filter((a) => a.phase === 'failed' || !a.ready);
   const total = accounts.reduce((n, a) => n + (a.count ?? 0), 0);
-  return `${head} · 최근 메일 ${total}통${bad.length ? ` · 못 가져온 계정 ${bad.length}개` : ''}`;
+  return t('setup.mail_mailstatustext_2', { head, total, v2: bad.length ? t('setup.mail_mailstatustext', { length: bad.length }) : '' });
 }
 
-export const MAIL_ADD_MORE = '＋ 다른 메일 계정 추가';
+export let MAIL_ADD_MORE = t('setup.mail_mail_add_more');
 
 // 계정 [빼기] 묻는 글
 export function mailRemoveCopy(a, last) {
   return {
-    ask: `${a?.user ?? '이'} 계정을 뺄까요?`,
-    note: last ? '마지막 계정이라서 빼면 메일 연결이 꺼져요. 메일함의 메일은 그대로예요.' : '이 계정의 비밀번호와 가져온 메일만 지워요. 다른 계정은 그대로예요.',
-    done: '계정을 뺐어요.',
-    label: '빼기',
+    ask: t('setup.mail_mailremovecopy_ask_2', { v0: a?.user ?? t('setup.mail_mailremovecopy_ask') }),
+    note: last ? t('setup.mail_mailremovecopy_note_2') : t('setup.mail_mailremovecopy_note'),
+    done: t('setup.mail_mailremovecopy_done'),
+    label: t('setup.mail_mailremovecopy_label'),
   };
 }
 
 // 연결 결과 → 카드 아래 한 줄(같은 주소면 비밀번호를 바꿨다고)
 export function mailConnectedText(r) {
   const n = r?.count ?? 0;
-  if (r?.updated) return `**${r.account} 비밀번호를 바꿨어요.** 최근 메일 ${n}통을 읽었어요.`;
-  return `**${r?.account || '메일'} 연결했어요.** 최근 메일 ${n}통을 읽었어요. 읽기만 해요.`;
+  if (r?.updated) return t('setup.mail_mailconnectedtext_2', { account: r.account, n });
+  return t('setup.mail_mailconnectedtext', { v0: r?.account || t('setup.mail_withoutmailaccount_label'), n });
 }
 
 // 연결 성공 직후 패널이 들고 있는 연결 카드 목록에 그 계정을 바로 붙인다(다음 대시보드를 기다리지 않게). 같은 주소면 바꾼다
@@ -228,7 +229,7 @@ export function withMailAccount(connectors, r) {
   if (i >= 0) accounts[i] = row; else accounts.push(row); // 같은 주소면 그 자리에서 바꾼다
   const results = (cur?.sync?.accounts ?? []).filter((a) => a.id !== r.id).concat([{ id: r.id || '', phase: 'ok', count: r.count ?? 0 }]);
   const mail = {
-    cap: 'mail', label: '메일', mode: 'imap', modeLabel: '앱 비밀번호', ready: true, detail: '',
+    cap: 'mail', label: t('setup.mail_withoutmailaccount_label'), mode: 'imap', modeLabel: t('setup.mail_mail_modelabel'), ready: true, detail: '',
     account: accounts[0].user, preset: accounts[0].preset, accounts,
     sync: { phase: 'ok', count: results.reduce((n, a) => n + (a.count ?? 0), 0), accounts: results },
   };
@@ -241,7 +242,7 @@ export function withoutMailAccount(connectors, id) {
   return list.map((c) => {
     if (!c || c.cap !== 'mail' || c.mode !== 'imap') return c;
     const accounts = (c.accounts ?? []).filter((a) => a.id !== id);
-    if (!accounts.length) return { cap: 'mail', label: c.label || '메일', mode: 'off', modeLabel: '꺼짐', ready: false, detail: '' };
+    if (!accounts.length) return { cap: 'mail', label: c.label || t('setup.mail_withoutmailaccount_label'), mode: 'off', modeLabel: t('setup.mail_withoutmailaccount_modelabel'), ready: false, detail: '' };
     const results = (c.sync?.accounts ?? []).filter((a) => a.id !== id);
     return { ...c, account: accounts[0].user, preset: accounts[0].preset, accounts, ...(c.sync ? { sync: { ...c.sync, accounts: results, count: results.reduce((n, a) => n + (a.count ?? 0), 0) } } : {}) };
   });
@@ -249,3 +250,20 @@ export function withoutMailAccount(connectors, id) {
 
 // main 이 렌더러에서 받은 계정 id 모양(데몬 DELETE /connectors/mail/:id)
 export const okMailId = (x) => typeof x === 'string' && /^[\w-]{1,64}$/.test(x);
+
+// 언어가 바뀌면 위 글 상수들을 그 언어로 다시(가져다 쓰는 쪽은 살아 있는 바인딩으로 새 글을 본다)
+onLanguage(() => {
+  MAIL_CHECK = [
+  t('setup.mail_mail_check_0'),
+  t('setup.mail_mail_check_1'),
+  t('setup.mail_mail_check_2'),
+  t('setup.mail_mail_check_3'),
+  t('setup.mail_mail_check_4'),
+  t('setup.mail_mail_check_5'),
+];
+  MAIL_TITLE = t('setup.mail_mail_title');
+  MAIL_BLURB = t('setup.mail_mail_blurb');
+  MAIL_ADVANCED = t('setup.mail_mail_advanced');
+  MAIL_NO_AI = t('setup.mail_mail_no_ai');
+  MAIL_ADD_MORE = t('setup.mail_mail_add_more');
+});

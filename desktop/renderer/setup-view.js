@@ -1,4 +1,5 @@
 // 설치: 한 화면에 할 일 한 줄씩. 토큰은 이 화면 메모리에만 있고 저장하지 않는다.
+import { t } from '../src/i18n.js';
 import { who, whoId } from './who.js';
 import { characterAssets } from '../src/character.js';
 import { AGENTS, FEATURES, agentSteps, buildWalk, featureTitle } from '../src/setup-flow.js';
@@ -33,7 +34,7 @@ function splitSay(say) {
   if (!say) return [];
   return String(say)
     .split(/\n+/)
-    .flatMap((p) => p.split(/(?<=(?:다|요|니다|세요|습니다)\.)\s+/))
+    .flatMap((p) => p.split(/(?<=(?:다|요|니다|세요|습니다)\.)\s+|(?<=。)(?!\*)\s*/)) // 한국어 문장 끝 · 일본어 「。」
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -68,10 +69,10 @@ function pretty(code) {
 }
 
 function codeBlock(label, text, onCopy) {
-  const btn = h('button.ghost.setup-copy', { type: 'button', text: '복사' });
+  const btn = h('button.ghost.setup-copy', { type: 'button', text: t('setup.view_codeblock_text') });
   btn.addEventListener('click', () => onCopy(text, btn));
   return h('div.setup-code', null,
-    h('div.setup-code-bar', null, h('span', { text: label || '복사' }), btn),
+    h('div.setup-code-bar', null, h('span', { text: label || t('setup.view_codeblock_text') }), btn),
     h('pre', { text: pretty(text) }));
 }
 
@@ -88,10 +89,10 @@ function rowNode(row, i, ctx) {
   const keys = typeof row === 'string' ? null : row.keys;
   let links = null;
   if (typeof row === 'object' && row?.link === true && ctx?.url) {
-    const copyBtn = h('button.ghost.setup-inline', { type: 'button', text: '주소 복사', 'data-label': '주소 복사' });
+    const copyBtn = h('button.ghost.setup-inline', { type: 'button', text: t('setup.view_copybtn_data_label'), 'data-label': t('setup.view_copybtn_data_label') });
     copyBtn.addEventListener('click', () => ctx.onCopy(ctx.url, copyBtn));
     links = h('span.act-links', null,
-      h('button.primary.setup-inline', { type: 'button', text: '주소 열기', onclick: () => ctx.onOpen(ctx.url) }),
+      h('button.primary.setup-inline', { type: 'button', text: t('setup.view_rownode_text'), onclick: () => ctx.onOpen(ctx.url) }),
       copyBtn);
   }
   return h('li.act', null,
@@ -112,7 +113,7 @@ function slotFields(step) {
         type: 'text',
         spellcheck: 'false',
         autocomplete: 'off',
-        placeholder: s.hint || `${s.placeholder} 를 여기에 붙여 넣기`,
+        placeholder: s.hint || t('setup.view_input_placeholder_5', { placeholder: s.placeholder }),
         'aria-label': s.label,
         'data-slot': s.id,
         value: slotValues.get(s.id) || '',
@@ -126,8 +127,8 @@ function slotFields(step) {
       return h('label', null, h('span', { text: s.label }), input);
     }),
     h('small', { text: step.slotNote || ((step.slots || []).every((s) => (slotValues.get(s.id) || '').trim())
-      ? '이 칸에 들어갔습니다. 저장하지 않고 서버로 보내지 않습니다.'
-      : '이 칸은 이 화면에만 있습니다. 저장하지 않고 서버로 보내지 않습니다.') }));
+      ? t('setup.view_slotfields_text_2')
+      : t('setup.view_slotfields_text')) }));
 }
 
 // 모양이 정해진 칸(캘린더 주소)이 맞게 채워졌는지
@@ -151,7 +152,7 @@ function slotStatus(step, slotError) {
   if (st.bad) return h('p.setup-gate', null, ...richNodes(st.bad));
   const err = slotBlocked(step, slotError) ? slotError.text : '';
   if (err) return h('p.setup-gate', null, ...richNodes(err));
-  return h('p.setup-gate.ok', null, ...richNodes('**맞는 주소입니다.** 다음으로 갈 수 있습니다.'));
+  return h('p.setup-gate.ok', null, ...richNodes(t('setup.view_slotstatus')));
 }
 
 // 시사 캐릭터 + 말풍선. 패널 사이드바와 같은 그림을 쓴다(CSP: cy-asset: 만).
@@ -189,28 +190,28 @@ function screen({ kicker, title, identity, rows, rowCtx, extra, nav, say }) {
 function walkNav({ phase, cursor, total, onList, onPrev, onBack, onSkip, onNext, nextLabel, nextDisabled }) {
   const goBack = () => { if (cursor > 0) onPrev(); else onBack(); };
   return h('div.setup-bar', null,
-    phase === 'walk' || phase === 'connect' ? h('button.ghost', { type: 'button', text: '목록', onclick: onList }) : null,
-    h('button.ghost', { type: 'button', text: '이전', onclick: goBack }),
+    phase === 'walk' || phase === 'connect' ? h('button.ghost', { type: 'button', text: t('setup.view_drawsetup_text'), onclick: onList }) : null,
+    h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_2'), onclick: goBack }),
     h('span.spacer'),
     phase === 'walk' && cursor < total - 1
-      ? h('button.ghost', { type: 'button', text: '이 기능은 연결 안 할래요', onclick: onSkip })
+      ? h('button.ghost', { type: 'button', text: t('setup.view_walknav_text'), onclick: onSkip })
       : null,
     h('button.primary', { type: 'button', text: nextLabel, disabled: !!nextDisabled, onclick: onNext }));
 }
 
 function loginStatus(step, login) {
   if (step.gate !== 'login') return null;
-  if (login?.loggedIn) return h('p.setup-gate.ok', null, ...richNodes('**완료.** 로그인되었습니다. 다음으로 갈 수 있습니다.'));
+  if (login?.loggedIn) return h('p.setup-gate.ok', null, ...richNodes(t('setup.view_loginstatus_3')));
   if (login?.installed === false) {
-    return h('p.setup-gate', null, ...richNodes('아직 **설치가 안 보입니다.** 이전 화면의 설치를 먼저 하세요. 설치와 로그인이 확인되면 다음이 켜집니다.'));
+    return h('p.setup-gate', null, ...richNodes(t('setup.view_loginstatus_2')));
   }
-  return h('p.setup-gate', null, ...richNodes('아직 **로그인 전**입니다. 터미널에서 로그인이 끝나면 여기에 **완료**가 표시되고 다음이 켜집니다.'));
+  return h('p.setup-gate', null, ...richNodes(t('setup.view_loginstatus')));
 }
 
 function agentView({ agent, onAgent, onContinue }) {
   return screen({
-    title: '코딩 에이전트를 연결할까요?',
-    identity: '하나를 고르면, 그다음부터 그 방법으로 연결합니다.',
+    title: t('setup.view_agentview_title'),
+    identity: t('setup.view_agentview_identity'),
     extra: h('div.setup-picks', null, AGENTS.map((a) => h('button', {
       type: 'button',
       class: `setup-pick${agent === a.id ? ' on' : ''}`,
@@ -222,7 +223,7 @@ function agentView({ agent, onAgent, onContinue }) {
     h('span.setup-need', { text: a.need })))),
     nav: h('div.setup-bar', null,
       h('span.spacer'),
-      h('button.primary', { type: 'button', text: '다음', disabled: !agent, onclick: onContinue })),
+      h('button.primary', { type: 'button', text: t('setup.view_drawsetup_nextlabel'), disabled: !agent, onclick: onContinue })),
   });
 }
 
@@ -230,8 +231,8 @@ function pickView({ picked, agent, onToggle, onStart, onDone }) {
   const set = new Set(picked);
   const who = AGENTS.find((a) => a.id === agent);
   return screen({
-    title: '어떤 기능을 연결할까요?',
-    identity: `${who ? who.title : '고른 방법'}으로, 고른 것만 하나씩 안내합니다.`,
+    title: t('setup.view_pickview_title'),
+    identity: t('setup.view_pickview_identity_2', { v0: who ? who.title : t('setup.view_pickview_identity') }),
     extra: h('div.setup-picks', null, FEATURES.map((f) => h('button', {
       type: 'button',
       class: `setup-pick${set.has(f.id) ? ' on' : ''}`,
@@ -242,11 +243,11 @@ function pickView({ picked, agent, onToggle, onStart, onDone }) {
     h('span.setup-blurb', { text: f.blurb }),
     h('span.setup-need', { text: f.need })))),
     nav: h('div.setup-bar', null,
-      h('button.ghost', { type: 'button', text: '개요로', onclick: onDone }),
+      h('button.ghost', { type: 'button', text: t('setup.view_drawsetup_nextlabel_2'), onclick: onDone }),
       h('span.spacer'),
       h('button.primary', {
         type: 'button',
-        text: set.size ? '첫 번째 안내' : '나중에 할게요',
+        text: set.size ? t('setup.view_pickview_text') : t('setup.view_brainpickview_text'),
         onclick: set.size ? onStart : onDone,
       })),
   });
@@ -262,7 +263,7 @@ function oneView(step, { phase, cursor, total, agent, login, slotError, calendar
   }, h('span.setup-pick-title', { text: c.title }), (c.blurb || c.say) ? h('span.setup-blurb', { text: c.blurb || c.say }) : null));
   const blocks = [];
   if (step.code) blocks.push(codeBlock(step.codeLabel, filled(step.code, step), onCopy));
-  if (step.config) blocks.push(codeBlock(step.configLabel || 'config.json 에 넣기', step.config, onCopy));
+  if (step.config) blocks.push(codeBlock(step.configLabel || t('setup.view_oneview'), step.config, onCopy));
   return screen({
     kicker: phase === 'walk'
       ? `${featureTitle(step.feature)}  ·  ${cursor + 1} / ${total}`
@@ -280,7 +281,7 @@ function oneView(step, { phase, cursor, total, agent, login, slotError, calendar
       slotStatus(step, slotError),
       step.calendars ? calendarBlock(calendar, step.calendars) : null,
       step.details?.length ? h('details.setup-fold', null,
-        h('summary', { text: '막히면' }),
+        h('summary', { text: t('setup.view_aikeyview_text_3') }),
         h('ul', null, step.details.map((d) => h('li', null, ...richNodes(d))))) : null),
     nav: walkNav({
       phase, cursor, total, onList, onPrev, onBack, onSkip, onNext, nextLabel,
@@ -307,21 +308,21 @@ function pickButton(on, title, blurb, onclick, linked, note) {
 let nameDraft = null;
 function nameView({ name, onName, onSkipSetup }) {
   if (nameDraft === null) nameDraft = name || '';
-  const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '예: 길동', 'aria-label': '이름', value: nameDraft });
+  const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: t('setup.view_input_placeholder_4'), 'aria-label': t('setup.view_nameview_text_3'), value: nameDraft });
   input.addEventListener('input', () => { nameDraft = input.value; });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) onName(nameDraft.trim()); });
   focusSlot = null;
   queueMicrotask(() => input.focus());
   return screen({
     say: sayFor(whoId()).name,
-    title: '반가워요!',
-    identity: '부를 이름을 적어 주세요. 브리핑이나 대화에서 이 이름으로 불러요.',
-    extra: h('div.setup-fields', null, h('label', null, h('span', { text: '이름' }), input)),
+    title: t('setup.view_nameview_title_2'),
+    identity: t('setup.view_nameview_identity'),
+    extra: h('div.setup-fields', null, h('label', null, h('span', { text: t('setup.view_nameview_text_3') }), input)),
     nav: h('div.setup-bar', null,
-      onSkipSetup ? h('button.ghost', { type: 'button', text: '설치는 나중에 할게요', title: '아무것도 연결하거나 읽지 않고 시작해요. 이 탭에서 언제든 이어서 할 수 있어요', onclick: onSkipSetup }) : null,
+      onSkipSetup ? h('button.ghost', { type: 'button', text: t('setup.view_nameview_text_2'), title: t('setup.view_nameview_title'), onclick: onSkipSetup }) : null,
       h('span.spacer'),
-      h('button.ghost', { type: 'button', text: '건너뛰기', onclick: () => onName('') }),
-      h('button.primary', { type: 'button', text: '다음', onclick: () => onName(nameDraft.trim()) })),
+      h('button.ghost', { type: 'button', text: t('setup.view_nameview_text'), onclick: () => onName('') }),
+      h('button.primary', { type: 'button', text: t('setup.view_drawsetup_nextlabel'), onclick: () => onName(nameDraft.trim()) })),
   });
 }
 
@@ -329,19 +330,19 @@ function nameView({ name, onName, onSkipSetup }) {
 function brainPickView({ detected = {}, connected = [], current = '', onPick, onSkip, onBack }) {
   return screen({
     say: sayFor(whoId()).brain,
-    title: '뇌(AI)를 연결할까요?',
-    identity: 'AI는 선택이에요. 하나만 고르면 되고, AI 없이 시작해도 나중에 설정에서 언제든 연결하거나 바꿀 수 있어요.',
+    title: t('setup.view_brainpickview_title'),
+    identity: t('setup.view_brainpickview_identity'),
     extra: h('div.setup-picks', null, BRAIN_CHOICES.map((c) => {
       const found = c.agent ? detected[c.agent] === true : false;
       const linked = connected.includes(c.id);
-      const tag = current === c.id ? ' · 지금 쓰는 중' : linked ? ' · 연결됨' : found ? ' · 찾았어요 ✓' : '';
-      const note = c.agent && detected[c.agent] === false ? '이 맥에서 아직 못 찾았어요. 누르면 설치와 로그인을 안내해요' : '';
+      const tag = current === c.id ? t('setup.view_tag_3') : linked ? t('setup.view_tag_2') : found ? t('setup.view_tag') : '';
+      const note = c.agent && detected[c.agent] === false ? t('setup.view_note') : '';
       return pickButton(current === c.id, `${c.title}${tag}`, c.blurb, () => onPick(c.id), found || linked, note);
     })),
     nav: h('div.setup-bar', null,
-      h('button.ghost', { type: 'button', text: '이전', onclick: onBack }),
+      h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_2'), onclick: onBack }),
       h('span.spacer'),
-      h('button.ghost', { type: 'button', text: '나중에 할게요', onclick: onSkip })),
+      h('button.ghost', { type: 'button', text: t('setup.view_brainpickview_text'), onclick: onSkip })),
   });
 }
 
@@ -366,7 +367,7 @@ function extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars 
   const saved = cal ? calendarCardSummary(calendars) : '';
   const on = cal ? !!saved : !!done[item.id];
   const cap = HUB_CAP[item.id];
-  const pick = pickButton(false, saved ? `${item.title} · ${saved}` : on ? `${item.title} · 연결됨` : item.title, item.blurb, () => onOpen(item.id), on);
+  const pick = pickButton(false, saved ? `${item.title} · ${saved}` : on ? t('setup.view_pick', { title: item.title }) : item.title, item.blurb, () => onOpen(item.id), on);
   if (!on || !cap || !onDisconnect) return pick;
   const copy = connectorDisconnectCopy(cap, servers?.[cap]);
   return h('div.setup-extra', { dataset: { id: item.id } }, pick, disconnectControl(document, {
@@ -416,7 +417,7 @@ function mailForm({ busy, result, onConnect, onOpen }) {
   const kids = [];
   const svc = mailService(mailDraft.service);
   const select = document.createElement('select');
-  select.setAttribute('aria-label', '메일 서비스');
+  select.setAttribute('aria-label', t('setup.view_fields_text_2'));
   for (const s of MAIL_SERVICES) {
     const o = document.createElement('option');
     o.value = s.id;
@@ -425,7 +426,7 @@ function mailForm({ busy, result, onConnect, onOpen }) {
   }
   select.value = svc.id;
   select.addEventListener('change', () => { mailDraft.service = select.value; mailDraft.picked = true; redraw?.(); });
-  const user = h('input', { type: 'text', inputmode: 'email', autocomplete: 'off', spellcheck: 'false', placeholder: svc.id === 'naver' ? '아이디@naver.com' : svc.id === 'daum' ? '아이디@daum.net' : svc.id === 'gmail' ? '아이디@gmail.com' : 'me@example.com', 'aria-label': '메일 주소', value: mailDraft.user, dataset: { slot: 'mail-user' } });
+  const user = h('input', { type: 'text', inputmode: 'email', autocomplete: 'off', spellcheck: 'false', placeholder: svc.id === 'naver' ? t('setup.view_user_placeholder_3') : svc.id === 'daum' ? t('setup.view_user_placeholder_2') : svc.id === 'gmail' ? t('setup.view_user_placeholder') : 'me@example.com', 'aria-label': t('setup.view_fields_text'), value: mailDraft.user, dataset: { slot: 'mail-user' } });
   user.addEventListener('input', () => {
     mailDraft.user = user.value;
     const g = guessService(user.value);
@@ -435,26 +436,26 @@ function mailForm({ busy, result, onConnect, onOpen }) {
   const pass = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: svc.placeholder, 'aria-label': svc.password, value: mailDraft.password });
   pass.addEventListener('input', () => { mailDraft.password = pass.value; });
   const fields = [
-    h('label', null, h('span', { text: '메일 서비스' }), select),
-    h('label', null, h('span', { text: '메일 주소' }), user),
+    h('label', null, h('span', { text: t('setup.view_fields_text_2') }), select),
+    h('label', null, h('span', { text: t('setup.view_fields_text') }), user),
     h('label', null, h('span', { text: svc.password }), pass),
   ];
   if (svc.id === 'custom') {
-    const host = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'imap.example.com', 'aria-label': 'IMAP 서버', value: mailDraft.host });
+    const host = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'imap.example.com', 'aria-label': t('setup.view_mailform_text_5'), value: mailDraft.host });
     host.addEventListener('input', () => { mailDraft.host = host.value; });
-    const port = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', placeholder: '993', 'aria-label': '포트', value: mailDraft.port });
+    const port = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'off', placeholder: '993', 'aria-label': t('setup.view_port_aria_label'), value: mailDraft.port });
     port.addEventListener('input', () => { mailDraft.port = port.value; });
-    fields.push(h('label', null, h('span', { text: 'IMAP 서버' }), host), h('label', null, h('span', { text: '포트(비우면 993)' }), port));
+    fields.push(h('label', null, h('span', { text: t('setup.view_mailform_text_5') }), host), h('label', null, h('span', { text: t('setup.view_mailform_text_4') }), port));
   }
   kids.push(h('ol.setup-mail-steps', null, svc.steps.map((t) => h('li', null, ...richNodes(t)))));
   if (svc.links.length && onOpen) kids.push(h('div.setup-fields.row', null, svc.links.map((l) => h('button.ghost', { type: 'button', text: l.label, title: l.url, onclick: () => onOpen(l.url) }))));
   kids.push(h('div.setup-fields', null, ...fields));
   // 자세한 방법(서비스별)·연결한 뒤 확인하기: 접어 두고 눌러서 펼친다
-  if (svc.guide?.length) kids.push(h('details.setup-mail-more', null, h('summary', { text: `${svc.title} 자세한 방법 보기` }), h('ol', null, svc.guide.map((t) => h('li', null, ...richNodes(t))))));
-  kids.push(h('details.setup-mail-more', null, h('summary', { text: '연결한 뒤 확인하기' }), h('ol', null, MAIL_CHECK.map((t) => h('li', null, ...richNodes(t))))));
-  kids.push(h('small.setup-mail-note', { text: ['읽기만 해요. 보내기·지우기·읽음 표시 바꾸기는 하지 않아요.', svc.note, '비밀번호는 이 맥의 시사 설정 파일에만 저장해요. 이미 붙인 주소를 넣으면 비밀번호를 바꿔요.'].filter(Boolean).join(' ') }));
+  if (svc.guide?.length) kids.push(h('details.setup-mail-more', null, h('summary', { text: t('setup.view_mailform_text_3', { title: svc.title }) }), h('ol', null, svc.guide.map((t) => h('li', null, ...richNodes(t))))));
+  kids.push(h('details.setup-mail-more', null, h('summary', { text: t('setup.view_mailform_text') }), h('ol', null, MAIL_CHECK.map((t) => h('li', null, ...richNodes(t))))));
+  kids.push(h('small.setup-mail-note', { text: [t('setup.view_mailform_text_0'), svc.note, t('setup.view_mailform_text_2')].filter(Boolean).join(' ') }));
   if (result && !result.ok) kids.push(h('p.setup-gate', null, ...richNodes(result.text)));
-  const connect = h('button.primary', { type: 'button', text: busy ? '확인하는 중…' : '연결', disabled: !!busy });
+  const connect = h('button.primary', { type: 'button', text: busy ? t('setup.view_connect_text_2') : t('setup.view_connect_text'), disabled: !!busy });
   connect.addEventListener('click', () => {
     const chk = mailFormCheck(mailDraft);
     if (!chk.ok) { onConnect?.(null, chk.why); return; }
@@ -466,7 +467,7 @@ function mailForm({ busy, result, onConnect, onOpen }) {
 function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onRemove, onOpen }) {
   const box = h('div.setup-folder.setup-mail', { dataset: { id: 'mail' } });
   const accounts = mail?.accounts ?? [];
-  const title = h('span.setup-pick-title', { text: accounts.length ? `${MAIL_TITLE} · ${accounts.length}개 계정` : MAIL_TITLE });
+  const title = h('span.setup-pick-title', { text: accounts.length ? t('setup.view_title_text', { MAIL_TITLE, length: accounts.length }) : MAIL_TITLE });
   const kids = [title, h('p.setup-blurb', { text: MAIL_BLURB })];
   if (accounts.length) {
     kids.push(mailAccountsList(accounts, onRemove));
@@ -476,7 +477,7 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onRemove
   // 계정이 있으면 추가 폼은 접어 둔다(실패 이유가 있으면 펼친 채로)
   const open = !accounts.length || mailAddOpen || (result && !result.ok) || busy;
   if (open) {
-    if (accounts.length) kids.push(h('span.setup-pick-title.setup-mail-add-title', { text: '메일 계정 추가' }));
+    if (accounts.length) kids.push(h('span.setup-pick-title.setup-mail-add-title', { text: t('setup.view_mailblock_text_2') }));
     kids.push(mailForm({ busy, result, onConnect, onOpen }));
   } else {
     kids.push(h('div.setup-fields.row', null, h('button.ghost.setup-mail-add', { type: 'button', text: MAIL_ADD_MORE, onclick: () => { mailAddOpen = true; redraw?.(); } })));
@@ -488,7 +489,7 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onRemove
     onClose: () => { mailConfirming = false; },
     onConfirm: () => onDisconnect(),
   }));
-  kids.push(h('details.setup-fold', null, h('summary', { text: '고급' }), h('p.setup-blurb', { text: MAIL_ADVANCED })));
+  kids.push(h('details.setup-fold', null, h('summary', { text: t('setup.view_mailblock_text') }), h('p.setup-blurb', { text: MAIL_ADVANCED })));
   box.append(...kids);
   return box;
 }
@@ -501,31 +502,31 @@ function redrawKeep(input) {
 
 function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, onOpen, onDisconnect, onCopy, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
   const items = EXTRAS.filter((id) => id !== 'repos').map(hubItem).filter(Boolean);
-  const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: '/Users/나/code', 'aria-label': '레포 폴더', value: repoDraft });
+  const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: t('setup.view_input_placeholder_3'), 'aria-label': t('setup.view_input_aria_label'), value: repoDraft });
   input.addEventListener('input', () => { repoDraft = input.value; });
   const add = () => { if (okFolder(repoDraft)) { onAddRepo(repoDraft.trim()); repoDraft = ''; } };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   const repo = hubItem('repos');
   return screen({
     say: sayFor(whoId()).extras,
-    title: '더 연결할까요?',
-    identity: '하나를 누르면 그 안내로 들어가고, 끝나면 이 목록으로 돌아와요.',
+    title: t('setup.view_extrasview_title'),
+    identity: t('setup.view_extrasview_identity'),
     extra: h('div', null,
       h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars))),
       mail ? mailBlock(mail) : null,
       h('div.setup-folder', null,
-        h('span.setup-pick-title', { text: repos.length ? `${repo.title} · ${repos.length}개` : repo.title }),
-        h('p.setup-blurb', { text: coder ? repo.blurb : `${repo.blurb} (지금은 Claude Code 가 없어서 커밋만 보여 줘요)` }),
-        repos.length ? h('ul.setup-repos', null, repos.map((r) => h('li', null, h('code', { text: r }), h('button.ghost.small', { type: 'button', text: '빼기', onclick: () => onRemoveRepo(r) })))) : null,
+        h('span.setup-pick-title', { text: repos.length ? t('setup.view_extrasview_text_6', { title: repo.title, length: repos.length }) : repo.title }),
+        h('p.setup-blurb', { text: coder ? repo.blurb : t('setup.view_extrasview_text_5', { blurb: repo.blurb }) }),
+        repos.length ? h('ul.setup-repos', null, repos.map((r) => h('li', null, h('code', { text: r }), h('button.ghost.small', { type: 'button', text: t('setup.view_extrasview_text_4'), onclick: () => onRemoveRepo(r) })))) : null,
         h('div.setup-fields.row', null, input,
-          onPickFolder ? h('button.ghost', { type: 'button', text: '폴더 고르기…', onclick: onPickFolder }) : null,
-          h('button.ghost', { type: 'button', text: '추가', onclick: add })),
-        repoDraft && !okFolder(repoDraft) ? h('p.setup-gate', null, ...richNodes('**/** 로 시작하는 폴더 경로를 적어 주세요.')) : null),
+          onPickFolder ? h('button.ghost', { type: 'button', text: t('setup.view_extrasview_text_3'), onclick: onPickFolder }) : null,
+          h('button.ghost', { type: 'button', text: t('setup.view_extrasview_text_2'), onclick: add })),
+        repoDraft && !okFolder(repoDraft) ? h('p.setup-gate', null, ...richNodes(t('setup.view_extrasview_extra'))) : null),
       sessionsConsent(readSessions, onToggleSessions)),
     nav: h('div.setup-bar', null,
-      h('button.ghost', { type: 'button', text: '이전', onclick: onBack }),
+      h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_2'), onclick: onBack }),
       h('span.spacer'),
-      h('button.primary', { type: 'button', text: '다 했어요', onclick: onFinish })),
+      h('button.primary', { type: 'button', text: t('setup.view_extrasview_text'), onclick: onFinish })),
   });
 }
 
@@ -534,15 +535,15 @@ function doneView({ brain, done, repos, name, readSessions, onTour, onClose, onB
   const rows = setupSummary({ brain, done, repos, name, readSessions });
   return screen({
     say: sayFor(whoId()).done,
-    title: name ? `${name} 님, 준비됐어요` : '준비됐어요',
-    identity: '안 한 건 언제든 설정(⚙)이나 이 「설치」 탭에서 다시 할 수 있어요.',
+    title: name ? t('setup.view_doneview_title_2', { name }) : t('setup.view_doneview_title'),
+    identity: t('setup.view_doneview_identity'),
     extra: h('ul.setup-summary', null, rows.map((r) => h(`li${r.ok ? '.ok' : ''}`, null,
       h('span.sum-mark', { text: r.ok ? '✓' : '·' }), h('span.sum-label', { text: r.label }), h('span.muted', { text: r.text })))),
     nav: h('div.setup-bar', null,
-      h('button.ghost', { type: 'button', text: '이전', onclick: onBack }),
+      h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_2'), onclick: onBack }),
       h('span.spacer'),
-      h('button.ghost', { type: 'button', text: '바로 시작', onclick: onClose }),
-      h('button.primary', { type: 'button', text: '사용법 둘러보기', onclick: onTour })),
+      h('button.ghost', { type: 'button', text: t('setup.view_doneview_text_2'), onclick: onClose }),
+      h('button.primary', { type: 'button', text: t('setup.view_doneview_text'), onclick: onTour })),
   });
 }
 
@@ -559,36 +560,36 @@ function aiKeyView({ provider, say, keyStatus, keyNote, gskFound, onOpen, onCopy
     type: 'password',
     spellcheck: 'false',
     autocomplete: 'off',
-    placeholder: provider.keyHint ? `${provider.keyHint}… 를 여기에 붙여 넣기` : '복사한 키를 여기에 붙여 넣기',
-    'aria-label': 'API 키',
+    placeholder: provider.keyHint ? t('setup.view_input_placeholder_2', { keyHint: provider.keyHint }) : t('setup.view_input_placeholder'),
+    'aria-label': t('setup.view_aikeyview_text_7'),
     value: apiDraft,
   });
   input.addEventListener('input', () => { apiDraft = input.value; });
   return screen({
     say,
-    title: `${provider.title} 키 만들기`,
-    identity: `${provider.note} 키는 이 칸에만 붙입니다. 이 맥의 시사 설정 파일에만 저장하고, 화면에는 다시 보이지 않습니다.`,
+    title: t('setup.view_aikeyview_title', { title: provider.title }),
+    identity: t('setup.view_aikeyview_identity', { note: provider.note }),
     rows: provider.rows,
     rowCtx: { url: provider.url, onOpen, onCopy },
     extra: h('div', null,
-      h('div.setup-fields', null, h('label', null, h('span', { text: 'API 키' }), input)),
-      h('small', { text: `키는 채팅에 붙이지 마세요. 확인을 누르면 ${provider.title}를 만든 회사에만 키가 맞는지 물어봅니다.` }),
+      h('div.setup-fields', null, h('label', null, h('span', { text: t('setup.view_aikeyview_text_7') }), input)),
+      h('small', { text: t('setup.view_aikeyview_text_6', { title: provider.title }) }),
       keyStatus && !ok ? h('p.setup-gate', null, ...richNodes(keyStatus)) : null,
-      ok ? h('p.setup-gate.ok', null, ...richNodes('**완료.** 키가 확인되었습니다. 다음으로 갈 수 있습니다.')) : null,
+      ok ? h('p.setup-gate.ok', null, ...richNodes(t('setup.view_aikeyview_extra_2'))) : null,
       ok && keyNote ? h('p.setup-gate', null, ...richNodes(keyNote)) : null,
-      provider.cli ? codeBlock('터미널', provider.cli, onCopy) : null,
+      provider.cli ? codeBlock(t('setup.view_aikeyview_extra'), provider.cli, onCopy) : null,
       provider.pricing || (provider.cli && gskFound && onUseGsk) ? h('div.setup-fields.row', null,
-        provider.cli && gskFound && onUseGsk ? h('button.primary', { type: 'button', text: 'gsk login 한 키 쓰기', onclick: onUseGsk }) : null,
-        provider.pricing ? h('button.ghost', { type: 'button', text: '요금제 열기', onclick: () => onOpen(provider.pricing) }) : null) : null,
+        provider.cli && gskFound && onUseGsk ? h('button.primary', { type: 'button', text: t('setup.view_aikeyview_text_5'), onclick: onUseGsk }) : null,
+        provider.pricing ? h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_4'), onclick: () => onOpen(provider.pricing) }) : null) : null,
       provider.stuck?.length ? h('details.setup-fold', null,
-        h('summary', { text: '막히면' }),
+        h('summary', { text: t('setup.view_aikeyview_text_3') }),
         h('ul', null, provider.stuck.map((d) => h('li', null, ...richNodes(d))))) : null),
     nav: h('div.setup-bar', null,
-      h('button.ghost', { type: 'button', text: '이전', onclick: onBack }),
+      h('button.ghost', { type: 'button', text: t('setup.view_aikeyview_text_2'), onclick: onBack }),
       h('span.spacer'),
       ok
-        ? h('button.primary', { type: 'button', text: '다음', onclick: onNext })
-        : h('button.primary', { type: 'button', text: '확인', onclick: () => onCheck(apiDraft) })),
+        ? h('button.primary', { type: 'button', text: t('setup.view_drawsetup_nextlabel'), onclick: onNext })
+        : h('button.primary', { type: 'button', text: t('setup.view_aikeyview_text'), onclick: () => onCheck(apiDraft) })),
   });
 }
 
@@ -692,9 +693,9 @@ function drawSetup(root, state) {
   const step = steps[cursor];
   if (!step) {
     root.replaceChildren(screen({
-      title: '안내가 없습니다',
-      identity: '목록에서 기능을 고르세요.',
-      nav: h('div.setup-bar', null, h('button.primary', { type: 'button', text: '목록', onclick: onList })),
+      title: t('setup.view_drawsetup_title'),
+      identity: t('setup.view_drawsetup_identity'),
+      nav: h('div.setup-bar', null, h('button.primary', { type: 'button', text: t('setup.view_drawsetup_text'), onclick: onList })),
     }));
     return;
   }
@@ -715,7 +716,7 @@ function drawSetup(root, state) {
     slotError: state.slotError,
     calendar: state.calendar,
     onNext,
-    nextLabel: phase === 'agentWalk' ? (last ? '기능 고르기' : '다음') : phase === 'connect' ? (last ? '완료' : '다음') : (last ? '개요로' : '다음'),
+    nextLabel: phase === 'agentWalk' ? (last ? t('setup.view_drawsetup_nextlabel_4') : t('setup.view_drawsetup_nextlabel')) : phase === 'connect' ? (last ? t('setup.view_drawsetup_nextlabel_3') : t('setup.view_drawsetup_nextlabel')) : (last ? t('setup.view_drawsetup_nextlabel_2') : t('setup.view_drawsetup_nextlabel')),
   }));
   if (focusSlot) {
     const el = root.querySelector(`[data-slot="${focusSlot}"]`);

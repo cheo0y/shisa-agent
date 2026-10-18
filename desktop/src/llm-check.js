@@ -1,5 +1,6 @@
 // 공급자 API 키 확인과 짧은 대화. 키는 오류 문구에 남기지 않는다.
 // 'claudecode'·'codexcli' 는 키 없이, 이 맥에 로그인된 Claude Code(claude -p)·Codex(codex exec)로 말한다.
+import { t, onLanguage } from './i18n.js';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -15,15 +16,15 @@ const MODELS = {
   openai: 'gpt-4.1-mini', // 데몬 기본(agent/src/providers.ts OPENAI_DEFAULT_MODEL)과 같게
 };
 
-export const OPENAI_NO_CREDIT = '키는 맞지만 크레딧이 없습니다. 결제를 켜고 크레딧을 충전해 주세요(ChatGPT 구독과 API 요금은 따로입니다): https://platform.openai.com/settings/organization/billing';
-export const OPENAI_NO_PERMISSION = '키에 권한이 모자랍니다. OpenAI 플랫폼의 API keys 에서 이 키의 권한을 All 로 바꾸거나, Restricted 면 Model capabilities(Chat completions) 를 Write 로 켜 주세요.';
+export let OPENAI_NO_CREDIT = t('setup.llm_openai_no_credit');
+export let OPENAI_NO_PERMISSION = t('setup.llm_openai_no_permission');
 
 // Genspark LLM 프록시(OpenAI 호환). 무료 플랜 키도 모델 목록(GET /models)은 열리지만, 대화는 200 에 요금 안내문을 준다
 // 출처: 공식 CLI @genspark/cli `gsk init-pi` 설정(openai-completions, maxTokensField max_tokens) · 2026-10 무료 키로 시험
 export const GENSPARK_URL = 'https://www.genspark.ai/api/llm_proxy/v1';
 export const GENSPARK_PRICING = 'https://www.genspark.ai/pricing';
-export const GENSPARK_NO_CREDIT = `Genspark 키는 맞지만 크레딧이 필요해요(무료 플랜은 API를 못 써요). 요금제: ${GENSPARK_PRICING}`;
-export const GENSPARK_BAD_KEY = 'Genspark 키가 맞지 않아요(gsk login 을 다시 해 주세요)';
+export let GENSPARK_NO_CREDIT = t('setup.llm_genspark_no_credit', { GENSPARK_PRICING });
+export let GENSPARK_BAD_KEY = t('setup.llm_genspark_bad_key');
 export const GENSPARK_PREFERRED = ['claude-sonnet-5-5', 'gpt-5.4-mini']; // 데몬(providers.ts)과 같은 순서
 export const isGensparkCreditNotice = (text) => /free-plan credits|credit_exhausted|genspark\.ai\/pricing|credits?\b[^.]{0,40}\b(exhausted|insufficient)|insufficient credits?/i.test(String(text ?? ''));
 export const pickGensparkModel = (ids) => GENSPARK_PREFERRED.find((m) => ids.includes(m)) ?? ids[0] ?? '';
@@ -38,7 +39,7 @@ export function gskLoginKey(home = os.homedir(), read = fs.readFileSync) {
   }
 }
 
-export const OPENAI_NO_MODEL_LIST = '이 키에는 모델 목록을 볼 권한(Models: Read)이 없습니다. 대화는 기본 모델로 됩니다.';
+export let OPENAI_NO_MODEL_LIST = t('setup.llm_openai_no_model_list');
 
 // 키를 싣는 요청은 리다이렉트를 따라가지 않고(다른 곳으로 키가 새지 않게) 쿠키·자격 증명도 안 보낸다.
 // OpenAI·Gemini·Anthropic API 는 정상 응답에 리다이렉트를 쓰지 않는다. Node fetch·Electron net.fetch 둘 다 받는 옵션
@@ -80,7 +81,7 @@ async function checkGenspark(key, fetchImpl) {
   if (!body.ok) return { ok: false, error: gensparkError(body) };
   const ids = (JSON.parse(body.text)?.data ?? []).map((m) => String(m?.id ?? '')).filter(Boolean);
   const model = pickGensparkModel(ids);
-  if (!model) return { ok: false, error: 'Genspark 모델 목록이 비어 있어요. 잠시 뒤 다시 확인해 주세요.' };
+  if (!model) return { ok: false, error: t('setup.llm_checkgenspark_error') };
   const chat = await fetchImpl(`${GENSPARK_URL}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...auth },
@@ -97,11 +98,11 @@ async function checkGenspark(key, fetchImpl) {
 // Genspark 오류 본문: {"detail": "..."} 또는 {"message": "...", "errors": [...]}
 function gensparkError(body) {
   if (body.status === 401 || body.status === 403) return GENSPARK_BAD_KEY;
-  if (body.status === 400 && /not allowed/i.test(body.raw ?? body.error)) return '그 모델은 Genspark 에서 못 써요.';
-  if (body.status === 422) return 'Genspark 가 요청 형식을 받지 않았어요.';
-  if (body.status === 429) return 'Genspark 사용량 한도에 걸렸어요. 조금 뒤 다시 확인해 주세요.';
-  if (body.status >= 500) return 'Genspark 가 지금 답하지 못했어요. 조금 뒤 다시 확인해 주세요.';
-  return `Genspark 확인에 실패했어요 (HTTP ${body.status}).`;
+  if (body.status === 400 && /not allowed/i.test(body.raw ?? body.error)) return t('setup.llm_gensparkerror');
+  if (body.status === 422) return t('setup.llm_gensparkerror_2');
+  if (body.status === 429) return t('setup.llm_gensparkerror_3');
+  if (body.status >= 500) return t('setup.llm_gensparkerror_4');
+  return t('setup.llm_gensparkerror_5', { status: body.status });
 }
 
 // OpenAI 키 확인: 목록(GET /models) → 아주 짧은 대화 한 번. 목록이 403 이면 제한 키(api.model.read 없음)일 수 있고,
@@ -121,14 +122,14 @@ async function checkOpenai(key, fetchImpl) {
   if (cb.ok) return { ok: true };
   if (isQuota(cb.error) || isQuota(cb.raw ?? '')) return { ok: false, error: OPENAI_NO_CREDIT };
   if (isPermission(cb.status, cb.error)) return { ok: false, error: OPENAI_NO_PERMISSION };
-  if (cb.status === 429) return { ok: true, warn: 'OpenAI 요청이 잠깐 너무 잦았어요. 연결은 됐고, 조금 뒤엔 잘 돼요.' }; // 너무 잦음은 키 문제가 아니다
+  if (cb.status === 429) return { ok: true, warn: t('setup.llm_checkopenai_warn') }; // 너무 잦음은 키 문제가 아니다
   return { ok: false, error: cb.error };
 }
 
 export async function checkLlm(provider, apiKey, rawFetch = globalThis.fetch) {
   const fetchImpl = keyFetch(rawFetch);
   const key = String(apiKey ?? '').trim();
-  if (!key) return { ok: false, error: '키가 비어 있습니다.' };
+  if (!key) return { ok: false, error: t('setup.llm_checkllm_error') };
   try {
     if (provider === 'gemini') {
       const res = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
@@ -155,9 +156,9 @@ export async function checkLlm(provider, apiKey, rawFetch = globalThis.fetch) {
       return body.ok ? { ok: true } : { ok: false, error: body.error };
     }
   } catch (e) {
-    return { ok: false, error: clip(e?.message, key) || '확인에 실패했습니다.' };
+    return { ok: false, error: clip(e?.message, key) || t('setup.llm_checkllm_error_2') };
   }
-  return { ok: false, error: '알 수 없는 AI입니다.' };
+  return { ok: false, error: t('setup.llm_checkllm_error_3') };
 }
 
 // 'gemini-3.8-flash' 같은 일반 flash 중 가장 새 것. lite·preview·image·tts 등은 뺀다.
@@ -201,7 +202,7 @@ export function cliPrompt(messages) {
 
 export function completeCli({ system, messages, model }, { exec = execFile, bin = findBin('claude'), cwd = os.tmpdir(), timeout = 60000 } = {}) {
   return new Promise((resolve) => {
-    if (!bin) { resolve({ ok: false, error: 'Claude Code 를 찾지 못했습니다.' }); return; }
+    if (!bin) { resolve({ ok: false, error: t('setup.llm_completecli_error') }); return; }
     const args = [
       '-p',
       '--system-prompt', String(system ?? ''),
@@ -214,7 +215,7 @@ export function completeCli({ system, messages, model }, { exec = execFile, bin 
     ];
     const child = execBin(exec, bin, args, { cwd, timeout, maxBuffer: 256 * 1024 }, (err, stdout) => {
       const text = String(stdout ?? '').trim();
-      if (err || !text) resolve({ ok: false, error: 'Claude Code 가 대답하지 못했습니다.' });
+      if (err || !text) resolve({ ok: false, error: t('setup.llm_child_error') });
       else resolve({ ok: true, text });
     });
     child?.stdin?.end();
@@ -229,7 +230,7 @@ export function codexBin(find = findBin, exists = fs.existsSync) {
 
 export function completeCodex({ system, messages, model }, { exec = execFile, bin = codexBin(), cwd = os.tmpdir(), timeout = 90000 } = {}) {
   return new Promise((resolve) => {
-    if (!bin) { resolve({ ok: false, error: 'Codex 를 찾지 못했습니다.' }); return; }
+    if (!bin) { resolve({ ok: false, error: t('setup.llm_completecodex_error') }); return; }
     const list = Array.isArray(messages) ? messages : [];
     const body = list.map((m) => `${m.role === 'assistant' ? '시사' : '사용자'}: ${m.content}`).join('\n');
     const prompt = `${String(system ?? '')}\n명령이나 도구는 쓰지 않고 말로만 답한다.\n\n${body}`;
@@ -240,7 +241,7 @@ export function completeCodex({ system, messages, model }, { exec = execFile, bi
       let text = '';
       try { text = fs.readFileSync(out, 'utf8').trim(); } catch { /* 답 파일 없음 */ }
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 무시 */ }
-      if (err || !text) resolve({ ok: false, error: 'Codex 가 대답하지 못했습니다.' });
+      if (err || !text) resolve({ ok: false, error: t('setup.llm_child_error_2') });
       else resolve({ ok: true, text });
     });
     child?.stdin?.end(); // 입력이 더 없다고 알린다. 안 닫으면 codex 가 입력을 계속 기다린다
@@ -307,7 +308,7 @@ export async function completeLlm(provider, apiKey, { system, messages, model },
     const json = JSON.parse(body.text);
     return { ok: true, text: json.choices?.[0]?.message?.content?.trim() || '' };
   }
-  return { ok: false, error: '알 수 없는 AI입니다.' };
+  return { ok: false, error: t('setup.llm_checkllm_error_3') };
 }
 
 export async function revisePersona(provider, apiKey, persona, instruction, fetchImpl = globalThis.fetch, model = '') {
@@ -319,19 +320,19 @@ export async function revisePersona(provider, apiKey, persona, instruction, fetc
   const out = await completeLlm(provider, apiKey, { system, messages, model }, fetchImpl);
   if (!out.ok) return out;
   const text = String(out.text || '').trim();
-  if (!text) return { ok: false, error: '말투를 고치지 못했습니다.' };
+  if (!text) return { ok: false, error: t('setup.llm_revisepersona_error') };
   return { ok: true, persona: text };
 }
 
 // 고를 수 있는 모델 목록. 키는 요청에만 쓰고 결과에는 넣지 않는다.
 export const CLI_MODELS = {
   claudecode: [
-    { id: 'default', label: '기본값 (Claude Code 설정 따름)' },
-    { id: 'sonnet', label: 'Sonnet · 균형' },
-    { id: 'opus', label: 'Opus · 가장 똑똑함, 느림' },
-    { id: 'haiku', label: 'Haiku · 빠르고 가벼움' },
+    { id: 'default', get label() { return t('setup.llm_default_label'); } },
+    { id: 'sonnet', get label() { return t('setup.llm_sonnet_label'); } },
+    { id: 'opus', get label() { return t('setup.llm_opus_label'); } },
+    { id: 'haiku', get label() { return t('setup.llm_haiku_label'); } },
   ],
-  codexcli: [{ id: 'default', label: '기본값 (Codex 설정 따름)' }],
+  codexcli: [{ id: 'default', get label() { return t('setup.llm_default_label_2'); } }],
 };
 
 const NOT_CHAT = /(embedding|audio|image|tts|whisper|realtime|transcribe|moderation|search|instruct|dall|computer-use|codex)/i;
@@ -364,7 +365,7 @@ export async function listModels(provider, apiKey, rawFetch = globalThis.fetch) 
   if (CLI_MODELS[provider]) return { ok: true, models: CLI_MODELS[provider] };
   const fetchImpl = keyFetch(rawFetch);
   const key = String(apiKey ?? '').trim();
-  if (!key) return { ok: false, error: '키가 없습니다.' };
+  if (!key) return { ok: false, error: t('setup.llm_listmodels_error') };
   try {
     let res;
     if (provider === 'gemini') {
@@ -376,7 +377,7 @@ export async function listModels(provider, apiKey, rawFetch = globalThis.fetch) 
     } else if (provider === 'genspark') {
       res = await fetchImpl(`${GENSPARK_URL}/models`, { headers: { Authorization: `Bearer ${key}` } });
     } else {
-      return { ok: false, error: '알 수 없는 AI입니다.' };
+      return { ok: false, error: t('setup.llm_checkllm_error_3') };
     }
     const body = await readBody(res, key);
     if (!body.ok && provider === 'openai' && isQuota(body.error)) return { ok: false, error: OPENAI_NO_CREDIT };
@@ -386,6 +387,15 @@ export async function listModels(provider, apiKey, rawFetch = globalThis.fetch) 
     const models = pickModels(provider, JSON.parse(body.text));
     return { ok: true, models: provider === 'genspark' ? models : models.slice(0, 60) }; // Genspark 는 다 보여 준다(고를 수 있는 건 이 목록뿐)
   } catch (e) {
-    return { ok: false, error: clip(e?.message, key) || '목록을 못 가져왔습니다.' };
+    return { ok: false, error: clip(e?.message, key) || t('setup.llm_listmodels_error_2') };
   }
 }
+
+// 언어가 바뀌면 위 글 상수들을 그 언어로 다시(가져다 쓰는 쪽은 살아 있는 바인딩으로 새 글을 본다)
+onLanguage(() => {
+  OPENAI_NO_CREDIT = t('setup.llm_openai_no_credit');
+  OPENAI_NO_PERMISSION = t('setup.llm_openai_no_permission');
+  GENSPARK_NO_CREDIT = t('setup.llm_genspark_no_credit', { GENSPARK_PRICING });
+  GENSPARK_BAD_KEY = t('setup.llm_genspark_bad_key');
+  OPENAI_NO_MODEL_LIST = t('setup.llm_openai_no_model_list');
+});

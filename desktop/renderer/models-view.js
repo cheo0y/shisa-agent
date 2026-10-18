@@ -2,6 +2,7 @@
 // 말투(AI 연결 시)와 정해진 말(연결 안 됐을 때)도 여기서 고친다. 키는 이 화면에 오지 않는다.
 // 연결된 AI 마다 [연결 해제]: 키는 지우고, Claude Code·Codex 는 시사에서만 안 쓴다(CLI 로그인은 그대로). 지금 쓰던 AI 면 「AI 없이 쓰기」로.
 
+import { t } from '../src/i18n.js';
 import { who } from './who.js';
 import { CANNED, CANNED_CATALOG, CANNED_DEFAULTS } from '../src/canned.js';
 import { brainDisconnectCopy, disconnectControl } from '../src/disconnect.js';
@@ -9,7 +10,7 @@ import { createUi } from './ui-kit.js';
 
 export const PROVIDER_TITLE = {
   gemini: 'Gemini',
-  claude: 'Claude (API 키)',
+  get claude() { return t('setup.models_provider_title_claude'); },
   openai: 'GPT',
   genspark: 'Genspark',
   claudecode: 'Claude Code',
@@ -27,12 +28,12 @@ export function listErrorText(error) {
   return s;
 }
 
-const DEFAULT_OPTION ={ id: 'default', label: '기본값' };
+const DEFAULT_OPTION ={ id: 'default', get label() { return t('setup.models_cannedcard_text_2'); } };
 
 export function optionsFor(provider, list, current) {
   const base = list?.status === 'ok' ? list.models : [];
   const rows = [DEFAULT_OPTION, ...base.filter((m) => m.id !== 'default')];
-  if (current && current !== 'default' && !rows.some((m) => m.id === current)) rows.push({ id: current, label: '지금 쓰는 값' });
+  if (current && current !== 'default' && !rows.some((m) => m.id === current)) rows.push({ id: current, label: t('setup.models_optionsfor_label') });
   return rows;
 }
 
@@ -79,7 +80,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     render();
     let r;
     try { r = await cy.sisaModels(provider); } catch { r = { ok: false }; }
-    lists[provider] = r?.ok ? { status: 'ok', models: r.models || [] } : { status: 'error', models: [], error: r?.error || '목록을 못 가져왔어요.' };
+    lists[provider] = r?.ok ? { status: 'ok', models: r.models || [] } : { status: 'error', models: [], error: r?.error || t('setup.models_loadlist_error') };
     render();
   }
 
@@ -90,11 +91,11 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     render();
     try {
       const result = await cy.sisaUseCli(agent);
-      if (!result?.ok) throw new Error(result?.error || '연결하지 못했어요. 설치 화면에서 로그인을 확인해 주세요.');
+      if (!result?.ok) throw new Error(result?.error || t('setup.models_connectcli_4'));
       onSisa(await cy.sisaGet());
       await loadList(agent === 'codex' ? 'codexcli' : 'claudecode', true);
-      note = result.brainSaved ? '연결했어요. 대화·브리핑에 바로 적용돼요.' : '연결을 저장했어요. 앱을 다시 켜면 적용돼요.';
-    } catch (e) { note = e.message || '연결하지 못했어요.'; }
+      note = result.brainSaved ? t('setup.models_connectcli_3') : t('setup.models_connectcli_2');
+    } catch (e) { note = e.message || t('setup.models_connectcli'); }
     finally { busy = false; render(); }
   }
 
@@ -109,9 +110,9 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
       onSisa(r);
       if ('persona' in patch) personaDraft = null;
       if ('canned' in patch) cannedDraft = null;
-      note = '저장함';
+      note = t('setup.models_savevoice_2');
     } else {
-      note = r?.error || '저장하지 못했어요.';
+      note = r?.error || t('setup.models_savevoice');
     }
     render();
   }
@@ -139,7 +140,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
         confirming = '';
         delete lists[p];
         onSisa(r);
-        note = `${brainDisconnectCopy(p, active).done}${active ? ' 이제 「AI 없이 쓰기」예요.' : ''}`;
+        note = `${brainDisconnectCopy(p, active).done}${active ? t('setup.models_disconnectfor_onconfirm') : ''}`;
         render();
         return r;
       },
@@ -151,24 +152,24 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     return h('div.card.models-card', { dataset: { provider: p } },
       h('div.row', null,
         h('span.t', { text: PROVIDER_TITLE[p] }),
-        h('span.chip.ok', { text: '연결됨' }),
+        h('span.chip.ok', { text: t('setup.models_listcard_text_4') }),
         h('span.spacer'),
-        h('button.ghost.small', { type: 'button', text: '새로고침', onclick: () => loadList(p, true) })),
+        h('button.ghost.small', { type: 'button', text: t('setup.models_listcard_text_3'), onclick: () => loadList(p, true) })),
       disconnectFor(p),
       !l || l.status === 'loading'
-        ? h('p.muted.small', { text: '목록을 가져오는 중…' })
+        ? h('p.muted.small', { text: t('setup.models_listcard_text_2') })
         : l.status === 'error'
-          ? h('p.muted.small', { text: `목록을 못 가져왔어요. ${listErrorText(l.error)}` })
+          ? h('p.muted.small', { text: t('setup.models_listcard_text', { listErrorText: listErrorText(l.error) }) })
           : h('ul.model-list', null, l.models.map((m) => h('li', null, h('code', { text: m.id }), m.label ? h('span.muted.small', { text: ` ${m.label}` }) : null))));
   }
 
   // 말투: 대화는 전부 시사(데몬)가 답한다. 말투·답 모양은 설정 창의 「행동 지침」에 적는다
   function voiceCard() {
     return h('div.card.models-card', null,
-      h('h2', { text: '말투' }),
+      h('h2', { text: t('setup.models_voicecard_text_3') }),
       h('p.muted.small', null,
-        h('span', { text: `${who()}의 말투·답 모양은 설정 창의 「행동 지침」에 적어요(예: 답은 짧게, 반말로). ` }),
-        cy.openSettings ? h('button.ghost.small', { type: 'button', text: '설정 열기', onclick: () => cy.openSettings() }) : null));
+        h('span', { text: t('setup.models_voicecard_text_2', { who: who() }) }),
+        cy.openSettings ? h('button.ghost.small', { type: 'button', text: t('setup.models_voicecard_text'), onclick: () => cy.openSettings() }) : null));
   }
 
   function cannedCard() {
@@ -188,11 +189,11 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
           }))));
     });
     return h('div.card.models-card', null,
-      h('h2', { text: '정해진 말' }),
+      h('h2', { text: t('setup.models_cannedcard_text_3') }),
       ...groups,
       h('div.voice-acts', null,
-        h('button.ghost', { type: 'button', text: '기본값', disabled: busy, onclick: () => { cannedDraft = Object.fromEntries(CANNED_CATALOG.map((g) => [g.key, [...g.lines]])); render(); } }),
-        h('button.primary', { type: 'button', text: '저장', disabled: busy, onclick: () => saveVoice({ canned: cannedOverrideOf(cannedDraft, getSisa().canned) }) })));
+        h('button.ghost', { type: 'button', text: t('setup.models_cannedcard_text_2'), disabled: busy, onclick: () => { cannedDraft = Object.fromEntries(CANNED_CATALOG.map((g) => [g.key, [...g.lines]])); render(); } }),
+        h('button.primary', { type: 'button', text: t('setup.models_cannedcard_text'), disabled: busy, onclick: () => saveVoice({ canned: cannedOverrideOf(cannedDraft, getSisa().canned) }) })));
   }
 
   // 이 컴퓨터에서 로그인을 찾았지만 아직 안 쓰는 Claude Code·Codex: 한 줄씩(이름 · 확인됨 · [연결])
@@ -231,7 +232,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
     kids.push(voiceCard(), cannedCard());
     if (note) kids.push(h('p.muted.small.models-note', { role: 'status', text: note }));
     if (connected.length) {
-      kids.push(h('h2', { text: '연결된 AI · 모델 목록' }), ...connected.map(listCard));
+      kids.push(h('h2', { text: t('setup.models_render_text') }), ...connected.map(listCard));
     }
     section.replaceChildren(...kids.filter(Boolean));
   }
