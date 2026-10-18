@@ -208,12 +208,13 @@ export function buildContext(store: Store, now = new Date(), opts: { selfId?: st
 function todayPlan(store: Store): string {
   try {
     const plan = new DailyPlanService(store).state();
-    const lines = ["## 오늘 할 일 (패널 '오늘 할 일' 탭 · 할 일 중 오늘로 고른 것 · 로컬)"];
+    const lines = ["## 오늘 할 일 (패널 '오늘 할 일' 탭 · 우선순위 1 오늘 꼭인 할 일 · 오늘 끝낸 것 포함 · 로컬)"];
     if (!plan.items.length) {
-      lines.push("(비어 있음. 오늘 회의·할 일을 보고 plan_ops add 로 적거나, 있는 할 일을 add(id)로 오늘로 고를 수 있다)");
+      lines.push("(비어 있음. 오늘 회의·할 일을 보고 plan_ops add 로 적거나, 있는 할 일을 add(id)로 오늘 할 일(P1)에 넣을 수 있다)");
       return lines.join("\n");
     }
-    for (const r of plan.items) lines.push(`- id=${r.id} ${r.done ? "[x]" : "[ ]"} [${r.priority === 4 ? "백로그" : `P${r.priority}`}] ${r.title}`);
+    for (const r of plan.items) lines.push(`- id=${r.id} ${r.done ? "[x]" : "[ ]"} ${r.title}`);
+    if (plan.carry) lines.push(`(어제 남은 ${plan.carry.n}개를 오늘도 할지 아직 안 골랐다 — 패널 오늘 할 일 탭 위에서 고른다)`);
     return lines.join("\n");
   } catch { return ""; }
 }

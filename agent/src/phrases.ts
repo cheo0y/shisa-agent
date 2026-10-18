@@ -29,6 +29,7 @@ export const PHRASES = [
   { key: "daily_half", group: "할 일", label: "오늘 할 일 절반 넘김", vars: ["done", "total"], default: ["벌써 절반 했어요! ({done}/{total}) 이 페이스 좋아요 💪 (기쁜 시사)", "반 넘었어요 {done}/{total}! 조금만 더 힘내요"] },
   { key: "today_ask", group: "할 일", label: "오늘 할 일 알림 — 아직 안 적음", vars: [], default: ["오늘 할 일을 적어 주세요~ 오늘 할 일 탭에 적으면 돼요 (스이시~사)"] },
   { key: "today_left", group: "할 일", label: "오늘 할 일 알림 — 남은 것", vars: ["open"], default: ["오늘 할 일 {open}개 남았어요. 하나씩 해 봐요 (스이시~사)"] },
+  { key: "today_carry", group: "할 일", label: "아침 알림 — 어제 남은 오늘 꼭 할 일({n} = 남은 수)", vars: ["n"], default: ["어제 남은 {n}개, 오늘도 할까요?"] },
   { key: "lots", group: "할 일", label: "할 일이 많을 때(앞부분)", vars: ["n"], default: ["오늘 할 일이 많네요… 급한 것만 {n}개예요.", "으아, 할 일이 많아요… 급한 것만 {n}개예요.", "오늘 좀 바쁘겠어요… 급한 것만 {n}개예요."] },
   { key: "lots_briefing", group: "할 일", label: "할 일이 많을 때 — 브리핑 뒤 꼬리", vars: [], default: ["하나씩 같이 해 봐요 (비장한 시사)"] },
   // 회의

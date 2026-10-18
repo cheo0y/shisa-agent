@@ -138,8 +138,9 @@ function remindToday(opened = false) {
     id: `today:${r.plan.date}`,
     text: r.text,
     kind: "todo",
-    ttlMs: 60e3,
+    ttlMs: r.carry ? 10 * 60e3 : 60e3, // 어제 남은 것 물음은 고를 때까지 조금 더 오래
     open: { section: "today" },
+    ...(r.carry ? { carry: { n: r.carry.n } } : {}),
   });
   bus.dashboardChanged();
   if (r.kind === "ask") bus.openPanel("today");
@@ -249,6 +250,12 @@ await bus.listen(cfg.port, {
     connectors: withMailSync(withCalendarSync(withMcpBrain(cfg, connectorStatus(conns)), calendar.state()), mailSync.state()), // MCP 연결은 Claude Code 뇌일 때만 읽는다. 캘린더는 실제로 가져왔는지도
   }),
   todoDone: (id) => agent.todoDone(id),
+  todayCarry: (decision) => {
+    const r = agent.dailyPlan().carry(decision);
+    bus.clear(`today:${r.plan.date}`); // 아침 질문 말풍선은 걷는다(패널 안내도 사라진다)
+    bus.dashboardChanged();
+    return { moved: r.moved };
+  },
   todoAdd: (t) => agent.addTodo(t),
   todoEdit: (id, patch) => agent.editTodo(id, patch),
   todoDelete: (id) => agent.deleteTodo(id),

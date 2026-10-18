@@ -27,6 +27,7 @@ export type Bubble = {
   actionId?: string;
   always?: boolean; // permission: [항상 허용] 버튼도(카드에 규칙 범위가 있을 때만)
   blocked?: string; // merge: ✓ 를 막는 이유(실패한 검사·충돌·초안) — 오버레이는 ✓ 를 끄고 이유를 보인다
+  carry?: { n: number }; // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] (POST /today/carry)
 };
 export type BubbleImage = "merge" | "merge_complete" | "lots" | "daily" | "daily_all_complete" | "daily_half_complete" | "to_do_new";
 export type PanelSection = "overview" | "projects" | "todos" | "today" | "chat";
@@ -43,6 +44,7 @@ export type BusHandlers = {
   todoRestore?(id: string): unknown; // 휴지통에서 되살리기. 휴지통에 없으면 undefined → 404
   todoPurge?(id: string): boolean; // 영구 삭제(휴지통에 있는 것만). false → 404
   todoTrashEmpty?(): number; // 휴지통 비우기 → 지운 개수
+  todayCarry?(decision: "keep" | "demote"): { moved: number } | Promise<{ moved: number }>; // 어제 남은 오늘 꼭: 그대로 · 이번 주로
   todoRevert?(id: string): unknown; // 자동 완료 되돌리기: "missing" → 404, "not_auto" → 409, 그 외 바뀐 할 일 → 200
   // 할 일 팝오버: 묻기(바꾸지 않음) → 적용/거절. 없는 할 일이면 undefined/false → 404
   todoAsk?(id: string, text: string): Promise<unknown>;
@@ -826,6 +828,12 @@ export class Bus {
       if (url.pathname === "/briefing") {
         h.briefing().catch(() => {}); // 오래 걸리므로 기다리지 않는다
         return json(res, 202, { ok: true });
+      }
+      if (url.pathname === "/today/carry") {
+        if (!h.todayCarry) return json(res, 503, { error: "today unavailable" });
+        const body = await readJson(req);
+        if (body.decision !== "keep" && body.decision !== "demote") throw new BadRequest("decision must be keep or demote");
+        return json(res, 200, { ok: true, ...(await h.todayCarry(body.decision)) });
       }
       if (url.pathname === "/todos/reorder") {
         if (!h.todoReorder) return json(res, 503, { error: "todo reorder unavailable" });

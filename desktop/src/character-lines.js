@@ -88,6 +88,9 @@ export const CHARACTER_LINES = {
       "today_left": [
         "오늘 할 일 {open}개 남았어. 하나씩 해 보자, 파이팅!"
       ],
+      "today_carry": [
+        "있지, 어제 남은 {n}개 있어. 오늘도 해 볼래?"
+      ],
       "lots": [
         "오늘 할 일이 많네… 급한 것만 {n}개야.",
         "으아, 할 일이 많다… 급한 것만 {n}개야."
@@ -392,6 +395,9 @@ export const CHARACTER_LINES = {
       ],
       "today_left": [
         "오늘 할 일 {open}개 남았다. 하나씩 끝내볼까."
+      ],
+      "today_carry": [
+        "어제 남은 게 {n}개다. 오늘도 할 건가."
       ],
       "lots": [
         "오늘은 할 일이 많군. 급한 것만 {n}개다.",
@@ -710,6 +716,9 @@ export const CHARACTER_LINES = {
       "today_left": [
         "오늘 할 일 {open}개 남았네. 할 수 있겠어?"
       ],
+      "today_carry": [
+        "어제 남은 거 {n}개야. 오늘도 할 거지?"
+      ],
       "lots": [
         "오늘 할 일 많네… 급한 것만 {n}개야.",
         "아앙? 급한 것만 {n}개야. 할 수 있겠어?"
@@ -998,6 +1007,9 @@ export const CHARACTER_LINES = {
       ],
       "today_left": [
         "우나 야하(오늘 할 일이 {open}개 남았어.)"
+      ],
+      "today_carry": [
+        "하아~~?(어제 남은 게 {n}개야. 오늘도 할래?)"
       ],
       "lots": [
         "우나(급한 할 일이 {n}개야. 우선순위부터 보자.)"
@@ -1288,6 +1300,9 @@ export const CHARACTER_LINES = {
       ],
       "today_left": [
         "으으으... (오늘 할 일이 {open}개 남았어.)"
+      ],
+      "today_carry": [
+        "으응... (어제 남은 게 {n}개야. 오늘도 할래?)"
       ],
       "lots": [
         "으으윽.. (급한 할 일이 {n}개야. 우선순위부터 같이 보자.)"
@@ -1580,6 +1595,9 @@ export const CHARACTER_LINES = {
       "today_left": [
         "흠! (오늘 할 일이 {open}개 남았어.)"
       ],
+      "today_carry": [
+        "에? (어제 남은 게 {n}개야. 오늘도 할래?)"
+      ],
       "lots": [
         "으아앙... (급한 할 일이 {n}개야. 우선순위부터 같이 보자.)"
       ],
@@ -1871,6 +1889,9 @@ export const CHARACTER_LINES = {
       ],
       "today_left": [
         "으음~ (오늘 할 일이 {open}개 남았어.)"
+      ],
+      "today_carry": [
+        "어이~ (어제 남은 게 {n}개야. 오늘도 할래?)"
       ],
       "lots": [
         "으음~ (급한 할 일이 {n}개야. 우선순위부터 같이 보자.)"

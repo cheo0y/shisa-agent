@@ -39,7 +39,7 @@ export type DashTodo = {
   description?: string; // 있으면(브리핑이 썼거나 한 번 만들어 둔 것) — 원본은 GET /todos/:id/detail
   appliedRule?: { id: string; text: string }; // 이 할 일에 적용된 할 일 규칙
   progress?: string; progressAt?: string; // 어디까지 됐는지(할 일 진행 확인 — todo-progress.ts)
-  doing?: boolean; today?: string; // doing: 사용자가 누른 (진행중) 토글(▶/⏸)
+  doing?: boolean; // doing: 사용자가 누른 (진행중) 토글(▶/⏸)
   projectId?: string; // 묶인 직접 만든 프로젝트
   projectOrder?: number; // 그 프로젝트 안 순서(작을수록 위), 카드 할 일 줄 순서
 };
@@ -93,7 +93,6 @@ function dashTodo(t: Todo): DashTodo {
     ...(t.doneBy === "auto" && t.autoReason ? { autoReason: t.autoReason } : {}),
     ...(t.doneBy === "auto" && t.autoEvidence?.permalink ? { autoEvidence: t.autoEvidence.permalink } : {}),
     ...(t.doing !== undefined ? { doing: t.doing } : {}),
-    ...(t.today ? { today: t.today } : {}), // 오늘 할 일로 고른 날(KST). 그날이면 '오늘 할 일' 탭에도 보인다
     ...(t.projectId ? { projectId: t.projectId } : {}),
     ...(t.projectId && t.projectOrder !== undefined ? { projectOrder: t.projectOrder } : {}),
   };

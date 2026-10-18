@@ -130,6 +130,23 @@ test("bus: 오늘 할 일은 할 일 API 로(today 필드), 예전 /today 표 �
   }
 });
 
+test("bus: 아침 질문 답(POST /today/carry) — keep·demote 만", async () => {
+  const got: string[] = [];
+  const b = await serve({ todayCarry: (d) => { got.push(d); return { moved: d === "demote" ? 2 : 0 }; } });
+  try {
+    const r = await b.post("/today/carry", JSON.stringify({ decision: "demote" }));
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { ok: true, moved: 2 });
+    assert.equal((await b.post("/today/carry", JSON.stringify({ decision: "keep" }))).status, 200);
+    assert.equal((await b.post("/today/carry", JSON.stringify({ decision: "later" }))).status, 400);
+    assert.deepEqual(got, ["demote", "keep"]);
+  } finally {
+    b.bus.close();
+  }
+  const none = await serve({});
+  try { assert.equal((await none.post("/today/carry", JSON.stringify({ decision: "keep" }))).status, 503); } finally { none.bus.close(); }
+});
+
 test("bus: chat·dashboard·open_panel SSE 이벤트", async () => {
   const { bus, base } = await serve();
   try {

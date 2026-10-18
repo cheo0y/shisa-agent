@@ -141,7 +141,7 @@ export type QuickAnswer = { id: QuickAskId; text: string; detail?: string; kind:
 
 export const QUICK_LINES = {
   todayEmpty: "오늘 할 일이 아직 비어 있어요. 오늘 할 일 탭에 적어 주시면 같이 챙길게요.",
-  todayPick: "오늘 할 일로 고른 건 아직 없어요. 할 일 {n}개가 기다리고 있어요.",
+  todayPick: "오늘 꼭 할 일은 아직 없어요. 할 일 {n}개가 기다리고 있어요.",
   todayAll: "오늘 할 일 {total}개 다 끝냈어요! 정말 잘하셨어요.",
   todayNone: "오늘 할 일 {total}개 중 아직 끝낸 건 없어요. 하나만 먼저 해 봐요.",
   todaySome: "오늘 할 일 {total}개 중 {done}개 끝냈어요. 남은 건 {rest}예요.",
