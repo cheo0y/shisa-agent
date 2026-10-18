@@ -475,9 +475,13 @@ export class Agent {
       this.bus.bubble({ id: "wait-setup", text: WAIT_SETUP, kind: "info", ttlMs: 10e3 });
       return Promise.resolve();
     }
-    this.briefing ??= this.doBriefing().finally(() => { this.briefing = undefined; });
+    this.briefing ??= this.doBriefing().finally(() => { this.briefing = undefined; this.briefedAt = Date.now(); try { this.onBriefed?.(); } catch { /* 알림 쪽 실패는 브리핑과 상관없다 */ } });
     return this.briefing;
   }
+  // 날씨 알리미(main): 「출근 후 브리핑 다음」은 브리핑이 도는 동안 기다렸다가 끝나면 이어서 뜬다
+  briefedAt: number | null = null;
+  onBriefed?: () => void;
+  get briefingBusy(): boolean { return !!this.briefing; }
 
   // 방금 들어온 Slack DM·멘션 → 바로 할 일(한 시간마다 도는 정기 브리핑을 기다리지 않는다). 슬랙 수집 사이클 끝·새로고침에서 부른다.
   // 지난번에 본 시각(slack_meta quickTodoAt — 처음엔 3시간 전) 뒤에 온, 아직 답 안 한 것만. 없으면 모델을 안 부른다.

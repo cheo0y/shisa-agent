@@ -4,7 +4,7 @@
 //  - 점심(lunchAlert, 기본 켬): 점심 시각부터 한 시간 안에 한 번 점심 영상 + 점심 인사(예전 「12시대」와 같다)
 //  - 퇴근(leaveAlert, 기본 켬): 퇴근 10분 전부터 퇴근 시각 전까지 한 번 일정 알림(plan) 영상 + 퇴근 인사(local.leave, {mins} = 남은 분)
 // 자정을 넘기는 근무는 다루지 않는다(출근 < 퇴근, 퇴근 10분 전이 0시보다 앞이면 0시부터).
-// 하루 한 번은 파일(~/.cy-agent/lunch.json { last: 점심 날짜, start, leave })에 남겨 같은 날 다시 켜도 또 뜨지 않는다.
+// 하루 한 번은 파일(~/.cy-agent/lunch.json { last: 점심 날짜, start, leave, 날씨 알림 weatherMorning·weatherLeave·weather@HH:MM })에 남겨 같은 날 다시 켜도 또 뜨지 않는다.
 import { readFileSync, mkdirSync } from "node:fs";
 import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
@@ -81,15 +81,18 @@ export class WorkAlerts {
     try { const v = JSON.parse(stripBom(readFileSync(this.path, "utf8"))); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch { return {}; }
   }
   // 오늘 그 알림을 띄웠나
-  done(kind: WorkAlert): boolean { return this.read()[KEY[kind]] === localDay(this.now()); }
+  done(kind: WorkAlert): boolean { return this.doneKey(KEY[kind]); }
   // 오늘 처음이면 남기고 날짜를, 이미 했거나 못 남기면 null(1분마다 또 뜨지 않게)
-  claim(kind: WorkAlert): string | null {
+  claim(kind: WorkAlert): string | null { return this.claimKey(KEY[kind]); }
+  // 다른 하루 한 번 알림도 같은 파일에(날씨 알리미: weatherMorning·weatherLeave·weather@HH:MM)
+  doneKey(key: string): boolean { return this.read()[key] === localDay(this.now()); }
+  claimKey(key: string): string | null {
     const day = localDay(this.now());
     const cur = this.read();
-    if (cur[KEY[kind]] === day) return null;
+    if (cur[key] === day) return null;
     try {
       mkdirSync(dirname(this.path), { recursive: true });
-      writeFileAtomic(this.path, JSON.stringify({ ...cur, [KEY[kind]]: day }), { mode: 0o600 });
+      writeFileAtomic(this.path, JSON.stringify({ ...cur, [key]: day }), { mode: 0o600 });
     } catch { return null; }
     return day;
   }

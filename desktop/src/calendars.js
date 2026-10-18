@@ -1,8 +1,10 @@
 // 캘린더 여러 개(별칭 + iCal 주소 세트): 데몬 설정(config.json connectors.calendar)을 읽고, 별칭 고치기·켜기/끄기·하나 빼기를 한다.
-// 저장 모양: { mode: 'api', calendars: [{ id, name, url, enabled }], timeZone }. 예전 모양(icsUrl 하나 · icsUrls 배열, 이름 없음)도 그대로 읽고,
+// 저장 모양: { mode: 'api', calendars: [{ id, name, url, enabled, color? }], timeZone }. color 는 캘린더 탭에서 고른 색(팔레트 이름). 예전 모양(icsUrl 하나 · icsUrls 배열, 이름 없음)도 그대로 읽고,
 // 이 파일이 고쳐 쓸 때 새 모양으로 옮긴다. 더하기는 데몬이 한다(그 캘린더만 시험으로 읽어 본 뒤 저장, POST /connectors/calendar).
 // 주소는 비밀번호와 같아서 화면에는 알아볼 수 있는 부분(캘린더 id 앞부분·도메인)만 보이고, 고를 땐 주소 대신 id(sha-256 앞 16글자)를 쓴다.
 // 개수 상한은 없다. 파일 읽기·쓰기와 데몬 호출은 main 이 한다. 화면 글은 아래 CAL_TEXT 한 곳에 모았다(언어 옮기기 쉽게).
+
+import { okCalendarColor } from './calendar-tab.js';
 
 const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : null);
 const okId = (x) => typeof x === 'string' && /^[0-9a-f]{16}$/.test(x);
@@ -55,7 +57,7 @@ export function calendarEntries(cfg) {
   for (const x of raw) {
     const url = typeof x.url === 'string' ? x.url.trim() : '';
     if (!url || /\.\.\.|…|YOUR_/.test(url) || out.some((e) => e.url === url)) continue;
-    out.push({ ...(okId(x.id) ? { id: x.id } : {}), name: cleanName(x.name), url, enabled: x.enabled !== false });
+    out.push({ ...(okId(x.id) ? { id: x.id } : {}), name: cleanName(x.name), url, enabled: x.enabled !== false, ...(okCalendarColor(x.color) ? { color: x.color } : {}) });
   }
   return out;
 }
@@ -75,7 +77,7 @@ function withEntries(cfg, entries, hash) {
   if (!entries.length) conns.calendar = { mode: 'off' };
   else {
     const { icsUrl: _a, icsUrls: _b, ...rest } = cal;
-    conns.calendar = { ...rest, mode: 'api', calendars: entries.map((e) => ({ ...(idOf(e, hash) ? { id: idOf(e, hash) } : {}), name: e.name, url: e.url, enabled: e.enabled !== false })), timeZone: cal.timeZone || 'Asia/Seoul' };
+    conns.calendar = { ...rest, mode: 'api', calendars: entries.map((e) => ({ ...(idOf(e, hash) ? { id: idOf(e, hash) } : {}), name: e.name, url: e.url, enabled: e.enabled !== false, ...(okCalendarColor(e.color) ? { color: e.color } : {}) })), timeZone: cal.timeZone || 'Asia/Seoul' };
   }
   return { ...c, connectors: conns };
 }
@@ -99,6 +101,17 @@ export function withCalendarEnabled(cfg, id, on, hash) {
   const list = calendarEntries(cfg);
   if (!list.some((e) => idOf(e, hash) === id)) return obj(cfg) ?? {};
   return withEntries(cfg, list.map((e) => (idOf(e, hash) === id ? { ...e, enabled: !!on } : e)), hash);
+}
+
+// 캘린더 탭에서 고른 색(id 로, 팔레트 이름). null 이면 저장값을 지워 자동 색으로. 없는 id 면 그대로
+export function withCalendarColor(cfg, id, color, hash) {
+  const list = calendarEntries(cfg);
+  if (!list.some((e) => idOf(e, hash) === id) || (color !== null && !okCalendarColor(color))) return obj(cfg) ?? {};
+  return withEntries(cfg, list.map((e) => {
+    if (idOf(e, hash) !== id) return e;
+    const { color: _old, ...rest } = e;
+    return color ? { ...rest, color } : rest;
+  }), hash);
 }
 
 // 어느 캘린더인가: 구글(calendar.google.com) · Outlook(outlook·office 주소) · 그 밖의 ICS

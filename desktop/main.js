@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
-import { cleanMergeQuestion, normalizeOpen } from './src/bubbles.js';
+import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
 import { createSSEParser, backoffDelay, isEventStream, createSSEGate } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
@@ -39,6 +39,7 @@ import { applyCharacters } from './src/character-registry.js';
 import { normStatus, brainView, sameView } from './src/brain-state.js';
 import { isAskId } from './src/quick-ask.js';
 import { isFocusCmd, DAY_RE, doingTodos } from './src/focus.js';
+import { createHitWatch, wantHitWatch, POLL_MS as HIT_POLL_MS } from './src/hit-watch.js';
 import { tourSteps, tourBubble, TOUR_VERSION } from './src/tour.js';
 import { NEW_DAEMON_CONFIG, cleanSetupPatch, openSetupAtLaunch, setupView } from './src/setup-plan.js';
 import { attachConsole, assembleBundle, collectLogFiles, createRing, formatLogLine, redact, shapeConnectorsSafe } from './src/debug-share.js';
@@ -46,8 +47,10 @@ import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, daemonArgs, loginIt
 import { createDaemonHost, portFree } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } from './src/update-check.js';
 import { denied } from './src/denied.js';
-import { withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
+import { okCalendarColor, okEventsQuery } from './src/calendar-tab.js';
+import { withCalendarColor, withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
+import { panelOnActivation } from './src/panel-activation.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
@@ -247,6 +250,13 @@ async function editCalendar(id, fn) {
   }
   sendPanel('dashboard', {});
   return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
+}
+// 캘린더 탭 색 바꾸기: config.json 의 그 캘린더 color 만 고친다(일정을 다시 가져올 일은 없어서 데몬에 알리지 않는다. 다음에 받을 때 새 색)
+function colorCalendar(id, color) {
+  if (!calendarUrlById(readDaemonConfig(), id, calendarId)) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.' };
+  const wrote = editDaemonConfig((cfg) => withCalendarColor(cfg, id, color, calendarId));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.` };
+  return { ok: true };
 }
 const renameCalendar = (id, name) => editCalendar(id, (cfg) => withCalendarRenamed(cfg, id, name, calendarId));
 const toggleCalendar = (id, on) => editCalendar(id, (cfg) => withCalendarEnabled(cfg, id, on, calendarId));
@@ -526,6 +536,8 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   win.setIgnoreMouseEvents(true, { forward: true });
+  ignoringMouse = true;
+  wantInteractive = false;
 
   // 외부 탐색/새 창 차단
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -996,7 +1008,7 @@ function createTray() {
 }
 
 // ---- 앱(Dock·Cmd+Tab·메뉴 막대) ----
-// Dock 에 보이는 일반 앱 — Cmd+Tab/Dock 으로 돌아오면 대시보드 패널이 앞으로 온다.
+// Dock 에 보이는 일반 앱. Dock 클릭·다시 실행하면 대시보드 패널이 앞으로 온다(Cmd+Tab·스페이스 전환으로는 안 연다).
 // 오버레이는 비활성 패널이라 앱 활성화와 상관없이 항상 위·모든 Space 에 그대로 있다.
 // 윈도우: 오버레이를 hide → showInactive 하면 Chromium 이 포커스 안 받는 창의 버튼 누름을 삼켜(뗌만 온다)
 // 왼쪽 클릭·끌기·말풍선 버튼이 다 안 먹는다. 그래서 창은 숨기지 않고 렌더러가 그림을 감춘다(감춘 건 클릭 투과)
@@ -1048,20 +1060,13 @@ function createAppMenu() {
   ]));
 }
 
-// 앱이 활성화될 때(Cmd+Tab, Dock 클릭, 다시 실행) 패널을 앞으로.
-// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 제외.
+// Dock 클릭·다시 실행만 패널을 연다(src/panel-activation.js). 앱 전환·스페이스 전환·캐릭터 창 포커스로는 열지 않는다.
+// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 Dock 활성화도 제외.
 let activationQuietUntil = 0;
 const quietActivation = (ms) => { activationQuietUntil = Math.max(activationQuietUntil, Date.now() + ms); };
 
-function onAppActivated() {
-  if (quitting || Date.now() < activationQuietUntil) return;
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused && focused === win) return; // 오버레이 입력창 쓰는 중
-  if (focused && focused === sessionWin) return; // 작업 세션 창을 보는 중
-  if (focused && focused === debugWin) return; // 도움 보내기 창
-  if (focused && focused === settingsUi?.window) return; // 설정 창을 보는 중
-  if (panel && panel.isVisible() && focused === panel) return; // 이미 앞
-  showPanel(null);
+function onActivation(kind) {
+  if (panelOnActivation({ kind, now: Date.now(), quietUntil: activationQuietUntil, quitting })) showPanel(null);
 }
 
 function setDockMenu() {
@@ -1121,10 +1126,10 @@ function setupAppActivation() {
     setDockMenu();
   }
   quietActivation(2000); // 시작 직후(로그인 자동 실행) 패널을 띄우지 않음
-  app.on('did-become-active', () => setTimeout(onAppActivated, 50));
-  // Dock 클릭 / 실행 중 다시 열기 — 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
-  app.on('activate', () => { if (!quitting && Date.now() >= activationQuietUntil) showPanel(null); });
-  app.on('second-instance', () => showPanel(null));
+  // did-become-active 로는 열지 않는다: 다른 데스크톱·전체 화면 앱에서 돌아오기만 해도 와서 닫은 패널이 다시 열렸다
+  // Dock 클릭 / 실행 중 다시 열기: 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
+  app.on('activate', () => onActivation('dock'));
+  app.on('second-instance', () => onActivation('second-instance'));
 }
 
 // 맥에서 setFocusable 을 바꾸면 창이 처음 위치로 돌아간다. 바꾸기 전 자리를 붙잡아 둔다.
@@ -1234,11 +1239,36 @@ function registerDebugShortcut() {
 // ---- IPC ----
 let drag = null; // { offX, offY, timer, started }
 
+// ---- 클릭 투과(캐릭터 창): 렌더러가 커서 밑이 말풍선·단추인지 보고 set-interactive 로 알린다 ----
+let wantInteractive = false; // 렌더러가 마지막으로 원한 것
+let ignoringMouse = true; // 지금 창이 마우스를 통과시키는 중인가(createWindow 에서 켠다)
+function applyInteractive() {
+  if (!win || win.isDestroyed()) return;
+  if (wantInteractive) { win.setIgnoreMouseEvents(false); ignoringMouse = false; }
+  else if (!drag) { win.setIgnoreMouseEvents(true, { forward: true }); ignoringMouse = true; }
+}
+// 윈도우: forward 의 마우스 훅이 소리 없이 빠지면(메인이 바빴거나 잠금·절전 뒤) mousemove 가 안 와 말풍선 단추가 영영 안 눌린다.
+// 메인이 커서를 직접 물어 렌더러에 알리고(cursor), 투과 중이면 가끔 forward 를 다시 건다(src/hit-watch.js)
+let hitWatch = null;
+function startHitWatch() {
+  if (hitWatch || !wantHitWatch(process.platform, process.env)) return;
+  hitWatch = createHitWatch({
+    cursor: () => screen.getCursorScreenPoint(),
+    bounds: () => win.getBounds(),
+    ignoring: () => ignoringMouse,
+    busy: () => !win || win.isDestroyed() || !win.isVisible() || !winLoaded || !!drag,
+    send: (p) => win.webContents.send('cursor', p),
+    rearm: () => { win.setIgnoreMouseEvents(false); win.setIgnoreMouseEvents(true, { forward: true }); },
+  });
+  setInterval(() => { try { hitWatch.tick(); } catch (e) { console.warn('[hit-watch]', e?.message ?? e); } }, HIT_POLL_MS);
+}
+
 function endDrag() {
   if (!drag) return;
   clearInterval(drag.timer);
   drag = null;
   if (!win) return;
+  applyInteractive(); // 드래그 중에 「이제 투과」가 왔으면 지금 따른다
   const [x, y] = win.getPosition();
   state.pos = { x, y };
   saveState();
@@ -1268,10 +1298,10 @@ function setupIPC() {
     preload: path.join(__dirname, 'preload-settings.cjs'),
     html: path.join(__dirname, 'renderer', 'settings.html'),
   });
-  ipcMain.on('set-interactive', (_e, on) => {
-    if (!win) return;
-    if (on) win.setIgnoreMouseEvents(false);
-    else if (!drag) win.setIgnoreMouseEvents(true, { forward: true });
+  ipcMain.on('set-interactive', (e, on) => {
+    if (!win || e.sender !== win.webContents) return;
+    wantInteractive = !!on;
+    applyInteractive();
   });
 
   // 드래그: 커서를 메인에서 폴링 — 빠르게 움직여 창 밖으로 나가도 따라간다
@@ -1725,6 +1755,12 @@ function setupIPC() {
     return request('DELETE', `/projects/manual/${encodeURIComponent(id)}`);
   });
   // MCP 캘린더는 모델이 중계해서 오래 걸릴 수 있다
+  // 캘린더 탭: 보는 기간의 일정(GET /calendar/events). from·to 는 ISO 시각, fresh 는 새로 받기
+  ipcMain.handle('calendar-events', (e, q) => {
+    if (!fromOurs(e) || !okEventsQuery(q)) return denied();
+    return request('GET', `/calendar/events?from=${encodeURIComponent(q.from)}&to=${encodeURIComponent(q.to)}${q.fresh ? '&fresh=1' : ''}`, undefined, 60_000);
+  });
+  ipcMain.handle('calendar-color', (e, id, color) => (fromOurs(e) && okCalendarId(id) && (color === null || okCalendarColor(color)) ? colorCalendar(id, color) : denied()));
   ipcMain.handle('project-calendar-events', (e) => (fromOurs(e) ? request('GET', '/projects/calendar-events', undefined, 120_000) : denied()));
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기 · 지우기
   ipcMain.handle('todo-rules', (e) => (fromOurs(e) ? request('GET', '/todo-rules') : denied()));
@@ -1861,6 +1897,11 @@ function setupIPC() {
     if (!fromOurs(e) || !okActionId(id) || !['confirm', 'always', 'cancel'].includes(decision)) return denied();
     if (decision === 'always') return post(`/actions/${id}/confirm`, { always: true }, 120_000);
     return post(`/actions/${id}/${decision}`, undefined, 120_000);
+  });
+  // 아침 질문 「어제 남은 N개, 오늘도 할까요?」(말풍선·패널 오늘 할 일 탭 위): keep 그대로 · demote 이번 주로
+  ipcMain.handle('today-carry', (e, decision) => {
+    if (!fromOurs(e) || !isCarryDecision(decision)) return denied();
+    return post('/today/carry', { decision });
   });
   // [항상 허용]으로 저장한 도구 권한 규칙: 목록 · 지우기
   ipcMain.handle('permissions', (e) => (fromOurs(e) ? request('GET', '/permissions') : denied()));
@@ -2168,6 +2209,10 @@ if (SQUIRREL) {
     // 화면 구성 바뀜·절전/잠금 뒤 캐릭터를 다시 맨 위로(윈도우)
     for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => keepOnTop(win));
     for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => keepOnTop(win));
+    // 클릭 투과 보강(윈도우): 커서를 직접 물어 hit 검사 · 절전/잠금·화면 바뀜 뒤엔 forward 훅을 바로 다시 건다
+    startHitWatch();
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => hitWatch?.rearmNow());
+    for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => hitWatch?.rearmNow());
 
     // 디스플레이 구성 바뀌면 화면 밖으로 나갔는지 확인
     screen.on('display-removed', () => {

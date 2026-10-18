@@ -215,3 +215,94 @@ test("통계 범위: 3660일 넘으면 undefined(→ 400)", () => {
   assert.equal(s.f.stats("1000-01-01", "9999-12-31"), undefined);
   assert.ok(s.f.stats("2016-01-01", "2026-01-01"));
 });
+
+// ---- 오래 집중한 세션도 그만이 언제나 된다(30분 넘게 집중하면 그만하기가 안 눌린다는 제보) ----
+// 데몬 타이머(30초 checkpoint)가 도는 채로 진짜처럼 시간을 흘린다
+function runFor(s: ReturnType<typeof setup>, ms: number) {
+  for (let left = ms; left > 0; left -= 30e3) { s.add(Math.min(30e3, left)); s.f.checkpoint(); }
+}
+
+test("30분·2시간 넘게 집중한 세션도 그만하면 끝나고 기록된다", () => {
+  for (const mins of [31, 40, 125]) {
+    const s = setup(at(14, 9));
+    const stops: number[] = [];
+    s.f.onStop = (sec) => stops.push(sec);
+    s.f.start();
+    runFor(s, mins * 60e3);
+    assert.equal(s.f.view().active!.seconds, mins * 60);
+    const r = s.f.stop();
+    assert.equal(r.active, null, `${mins}분`);
+    assert.equal(r.stopped!.seconds, mins * 60);
+    assert.deepEqual(stops, [mins * 60]);
+    assert.equal(s.f.view().active, null);
+    assert.equal((s.store.db.prepare("SELECT COUNT(*) AS n FROM focus_sessions WHERE ended IS NULL").get() as any).n, 0);
+    assert.equal((s.store.db.prepare("SELECT COUNT(*) AS n FROM focus_spans WHERE open = 1").get() as any).n, 0);
+  }
+});
+
+test("일시정지 섞인 40분 세션: 쉰 시간은 빼고 그만, 일시정지 중에 그만해도 된다", () => {
+  const s = setup(at(14, 9));
+  s.f.start();
+  runFor(s, 20 * 60e3);
+  s.f.pause();
+  runFor(s, 15 * 60e3);
+  s.f.resume();
+  runFor(s, 25 * 60e3);
+  assert.equal(s.f.stop().stopped!.seconds, 45 * 60);
+  const p = setup(at(14, 9));
+  p.f.start();
+  runFor(p, 35 * 60e3);
+  p.f.pause();
+  runFor(p, 10 * 60e3);
+  const r = p.f.stop();
+  assert.equal(r.active, null);
+  assert.equal(r.stopped!.seconds, 35 * 60);
+});
+
+test("정한 시간(25분)이 이미 지난 세션: 저절로 끝났으면 그만은 아무 일 없음, 타이머가 늦었어도 그만은 된다", () => {
+  const s = setup(at(14, 9));
+  s.f.start({ minutes: 25 });
+  runFor(s, 40 * 60e3); // checkpoint 가 25분에 끝냈다
+  assert.equal(s.f.view().active, null);
+  assert.equal(s.f.stop().stopped, null);
+  // checkpoint 가 안 돈 채(데몬이 바빴음) 정한 시간을 넘김 → 그만이 지금까지로 끝낸다
+  const l = setup(at(14, 9));
+  l.f.start({ minutes: 30 });
+  l.add(40 * 60e3);
+  const r = l.f.stop();
+  assert.equal(r.active, null);
+  assert.equal(r.stopped!.seconds, 40 * 60);
+});
+
+test("끝나지 않은 세션이 둘 남아 있어도(같은 cy.db 를 쓴 데몬 둘) 그만 한 번에 다 끝난다", () => {
+  const s = setup(at(14, 9));
+  s.f.start();
+  runFor(s, 10 * 60e3);
+  // 다른 데몬이 만든 듯한 더 예전 세션(열린 구간)
+  s.store.db.prepare("INSERT INTO focus_sessions (id, started, paused, seen) VALUES ('fs-old', ?, 0, ?)").run(at(14, 8), at(14, 8, 30));
+  s.store.db.prepare("INSERT INTO focus_spans (session_id, start, end, open) VALUES ('fs-old', ?, ?, 1)").run(at(14, 8), at(14, 8, 30));
+  runFor(s, 30 * 60e3);
+  const r = s.f.stop();
+  assert.equal(r.active, null);
+  assert.equal(s.f.view().active, null);
+  const old = s.store.db.prepare("SELECT ended, seconds FROM focus_sessions WHERE id = 'fs-old'").get() as any;
+  assert.equal(old.ended, at(14, 8, 30)); // 마지막 저장 시각에
+  assert.equal(old.seconds, 30 * 60);
+});
+
+test("그만하다 오류가 나도 강제로 끝내고 기록한다", () => {
+  const s = setup(at(14, 9));
+  const changes: any[] = [];
+  s.f.onChange = (v) => changes.push(v);
+  s.f.start();
+  runFor(s, 40 * 60e3);
+  (s.f as any).finish = () => { throw new Error("디스크가 잠깐 바빴다"); };
+  const r = s.f.stop();
+  assert.equal(r.active, null);
+  assert.equal(r.stopped!.seconds, 40 * 60);
+  assert.equal(s.f.view().active, null);
+  assert.equal(changes.at(-1).active, null); // SSE focus 도 끝난 상태
+  const row = s.store.db.prepare("SELECT ended, seconds FROM focus_sessions").get() as any;
+  assert.ok(row.ended > 0);
+  assert.equal(row.seconds, 40 * 60);
+});

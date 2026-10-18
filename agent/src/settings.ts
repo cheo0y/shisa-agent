@@ -5,6 +5,7 @@
 import { todayReminderOf, validateTodayReminder, type TodayReminder } from "./daily-plan.ts";
 import { calendarAlertOf, validateCalendarAlert, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { cleanDays, isHhmm, minutesOf, workHoursOf } from "./work-hours.ts";
+import { ATTRIBUTION, mergeWeather, validateWeather, weatherOf, type WeatherConfig, type WeatherPatch } from "./weather.ts";
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname, join } from "node:path";
@@ -65,6 +66,8 @@ export type SettingsView = {
   lunchAlert: boolean; // 점심시간 알림(점심 시각부터 한 시간 안에 하루 한 번, 기본 켬)
   // 근무 시간(work-hours.ts): 출근·점심·퇴근 HH:MM, 요일(0 일~6 토), 출근 인사·퇴근 10분 전 인사
   workStart: string; lunchTime: string; workEnd: string; workDays: number[]; startAlert: boolean; leaveAlert: boolean;
+  // 날씨 알리미(weather.ts): 고른 지역(null = 꺼짐)·출근 후 브리핑 다음·퇴근 20분 전·정한 시각 + 출처(Open-Meteo)
+  weather: WeatherConfig & { attribution: typeof ATTRIBUTION };
   // 뇌: 키는 절대 내보내지 않는다 — 있나 없나만
   brain: { provider: BrainProvider; model: string; keys: Record<BrainKey, boolean> };
   // 캐릭터(characters.ts): 그림·영상·말투·고정 문구 기본값이 바뀐다
@@ -99,6 +102,7 @@ export type SettingsPatch = {
   calendarAlert?: CalendarAlertConfig;
   lunchAlert?: boolean;
   workStart?: string; lunchTime?: string; workEnd?: string; workDays?: number[]; startAlert?: boolean; leaveAlert?: boolean;
+  weather?: WeatherPatch; // 날씨: 준 칸만 바꾼다(place: null = 지역 지우기 → 날씨 꺼짐)
   character?: CharacterId;
   // Claude 가 아닌 뇌의 세부 모델: { provider, models: { 역할: 이름 | null(그 뇌 기본으로) } } — 그 뇌 칸만 바꾼다
   // code 는 Codex 만(Codex 로 코드 작업할 때 모델)
@@ -117,7 +121,7 @@ export class ConfigFileError extends Error {}
 export function validatePatch(body: unknown, cfg: Pick<Config, "models">): SettingsPatch {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new SettingsError("json object required");
   const b = body as Record<string, unknown>;
-  for (const k of Object.keys(b)) if (!["models", "brainModels", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "character", "coding"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
+  for (const k of Object.keys(b)) if (!["models", "brainModels", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "weather", "character", "coding"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
   const out: SettingsPatch = {};
   if (b.models !== undefined) {
     if (!b.models || typeof b.models !== "object" || Array.isArray(b.models)) throw new SettingsError("models must be an object");
@@ -171,6 +175,9 @@ export function validatePatch(body: unknown, cfg: Pick<Config, "models">): Setti
   }
   if (b.calendarAlert !== undefined) {
     try { out.calendarAlert = validateCalendarAlert(b.calendarAlert); } catch (e: any) { throw new SettingsError(String(e?.message ?? e)); }
+  }
+  if (b.weather !== undefined) {
+    try { out.weather = validateWeather(b.weather); } catch (e: any) { throw new SettingsError(String(e?.message ?? e)); }
   }
   if (b.character !== undefined) {
     if (!isCharacterId(b.character)) throw new SettingsError(`character must be one of ${characterOptions().map((c) => c.id).join(", ")}`);
@@ -358,6 +365,10 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   if (patch.calendarAlert) next.calendarAlert = patch.calendarAlert; // [] 도 그대로 쓴다(끔)
   if (patch.lunchAlert !== undefined) next.lunchAlert = patch.lunchAlert;
   for (const k of ["workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert"] as const) if (patch[k] !== undefined) next[k] = patch[k];
+  if (patch.weather) {
+    const w = mergeWeather(weatherOf(cur.weather), patch.weather);
+    next.weather = { ...(w.place ? { place: w.place } : {}), morning: w.morning, leave: w.leave, times: w.times };
+  }
   if (patch.character) next.character = patch.character;
   mkdirSync(dirname(path), { recursive: true });
   writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
@@ -428,6 +439,7 @@ export class Settings {
       todayReminder: todayReminderOf(c.todayReminder),
       calendarAlert: calendarAlertOf(c.calendarAlert),
       ...workHoursOf(c as unknown as Record<string, unknown>), // lunchAlert·근무 시간(새 배열이라 그대로 내보낸다)
+      weather: { ...weatherOf(c.weather), attribution: ATTRIBUTION },
       brain: {
         provider: c.brain?.provider ?? "claude-code", model: roleModel(c, "general") ?? "",
         // genspark: 설정에 키가 있거나, Genspark 를 고른 채 gsk login 파일에 키가 있으면 true(키 값은 내보내지 않는다).
@@ -491,6 +503,7 @@ export class Settings {
     if (patch.lunchAlert !== undefined) this.cfg.lunchAlert = patch.lunchAlert; // main 이 1분마다 cfg 를 읽으니 바로
     for (const k of ["workStart", "lunchTime", "workEnd", "startAlert", "leaveAlert"] as const) if (patch[k] !== undefined) (this.cfg as any)[k] = patch[k];
     if (patch.workDays) this.cfg.workDays = [...patch.workDays];
+    if (patch.weather) this.cfg.weather = mergeWeather(weatherOf(this.cfg.weather), patch.weather); // main 이 1분마다 cfg 를 읽으니 바로
     if (patch.calendarAlert) this.cfg.calendarAlert = { minutesBefore: [...patch.calendarAlert.minutesBefore] }; // CalendarSync 가 확인할 때마다 cfg 를 읽으니 바로
     if (patch.character) { this.cfg.character = patch.character; setCharacter(patch.character); } // 다음 말풍선·답부터(앱은 SSE state 로 그림을 바꾼다)
     this.onChange?.(Object.keys(patch));

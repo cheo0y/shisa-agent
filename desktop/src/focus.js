@@ -19,6 +19,20 @@ export function normFocus(raw) {
   return { active, day: typeof raw.day === 'string' ? raw.day : '', today: Math.max(0, num(raw.today)), now: num(raw.now) };
 }
 
+// 집중 명령 보내기(캐릭터 말풍선·패널이 같이 쓴다): 던지거나 답이 끝내 안 와도 ms 뒤 { ok: false } — 단추가 「누르는 중」에 영영 묶이지 않게
+export const FOCUS_CMD_TIMEOUT_MS = 20e3; // 메인의 POST 시간 제한(15초)보다 조금 길게
+export async function focusSend(send, cmd, ms = FOCUS_CMD_TIMEOUT_MS) {
+  let timer;
+  const late = new Promise((ok) => { timer = setTimeout(() => ok({ ok: false, error: 'timeout' }), ms); });
+  try {
+    return (await Promise.race([Promise.resolve().then(() => send(cmd)), late])) ?? { ok: false };
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 지금까지 집중한 초(일시정지면 멈춘 값)
 export function elapsedSec(active, now = Date.now()) {
   if (!active) return 0;

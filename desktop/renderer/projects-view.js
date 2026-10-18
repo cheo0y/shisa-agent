@@ -401,5 +401,8 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     fill(root, h(`div.mp-modal.step-${modal.step}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mp-m-title' }, kids));
   }
 
-  return { section, openCreate, isOpen: () => !!modal };
+  // 캘린더 탭 일정 카드의 「프로젝트로 만들기」: 일정에서 가져오기와 같은 칸으로 바로 연다
+  function openFromPick(ev) { modal = { step: 'form', mode: 'new', draft: draftFromPick(ev), error: '' }; drawModal(); }
+
+  return { section, openCreate, openFromPick, isOpen: () => !!modal };
 }

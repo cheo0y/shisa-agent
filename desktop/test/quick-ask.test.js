@@ -8,13 +8,15 @@ import { createHoverAsk, hoverAskAllowed, HOVER_ASK_MS } from '../src/hover-ask.
 
 const noAi = brainView({ status: { brain: { provider: 'local', label: '로컬', ready: true, local: true }, chat: false, coder: {}, connectors: [] } });
 
-test('칩 목록: 질문 다섯 개(응원·춤 포함) + 집중 시작·그만 + 마지막 AI 연결하기', () => {
-  assert.deepEqual(QUICK_CHIPS.map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '집중 시작할래?', '집중 그만할래?', '응원해 줘', '춤춰 줘', 'AI 연결하기']);
-  assert.deepEqual(ASK_IDS, ['today', 'next_todo', 'next_event', 'focus_start', 'focus_stop', 'cheer', 'dance']);
+test('칩 목록: 질문 여섯 개(오늘 날씨·응원·춤 포함) + 집중 시작·그만 + 마지막 AI 연결하기', () => {
+  assert.deepEqual(QUICK_CHIPS.map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '오늘 날씨?', '집중 시작할래?', '집중 그만할래?', '응원해 줘', '춤춰 줘', 'AI 연결하기']);
+  assert.deepEqual(ASK_IDS, ['today', 'next_todo', 'next_event', 'weather', 'focus_start', 'focus_stop', 'cheer', 'dance']);
   assert.ok(isAskId('focus_start') && isAskId('focus_stop'), 'main 의 local-ask 가 받는다');
   assert.ok(isFocusChip('focus_stop') && !isFocusChip('today'));
   assert.deepEqual(chipAction('focus_start'), { type: 'ask', id: 'focus_start' });
   assert.ok(isAskId('cheer'));
+  assert.ok(isAskId('weather'), '「오늘 날씨?」도 데몬 /local/ask 로');
+  assert.deepEqual(chipAction('weather'), { type: 'ask', id: 'weather' });
   assert.ok(!isAskId('connect'));
   for (const c of QUICK_CHIPS) assert.ok(!c.label.includes('\u2014'));
 });
@@ -24,12 +26,12 @@ test('quickBubble: 칩 말풍선이 normalizeBubble 을 거쳐도 칩이 남는�
   const raw = quickBubble(noAi);
   assert.equal(raw.id, QUICK_ID);
   const b = normalizeBubble(raw);
-  assert.deepEqual(b.quick, ['today', 'next_todo', 'next_event', 'focus_start', 'cheer', 'dance', 'connect']);
+  assert.deepEqual(b.quick, ['today', 'next_todo', 'next_event', 'weather', 'focus_start', 'cheer', 'dance', 'connect']);
   // AI가 있으면(입력창 ＋) 「AI 연결하기」는 빼고 같은 칩
-  assert.deepEqual(quickBubble({ ready: true }).quick, ['today', 'next_todo', 'next_event', 'focus_start', 'cheer', 'dance']);
+  assert.deepEqual(quickBubble({ ready: true }).quick, ['today', 'next_todo', 'next_event', 'weather', 'focus_start', 'cheer', 'dance']);
   // 집중 중이면 「집중 시작할래?」 대신 「집중 그만할래?」(AI 있든 없든)
-  assert.deepEqual(normalizeBubble(quickBubble(noAi, 'sisa', true)).quick, ['today', 'next_todo', 'next_event', 'focus_stop', 'cheer', 'dance', 'connect']);
-  assert.deepEqual(chipsOf(quickBubble({ ready: true }, 'sisa', true).quick).map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '집중 그만할래?', '응원해 줘', '춤춰 줘']);
+  assert.deepEqual(normalizeBubble(quickBubble(noAi, 'sisa', true)).quick, ['today', 'next_todo', 'next_event', 'weather', 'focus_stop', 'cheer', 'dance', 'connect']);
+  assert.deepEqual(chipsOf(quickBubble({ ready: true }, 'sisa', true).quick).map((c) => c.label), ['오늘 할 일 얼마나 했어요?', '지금 할 일 뭐 있어요?', '다음 일정은요?', '오늘 날씨?', '집중 그만할래?', '응원해 줘', '춤춰 줘']);
   assert.ok(b.ttlMs > 0);
   assert.deepEqual(clickTarget(b).type === 'open', false); // 말풍선 자체는 어디로도 안 연다(칩만)
   assert.match(quickBubble({ ready: false, provider: 'claude-code', known: true }).text, /Claude Code 로그인 전/);

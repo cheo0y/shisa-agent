@@ -51,6 +51,8 @@ export function normalizeBubble(raw) {
   // 사용법 둘러보기(tour.js) 장면: [다음]/[끝] · [그만 볼래요]
   const t = raw.tour;
   if (t && Number.isInteger(t.step) && Number.isInteger(t.total) && t.step >= 1 && t.step <= t.total) b.tour = { step: t.step, total: t.total };
+  // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요]
+  if (raw.carry && Number.isInteger(raw.carry.n) && raw.carry.n > 0) b.carry = { n: raw.carry.n };
   // AI 없이 고르는 질문 칩(quick-ask.js): 아는 칩 id 만
   const quick = normQuick(raw.quick);
   if (quick) b.quick = quick;
@@ -156,6 +158,15 @@ export function approvalButtons(b) {
     { decision: 'cancel', label: '거부', title: '실행하지 않아요' },
   ];
 }
+
+// 아침 질문 「어제 남은 N개, 오늘도 할까요?」 답(말풍선·패널 오늘 할 일 탭 위 안내 공용). keep·demote 는 POST /today/carry, open 은 패널만 연다
+export const CARRY_CHOICES = [
+  { cmd: 'keep', label: '그대로 둘게요', primary: true, title: '어제 남은 일을 오늘 할 일에 그대로 둬요' },
+  { cmd: 'demote', label: '이번 주로 내려요', title: '아직 안 끝난 어제 일을 이번 주로 옮겨요' },
+  { cmd: 'open', label: '하나씩 볼게요', title: '오늘 할 일 탭에서 하나씩 골라요' },
+];
+export const isCarryDecision = (v) => v === 'keep' || v === 'demote';
+export const carryButtons = (b) => (b?.carry && !b.decided ? CARRY_CHOICES : []);
 
 export class BubbleQueue {
   constructor({ max = MAX_VISIBLE } = {}) {

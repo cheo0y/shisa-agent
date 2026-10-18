@@ -51,6 +51,12 @@ type Bubble = {
   - 점심(`lunchAlert`): 점심 시각부터 한 시간 안에 `danceClip: "lunch"`로 추고 점심 인사(`local.lunch`, 그 영상에 한마디가 있으면 그 말)를 띄운다.
   - 퇴근(`leaveAlert`): 퇴근 10분 전부터 퇴근 시각 전까지 `danceClip: "plan"`(그 캐릭터의 일정 알림 영상)으로 추고 퇴근 인사(`local.leave`, `{mins}` = 퇴근까지 남은 분)를 띄운다. 일정 알림 영상의 한마디는 일정용이라 쓰지 않는다.
 - 채팅 맥락 머리말에 근무 시간 한 줄(`- 근무: 월~금 09:00~18:00 · 점심 12:00 · 퇴근까지 1시간 5분`)이 붙는다.
+- 날씨 알리미(`weather.ts`·`weather-say.ts`, 설정 `weather`): `weather.place`(사용자가 고른 지역)가 있을 때만 돈다. AI 없이 Open-Meteo 예보를 정해진 말로 말풍선 id `weather:<키>`에 띄운다(비·눈 소식이 있으면 `kind: "todo"`, 아니면 `info`). 근무 요일에 하루 한 번씩이고, 날짜는 근무 시간과 같은 `lunch.json`에 키 `weatherMorning`·`weatherLeave`·`weather@HH:MM`로 남긴다. 예보를 못 가져오면 남기지 않고 다음 확인(1분마다) 때 다시 본다.
+  - 출근 후(`weather.morning`, 기본 켬): 출근 시각부터 퇴근 20분 전까지. 출근 인사(`startAlert`)가 켜져 있으면 그 인사(로컬 뇌 브리핑의 아침 인사 포함) 뒤에만 뜬다. 브리핑이 도는 중이면 기다렸다가 끝나고 3초쯤 뒤에, 브리핑이 없으면 인사 1분 30초 뒤에 뜬다. 출근 인사를 껐으면 출근 시각(또는 데몬을 켠 때)을 기준으로 한다. 대사 `local.weatherMorning`.
+  - 퇴근 20분 전(`weather.leave`, 기본 켬): 퇴근 20분 전부터 퇴근 시각 전까지, 퇴근 10분 전 인사와 따로다. 퇴근 2시간 전부터 3시간 뒤까지 비·눈(강수 확률 50% 이상 또는 0.5mm 이상)이 있으면 `local.weatherLeaveRain`(☔ 「퇴근길 비 와요, 우산!」), 없으면 퇴근 시각 즈음 날씨로 `local.weatherLeave`. 일정 알림 춤 중이면 다음 확인에.
+  - 정한 시각(`weather.times`): 그 시각부터 한 시간 안에 한 번. 대사 `local.weatherNow`.
+  - 채팅·브리핑 맥락(도구 머리말·큰 맥락 블록 둘 다)에 예보가 캐시에 있으면 한 줄(`- 오늘 날씨(서울 · Open-Meteo 예보): 맑음, 지금 14°C(맑음) · 최고 21°C/최저 11°C · 오후 3시쯤 비 60%`)이 붙는다. 프롬프트 때문에 바깥에 묻지는 않는다.
+  - 대사 자리표시: `weatherMorning`·`weatherNow`는 `{place}` `{summary}` `{now}` `{max}` `{min}` `{rain}`, `weatherLeave`는 `{place}` `{summary}` `{now}` `{max}` `{min}`, `weatherLeaveRain`은 `{place}` `{what}` `{when}` `{prob}` `{now}`, `weatherRain`(`{rain}` 자리에 들어가는 조각)은 `{when}`(「오후 3시」) `{what}`(비·눈) `{prob}`(「60%」). `weatherNoPlace`·`weatherFail`은 없다. 앞에 날씨 이모지 하나(비·눈이면 ☔)는 코드가 붙인다. 날씨 코드(WMO)는 맑음·구름 조금·구름 많음·흐림·안개·이슬비·비·소나기·눈·뇌우 같은 낱말로 바꾼다.
 
 ## 상태·설정
 
@@ -93,6 +99,7 @@ type Bubble = {
 - `user{name?}`, `repoRoots[]`, `configPath`
 - `onboarded`(설치 마법사를 마쳤나), `readSessions`(이 맥의 Claude Code·Codex 작업 기록을 읽나)
 - `character`(고른 캐릭터 id), `characters[{id,name}]`(고를 수 있는 캐릭터)
+- `weather{place,morning,leave,times,attribution}`: `place`는 `{ name, label, latitude, longitude, timezone }` 또는 `null`(꺼짐), `morning`·`leave` 기본 `true`, `times` 기본 `[]`, `attribution`은 `{ label: "날씨: Open-Meteo", url, license: "CC BY 4.0" }`
 
 `PUT` 본문(전부 선택, 모르는 키는 400):
 
@@ -112,6 +119,8 @@ type Bubble = {
   "workStart": "09:30", "lunchTime": "12:30", "workEnd": "18:30", // HH:MM(24시간). 아니면 400, 출근이 퇴근보다 늦거나 같아도 400
   "workDays": [1, 2, 3, 4, 5],                            // 0 일~6 토, 하나 이상
   "startAlert": true, "leaveAlert": true,                 // 출근 인사·퇴근 10분 전 인사 켜고 끄기(기본 켬)
+  "weather": { "place": { "name": "서울", "label": "서울특별시 · 대한민국", "latitude": 37.566, "longitude": 126.9784, "timezone": "Asia/Seoul" } | null,
+               "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 목록
   "character": "hachi"                                    // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
 }
 ```
@@ -150,12 +159,21 @@ type Bubble = {
 - 모델 프롬프트에 들어가는 건 `prompt.intro`와 `prompt.tone` 두 칸뿐이고, 둘 다 한 줄로 다듬는다. 프롬프트의 시사 첫 문장·말투 줄 자리만 바꾸므로 그 밖의 규칙과 안전 지시는 그대로다.
 - 앱은 `cy-asset`으로 사용자 캐릭터 파일을 줄 때 `GET /characters` 목록에 그 캐릭터의 그 파일이 있는지, 심볼릭 링크를 풀었을 때 그 캐릭터 폴더 안의 보통 파일인지 본다.
 
+### 날씨 지역 검색 `GET /weather/search?q=`
+
+- `q`는 1~60자(아니면 400). 두 글자 미만이면 묻지 않고 빈 목록이다.
+- Open-Meteo Geocoding(`language=ko`)에 묻는다. 한글이고 시·도·구·군·읍·면·동·리로 끝나지 않으면 「서울」→「서울시」·「서울특별시」·「서울광역시」도 같이 물어 모은다(한국 지명이 「서울특별시」로 실려 있어서).
+- 응답: `{ ok: true, items: [{ id, name, label, latitude, longitude, timezone, country?, admin1?, admin2? }] }`(큰 곳부터 열 개까지, 같은 곳은 하나). `name`은 짧은 이름(「서울」, 「서울 마포구」), `label`은 「마포구 · 서울특별시 · 대한민국」이다. 못 물으면 `{ ok: false, error }`.
+- 같은 글자는 데몬이 기억해 두고 다시 묻지 않는다(설정 창도 따로 기억한다). 설정 창은 칸에서 300ms 멈추면 묻는다.
+- 칩 「오늘 날씨?」: `POST /local/ask { id: "weather" }`. 지역이 없으면 `local.weatherNoPlace`(「설정에서 지역을 고르면 알려 줄게요」), 있으면 예보(캐시 45분, 없으면 그때 가져온다)로 `local.weatherNow`와 `detail`(지역 이름 · 예보: Open-Meteo). 못 가져오면 `local.weatherFail`과 `detail`에 이유. AI가 있어도 입력창 ＋ 칩에 같이 있다.
+
 ### `GET /connections` · `POST /connections/check { id? }`
 
 - 설정 창의 「연결 상태」 줄이다. 응답은 `{ rows: ConnRow[], checkedAt }`.
 - `ConnRow` 필드: `id`, `label`, `group: core|service|local`, `state: ok|warn|error|off|unknown`, `detail`, `error?`(가림), `check`, `pending?`, `doc?`, `used?`, `briefing?`.
 - `check`는 `id`(`net|claude|gh|local`)만 다시 확인한다.
 - 캘린더 두 줄(`connector:calendar`·`calendar`)은 설정만 보지 않고 실제 동기화 결과(아래 「캘린더 동기화 상태」)를 따른다. 가져오는 중이면 `detail`에 「일정 가져오는 중」, 가져왔으면 일정 수, 못 가져왔으면 `state: error`와 `error`에 사람이 읽는 이유가 들어간다.
+- 날씨 줄(`weather`, 「날씨(Open-Meteo)」): 지역을 안 골랐으면 `off`, 가져왔으면 `detail` 「서울 마포구 · 방금 · 14°C」, 못 가져왔으면 `error`(예전에 가져온 게 있으면 `warn`)와 이유. 아직 안 가져왔으면 `GET /connections`가 한 번 가져오게 건다.
 - 메일 줄(`connector:mail`)도 `imap` 모드면 실제 동기화 결과(아래 「메일(앱 비밀번호)」)를 따른다. `summary`는 「직접 연결(IMAP, 읽기만)」, `detail`에 가져온 메일 수와 때(계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통 (때, 읽기만)」), 모든 계정을 못 가져왔으면 `state: error`와 `error`에 이유가 들어간다. 일부 계정만 못 가져왔으면 `state: warn`, `error`는 「주소: 이유」(여럿이면 « / »로 잇는다). 한 시간 넘게 못 가져왔으면 `warn`이다. 뇌가 `local`이면 「AI를 연결하면 메일에서 할 일을 뽑아요」가 붙는다.
 
 ### 그 밖
@@ -198,7 +216,11 @@ type Bubble = {
 
 ### 캘린더 동기화 상태(`calendar-state.ts`)
 
-- `GET /connectors/calendar`: 200 `{ phase, calendars[] }`. 저장된 ICS 캘린더마다 `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason? }`. 주소는 없다
+- `GET /connectors/calendar`: 200 `{ phase, calendars[] }`. 저장된 ICS 캘린더마다 `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason?, color? }`. 주소는 없다
+- `GET /calendar/events?from=&to=(&fresh=1)`: 패널 캘린더 탭이 보는 기간의 일정(`calendar-view.ts`). `from`·`to`는 ISO 시각, `to`가 `from`보다 뒤, 길이 100일까지(틀리면 400 `{ error }`). 200 `{ connected, ok, mode?, from, to, timeZone, calendars[], events[], reason? }`. `calendars[]`: `{ id, name, color, colorSet, enabled, phase: ok|failed|off, reason? }`(꺼 둔 캘린더도 목록에는 있다). `events[]`: `{ id("<캘린더 id>:<일정 id>"), calId, title, start, end, allDay, startDay?, endDay?(종일: 캘린더 시간대 날짜, endDay 는 들어가지 않는 다음 날), location?, joinUrl?, webLink?, response?, free?, description?(600자까지), draft }`(`draft`는 `/projects/calendar-events`와 같은 프로젝트 칸). ICS 는 그 기간을 직접 읽어 반복 일정을 펼친다. 받은 ICS 글은 5분 들고 있고 `fresh=1`이면 새로 받는다. 취소된 일정과 꺼 둔 캘린더는 뺀다. MCP 캘린더는 모델을 부르지 않고 동기화해 둔 회의(`meetings`)만 준다. 캘린더가 없으면 `connected: false`
+- AI 의 기간 일정(`calendar-ai.ts`, 위 `/calendar/events` 와 같은 길): Claude Code 뇌는 `cy` 맥락 도구 `calendar_events({ from?, to?, days? })`(읽기 전용)로 읽는다. `from`·`to` 는 `YYYY-MM-DD`(`to` 는 그날까지 들어감) 또는 ISO 시각, 둘 다 없으면 오늘부터 `days`(기본 7)일. 결과는 날짜별 줄 `- 10/24(토) · 14:00~15:00 · 제목 · 캘린더 별칭 · 장소: … · 회의 링크 있음`(종일은 `종일`, 여러 날이면 `종일(~10/26(월))`, 빈 날은 없다)과 꺼 둔 캘린더·못 가져온 캘린더 줄. 길면 날짜 단위로 나눠 보내고 끝에 「calendar_events 를 from=…, to=… 로 다시 부른다」를 붙인다(상한 없음). 연결 없음·모두 꺼 둠·못 가져옴이면 `calendar-state.ts calendarNote` 와 같은 상태 줄. MCP 캘린더는 동기화해 둔 회의만 보이고 다른 날은 연결된 캘린더 MCP 도구로 읽으라고 적는다. 도구 없는 뇌(Codex·Gemini·OpenAI 등) 채팅은 사용자 말에 일정·약속·회의·미팅·스케줄·캘린더 말이나 기간·날짜 말(다음 주·이번 주·지난주·이번 달·다음 달·N월·N월 N일·M/D·YYYY-MM-DD·요일·주말·앞으로 N일)이 있으면 그 기간(여럿이면 다 덮는 기간, 일정 말만 있으면 앞으로 14일)을 「## 일정 10/19(월)~10/25(일)」 블록으로 넣는다. 기간은 캘린더 시간대 날짜, 주는 월요일 시작, 두 달 넘게 지난 날짜는 내년. 오늘·내일·모레는 일정 말과 같이 나올 때만 친다. 그런 말이 없으면 지금처럼 오늘·내일 캐시만 넣는다. 채팅 답 스키마의 선택 칸 `need: [{ kind: "calendar", from, to }]`(kind 는 나중에 넓힐 자리): 모델이 맥락에 없는 기간을 돌려주면 데몬이 그 기간을 읽어 블록으로 붙이고 같은 질문을 다시 보낸다(진행 「일정 확인 중…」, 사용자에겐 마지막 답 하나). 횟수 상한은 없고, 이미 읽은 기간만 또 달라면 「이미 블록에 있다」 한 줄을 붙여 한 번 더 묻고 멈춘다.
+- `GET /dashboard`의 `connectors` 캘린더 줄(ICS)에 `calendars[]`: `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason?, color }`(색은 캘린더 탭과 같은 계산). 패널 개요 연결 카드가 캘린더마다 줄(색 점·별칭·결과)과 켜기/끄기를 그린다. 켜기/끄기는 설치 탭과 같은 `enabled` 고치기 + `POST /connectors/reload`
+- 캘린더 색: `connectors.calendar.calendars[].color`(팔레트 이름 `blue|green|orange|purple|red|teal|pink|brown`). 패널이 캘린더 탭에서 바꿔 설정 파일에 쓴다. 없으면 id 로 정한 팔레트 색에서 다른 캘린더와 겹치지 않는 색. 별칭·켜기/끄기·캘린더 추가는 색을 지우지 않는다
 - `POST /connectors/calendar`: 본문 `{ url, name? }`(헤더 규칙은 POST 와 같다). 그 캘린더만 시험으로 읽어 보고 되면 `calendars`에 붙여 저장한 뒤 다시 읽어 전체를 가져온다 → 200 `{ ok, id, name, events, calendars }`. 못 읽으면 400 `{ error, code }`(저장 안 함), 같은 주소면 409 `{ error, code: "duplicate" }`. 별칭을 비우면 ICS 이름, 그것도 없으면 「캘린더 N」. 개수 상한 없음
 - `CalendarSync`가 가져올 때마다 `cy.db`의 `calendar_state` 한 줄에 남긴다: `phase`(`off|pending|ok|failed`), `mode`, `key`(연결 설정의 해시. 설정이 바뀌면 예전 결과를 쓰지 않는다), `at`, `lastOkAt`, `meetings`, `events`, `reason`, `code`(`http|html|network|tls|timeout|url|mcp|brain|other`), `calendars`(ICS 캘린더마다 별칭·결과, 위 `sync.calendars`와 같은 모양).
 - ICS 캘린더는 `connectors.calendar.calendars[]`(`{ id, name, url, enabled }`)다. 예전 `icsUrl`·`icsUrls`(별칭 없음)도 같은 목록으로 읽는다. `enabled: false` 인 캘린더는 읽지 않고 그 일정을 `meetings`에서 뺀다. 일정은 캘린더마다 바꾼다: 받은 캘린더는 새로, 못 받은 캘린더는 예전 것을 두고, 꺼 두었거나 뺀 캘린더 것은 지운다. 실패 이유는 「별칭: 이유」. `meetings`에 `calendar`(별칭, 캘린더가 여럿이거나 별칭이 있을 때)·`cal_id`가 있고, 일정 알림 `{where}`와 AI 맥락(「캘린더: 회사」)에 별칭을 붙인다.
@@ -243,7 +265,7 @@ type Bubble = {
 
 | | |
 |---|---|
-| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`) |
+| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`). `today: true`면 P1(오늘 할 일) |
 | `POST /todos/:id { title?, priority?, link?, note?, description?, status?: open\|done, doing?: boolean\|null, today?, projectId?: string\|null }` | 200 `{ ok, todo }`. 사용자가 고친 필드는 브리핑이 덮지 않는다(`doing`은 예외) |
 | `POST /todos/:id/done` | 완료 |
 | `POST /todos/:id/delete` → `/restore` → `/purge`, `POST /todos/trash/empty` | 휴지통(30일 뒤 자동 비움) |
@@ -271,13 +293,17 @@ type Bubble = {
 
 ### 오늘 할 일
 
-따로 표를 두지 않고 할 일에 "오늘로 고른 날"(`today`, KST `YYYY-MM-DD`)을 단다. 패널 '오늘 할 일' 탭은 할 일 탭과 같은 줄·우선순위 묶음(P1·P2·P3·백로그)으로 그날 고른 것만 보인다. 이 맥의 SQLite에만 둔다.
+오늘 할 일은 우선순위 1(「오늘 꼭」)인 할 일입니다. 따로 표나 날짜를 두지 않습니다. 패널 '오늘 할 일' 탭은 「오늘 꼭」 줄만 모아 보는 화면이고, 할 일 탭에서 우선순위를 「오늘 꼭」으로 바꾸면 바로 오늘 할 일에 보입니다. 이 맥의 SQLite에만 둡니다.
 
-- 새로 적기: `POST /todos { title, priority?, today: true }`
-- 고르기·빼기: `POST /todos/:id { today: true | false | null }` (빼도 할 일은 남는다)
-- `GET /dashboard` 의 `todos[].today`, `today: { date, asked, items: [{ id, title, done, priority, source }] }`
-- 예전 `POST /today` 표 저장은 없다. 예전 표의 오늘 줄은 데몬이 켜질 때 할 일로 옮긴다
-- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번. 모델 없이 정해진 말로 알린다
+- 오늘 할 일 = 열린 P1 + 오늘(이 맥 시간대) 끝낸 P1입니다. 날짜가 넘어가면 어제 끝낸 것은 빠집니다. 하루 진행률(절반·전부 응원)도 이 기준으로 셉니다.
+- 새로 적기: `POST /todos { title, priority: 1 }`. 예전 `today: true`도 받으며 P1으로 만듭니다.
+- 넣기·빼기: `POST /todos/:id { priority: 1 }`(넣기), `{ priority: 2 }`(빼기, 이번 주로). 예전 `{ today: true | false | null }`도 받으며 `true`는 P1로, `false`·`null`은 P1이면 P2로 바꿉니다. 빼도 할 일은 남습니다.
+- `GET /dashboard` 의 `today: { date, asked, items: [{ id, title, done, priority, source }], carry?: { n, ids } }`. `todos[].today`는 더 내려주지 않습니다.
+- 아침 질문: 영업일 아침 안내 때 어제(전날까지)부터 남은 열린 P1이 있으면 「어제 남은 N개, 오늘도 할까요?」라고 묻습니다(문구 `today_carry`, 자리표시 `{n}`). 말풍선에 `carry: { n }`이 붙어 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] 단추가 뜨고, 고르기 전까지 `today.carry`가 남아 패널 오늘 할 일 탭 위에도 같은 물음이 보입니다. 남은 것이 없으면 예전처럼 「오늘 할 일 적어 주세요」라고 알립니다. 주말·공휴일에는 묻지 않습니다.
+- 답하기: `POST /today/carry { decision: "keep" | "demote" }` → 200 `{ ok, moved }`. `keep`은 그대로 두고, `demote`는 물은 것 중 아직 열린 P1을 P2(이번 주)로 내립니다. 고른 뒤에는 그날 다시 묻지 않고 말풍선도 걷습니다. [하나씩 볼게요]는 패널만 엽니다.
+- 채팅·브리핑의 `plan_ops`: `add(title)`은 P1 할 일을 만들고, `add(id)`는 그 할 일을 P1로 올리고, `remove`는 P2로 내립니다. 「오늘 할 일에 넣어 줘」는 P1, 「오늘은 빼 줘」는 P2입니다. 브리핑·채팅은 오늘 안에 해야 하는 것만 P1로 넣습니다.
+- 옮기기(한 번만): 예전에 날짜로 골라 둔 오늘 할 일(`todos.plan_day`가 오늘이나 앞날인 열린 할 일, 오늘 끝낸 것 포함)은 데몬이 켜질 때 P1로 옮기고 `daily_plan_flags`에 `today-is-p1`을 남깁니다. 다시 켜도 또 옮기지 않습니다. `plan_day` 열은 지우지 않고 더 쓰지도 않습니다. 더 예전 `daily_plan` 표의 오늘·앞날 줄도 P1 할 일로 옮깁니다. 예전 `POST /today` 표 저장은 없습니다.
+- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번입니다. 모델 없이 정해진 말로 알립니다.
 
 ### 집중하기
 

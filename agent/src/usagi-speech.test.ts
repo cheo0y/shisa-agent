@@ -33,7 +33,7 @@ test("우사기: 춤 외 고정 대사·로컬 문구·응원은 외침 뒤 괄�
     if (p.key === "dance") continue;
     for (const line of CHARACTERS.usagi.phrases[p.key]) intent(line);
   }
-  for (const line of [...Object.values(CHARACTERS.usagi.lines), ...CHARACTERS.usagi.cheer!]) intent(line!);
+  for (const line of [...Object.entries(CHARACTERS.usagi.lines).filter(([k]) => k !== "weatherRain").map(([, l]) => l), ...CHARACTERS.usagi.cheer!]) intent(line!);
   assert.equal(phrase("today_left", { open: 3 }), "우나 야하(오늘 할 일이 3개 남았어.)");
   assert.equal(phrase("merge_ask", { title: "수정(초안)" }), "하아~~?('수정(초안)' PR을 머지할까?)");
   intent(phrase("meeting_alert", { title: "주간 회의", mins: 10, time: "15:00", where: " · 회의실 A" }));

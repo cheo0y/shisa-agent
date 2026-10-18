@@ -3,9 +3,10 @@ import { isSafeLink } from './bubbles.js';
 import { shapeRules } from './todo-rules.js';
 import { PRIORITIES } from './todos.js';
 import { shapeManualProjects } from './manual-projects.js';
+import { okCalendarColor, CAL_COLORS } from './calendar-tab.js';
 
-export const SECTIONS = ['setup', 'overview', 'projects', 'todos', 'today', 'chat', 'models'];
-export const SECTION_LABELS = { setup: '설치', overview: '개요', projects: '프로젝트', todos: '할 일', today: '오늘 할 일', chat: '채팅', models: '모델' };
+export const SECTIONS = ['setup', 'overview', 'projects', 'calendar', 'todos', 'today', 'chat', 'models'];
+export const SECTION_LABELS = { setup: '설치', overview: '개요', projects: '프로젝트', calendar: '캘린더', todos: '할 일', today: '오늘 할 일', chat: '채팅', models: '모델' };
 
 // 모르는 섹션은 null. 예전 말풍선 open.section=scrum 은 오늘 표로
 export function normalizeSection(s) {
@@ -73,7 +74,6 @@ export function groupTodos(todos) {
       ...(t.appliedRule && str(t.appliedRule.text) ? { appliedRule: { id: str(t.appliedRule.id), text: t.appliedRule.text } } : {}), // 적용된 할 일 규칙
       ...(str(t.progress) ? { progress: t.progress, progressAt: str(t.progressAt) } : {}), // 어디까지 됐는지(데몬 진행 확인)
       ...(typeof t.doing === 'boolean' ? { doing: t.doing } : {}), // 사용자가 누른 (진행중) 토글
-      ...(str(t.today) ? { today: t.today } : {}), // 오늘 할 일로 고른 날(KST)
       ...(str(t.projectId) ? { projectId: t.projectId } : {}), // 묶인 직접 만든 프로젝트
       ...(str(t.projectId) && Number.isFinite(t.projectOrder) ? { projectOrder: t.projectOrder } : {}), // 그 프로젝트 안 순서
     });
@@ -161,6 +161,24 @@ export function shapeConnectors(list) {
       ...(c.mode === 'imap' && /^(gmail|naver|daum|custom)$/.test(str(c.preset)) ? { preset: c.preset } : {}),
       ...(c.mode === 'imap' && Array.isArray(c.accounts) ? { accounts: shapeMailAccounts(c.accounts) } : {}), // 메일 계정 여러 개(주소·서비스만)
       ...(ready && shapeSync(c.sync) ? { sync: shapeSync(c.sync) } : {}),
+      ...(c.cap === 'calendar' && c.mode === 'api' && Array.isArray(c.calendars) ? { calendars: shapeCardCalendars(c.calendars) } : {}), // 캘린더마다 줄(색·켜짐·결과)
+    });
+  }
+  return out;
+}
+
+// 개요 연결 카드의 캘린더 줄(데몬 calendarCardRows): id·별칭·켜짐·결과·색. 모양이 틀린 것·같은 id 는 건너뛴다
+function shapeCardCalendars(list) {
+  const seen = new Set();
+  const out = [];
+  for (const c of arr(list)) {
+    if (!c || typeof c !== 'object' || !/^[0-9a-f]{16}$/.test(str(c.id)) || seen.has(c.id)) continue;
+    seen.add(c.id);
+    const phase = ['pending', 'ok', 'failed', 'off'].includes(c.phase) ? c.phase : 'pending';
+    out.push({
+      id: c.id, name: str(c.name).trim().slice(0, 80) || '캘린더', enabled: c.enabled !== false, phase, color: okCalendarColor(c.color) ? c.color : CAL_COLORS[0],
+      ...(Number.isInteger(c.meetings) && c.meetings >= 0 ? { meetings: c.meetings } : {}),
+      ...(phase === 'failed' && str(c.reason).trim() ? { reason: str(c.reason).trim().slice(0, 300) } : {}),
     });
   }
   return out;
@@ -263,14 +281,14 @@ export function shapeDashboard(raw, now = Date.now()) {
   const b = r.briefing && typeof r.briefing === 'object' ? r.briefing : null;
   const today = r.today && typeof r.today === 'object' ? r.today : null;
   const connectors = shapeConnectors(r.connectors);
-  // 오늘 할 일 = 할 일 중 오늘로 고른 것. 열린 건 할 일 탭과 같은 우선순위 묶음(낙관적 반영 포함), 끝낸 건 '오늘 끝냄'
+  // 오늘 할 일 = 우선순위 1(오늘 꼭)인 할 일. 열린 건 할 일 탭의 「오늘 꼭」 묶음 그대로(낙관적 반영 포함), 끝낸 건 '오늘 끝냄'
   const todayDate = str(today?.date);
-  const todayGroups = todayDate ? groupTodos(arr(r.todos).filter((t) => t && t.today === todayDate)) : [];
+  const todayGroups = todayDate ? groupTodos(arr(r.todos).filter((t) => t && t.priority === 1)) : [];
   const todayOpen = todayGroups.flatMap((g) => g.items);
   const openIds = new Set(todayOpen.map((t) => t.id));
   const todayDone = arr(today?.items)
     .filter((it) => it && typeof it === 'object' && str(it.id) && str(it.title) && it.done === true && !openIds.has(it.id))
-    .map((it) => ({ id: it.id, title: it.title, source: str(it.source), priority: [1, 2, 3, 4].includes(it.priority) ? it.priority : 2, today: todayDate, auto: false, doneRel: '' }));
+    .map((it) => ({ id: it.id, title: it.title, source: str(it.source), priority: [1, 2, 3, 4].includes(it.priority) ? it.priority : 1, auto: false, doneRel: '' }));
   const todayItems = [
     ...todayOpen.map((t) => ({ id: t.id, title: t.title, done: false, priority: t.priority })),
     ...todayDone.map((t) => ({ id: t.id, title: t.title, done: true, priority: t.priority })),
@@ -298,8 +316,15 @@ export function shapeDashboard(raw, now = Date.now()) {
     proposals,
     connectors,
     notReady: connectors.filter((c) => !c.ready).map((c) => c.cap),
-    today: { date: todayDate, items: todayItems, asked: today?.asked === true },
+    today: { date: todayDate, items: todayItems, asked: today?.asked === true, ...shapeCarry(today?.carry, openIds) },
     todayGroups,
     todayDone,
   };
+}
+
+// 아침에 물은 「어제 남은 N개」 중 아직 안 고른 것(오늘 할 일 탭 위 안내). 지금 열린 오늘 할 일에 남은 것만 센다
+function shapeCarry(c, openIds) {
+  if (!c || typeof c !== 'object' || !Array.isArray(c.ids)) return {};
+  const ids = c.ids.filter((id) => typeof id === 'string' && openIds.has(id));
+  return ids.length ? { carry: { n: ids.length, ids } } : {};
 }

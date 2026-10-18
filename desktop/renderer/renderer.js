@@ -1,5 +1,5 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
-import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
+import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons, carryButtons } from '../src/bubbles.js';
 import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
@@ -9,7 +9,7 @@ import { createMarkdown } from '../src/markdown.js';
 import { initialChat, chatReducer, isBusy, summarizeReply, stopTargets, busyCaption } from '../src/chat.js';
 import { createAttachTray } from './attach-tray.js';
 import { hasFiles, filesFromTransfer, ATTACH_ERRORS } from '../src/attachments.js';
-import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
+import { normFocus, focusBubble, doingBubble, focusSend } from '../src/focus.js';
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
@@ -399,6 +399,14 @@ function fillEl(item, b) {
         if (t.cmd === 'stop' || b.tour.step >= b.tour.total) dismiss(b.id);
       }));
     }
+  } else if (carryButtons(b).length) {
+    // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: 그대로 둘게요 · 이번 주로 내려요(데몬에 보낸다) · 하나씩 볼게요(패널 오늘 할 일 탭)
+    for (const c of carryButtons(b)) {
+      const btn = button(c.label, c.primary ? 'primary' : '', () => (c.cmd === 'open' ? (cy.openItem('today', null), dismiss(b.id)) : carryDecide(b, c.cmd)));
+      btn.title = c.title;
+      btn.disabled = !!b.pending;
+      meta.append(btn);
+    }
   } else if (b.quick) {
     // AI 없이 고르는 질문 칩: 누르면 데몬이 정해진 말로 답한다(칩 말풍선은 남겨 두고 답은 새 말풍선으로)
     meta.classList.add('quick-bar');
@@ -425,7 +433,7 @@ function fillEl(item, b) {
     x.title = '닫기';
     bub.append(x);
   }
-  if (b.open) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
+  if (b.open && !carryButtons(b).length) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
   else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
   if (!(b.actions === 'merge' && !b.decided)) closeMergeAsk(b.id, false);
@@ -465,6 +473,20 @@ function button(label, cls, onClick) {
   if (cls) btn.className = cls;
   btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return btn;
+}
+
+// 아침 질문 답: 보내는 동안 단추를 끄고, 되면 짧은 확인 말로 바꾼다(데몬도 같은 말풍선을 걷는다)
+async function carryDecide(b, decision) {
+  queue.update(b.id, { pending: true });
+  render();
+  let r;
+  try { r = await cy.todayCarry(decision); } catch { r = { ok: false }; }
+  const moved = Number(r?.data?.moved) || 0;
+  const text = !r?.ok ? '지금은 못 바꿨어요. 패널 오늘 할 일 탭에서 골라 주세요'
+    : decision === 'demote' ? (moved ? `${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '좋아요, 오늘도 같이 해요';
+  const it = queue.update(b.id, { pending: false, decided: true, carry: undefined, kind: r?.ok ? 'done' : 'error', text, ttlMs: 5000 });
+  if (it) schedule(it);
+  render();
 }
 
 async function decide(b, action) {
@@ -707,7 +729,7 @@ const focusStopBtn = document.getElementById('focus-stop');
 let focus = null;
 let focusTick = null;
 let focusBusy = false;
-const FOCUS_CMD_MS = 20e3;
+let focusSize = '';
 function drawFocus() {
   const v = focusBubble(focus);
   const was = !focusEl.hidden;
@@ -721,7 +743,10 @@ function drawFocus() {
     focusToggle.dataset.cmd = v.toggle.cmd;
     focusToggle.disabled = focusStopBtn.disabled = focusBusy;
   }
-  if (was !== !!v) requestAnimationFrame(recheckHit);
+  // 글 길이가 바뀌어 말풍선 크기가 달라지면(「59:59」→「1:00:00」·일시정지 글) 커서 밑 hit 를 다시 본다 — 마우스를 안 움직여도 단추가 눌리게
+  const size = v ? `${focusEl.offsetWidth}x${focusEl.offsetHeight}` : '';
+  if (was !== !!v || size !== focusSize) requestAnimationFrame(recheckHit);
+  focusSize = size;
   drawDoing(); // 집중하기가 먼저 — 집중하는 동안 진행 중 말풍선은 숨는다
 }
 function setFocus(raw) {
@@ -738,13 +763,13 @@ async function focusCmd(cmd) {
   if (focusBusy || !cy.focusCmd) return;
   focusBusy = true;
   drawFocus();
-  let r;
-  try {
-    // 답이 영영 안 와도 버튼이 꺼진 채로 남지 않게(메인 요청은 15초에 끊긴다)
-    r = await Promise.race([cy.focusCmd(cmd), new Promise((ok) => setTimeout(() => ok({ ok: false }), FOCUS_CMD_MS))]);
-  } catch { r = { ok: false }; } finally { focusBusy = false; }
+  const r = await focusSend(cy.focusCmd, cmd);
+  focusBusy = false;
   if (r?.ok && r.data) setFocus(r.data); // SSE focus 도 곧 온다(같은 모양)
-  else drawFocus();
+  else {
+    drawFocus();
+    loadFocus(); // 못 했으면 데몬 상태로 다시 맞춘다(이미 끝난 세션이면 말풍선이 걷힌다)
+  }
 }
 async function loadFocus() {
   const r = await cy.focusGet?.().catch(() => null);
@@ -1031,6 +1056,16 @@ document.addEventListener('mousemove', (e) => {
     dragging = true;
     cy.dragStart();
   }
+  recheckHit();
+});
+// 윈도우: 메인이 물은 커서 위치(src/hit-watch.js). 넘겨받는 mousemove 가 끊겨도(마우스 훅이 빠짐) 이걸로 말풍선·단추를 다시 누를 수 있게 된다
+cy.onCursor?.((p) => {
+  if (down || dragging) return;
+  const x = Number(p?.x), y = Number(p?.y);
+  if (p && Number.isFinite(x) && Number.isFinite(y)) last = { x, y };
+  else if (!interactive) last = null; // 창이 마우스를 받는 중이면 진짜 mouseleave 가 정리한다
+  else return;
+  catchUp();
   recheckHit();
 });
 document.addEventListener('mouseleave', (e) => {

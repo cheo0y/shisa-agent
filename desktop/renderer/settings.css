@@ -163,6 +163,34 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin:
 .work-time input:invalid { border-color: var(--err); }
 .work-days, .work-alerts { margin-top: 8px; }
 
+/* 날씨: 지역 검색 칸 + 아래 후보 목록 */
+.weather-find { position: relative; margin-top: 10px; }
+.weather-find[hidden], .weather-picked[hidden] { display: none; }
+.weather-find input { width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; }
+.weather-list { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; margin: 0; padding: 4px; list-style: none; max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 20px rgba(0, 0, 0, .15); }
+.weather-list[hidden] { display: none; }
+.weather-list li { padding: 6px 8px; border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; }
+.weather-list .ws-option { cursor: pointer; }
+.weather-list .ws-option.active, .weather-list .ws-option:hover { background: var(--accent-soft); }
+.weather-list .ws-empty, .weather-list .ws-busy { color: var(--muted); }
+.weather-list .ws-error { color: var(--err-fg); }
+.weather-picked { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 10px; }
+.weather-place { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.weather-src a { color: inherit; }
+/* 날씨 알림 시각: 근무 시간 묶음과 같은 간격(칩 줄 → 시각 줄). 정한 시각은 「20:19 [빼기]」 칩, 그 옆에 시각 넣기 */
+.weather-when { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.weather-when[hidden] { display: none; }
+.weather-times-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 34px; }
+.weather-times-head { white-space: nowrap; }
+.weather-chips { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.weather-chips[hidden] { display: none; }
+.weather-chip { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: 34px; padding: 0 4px 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); line-height: 1.5; }
+.weather-chip-time { font-variant-numeric: tabular-nums; }
+.weather-chip button { border-radius: 999px; }
+.weather-add { display: inline-flex; align-items: center; gap: 6px; }
+.weather-add button { height: 34px; padding: 0 14px; }
+.weather-add input { box-sizing: border-box; height: 34px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; line-height: 1.5; min-width: 0; }
+
 /* 일정 알림 */
 .cal-off-line { margin-top: 10px; }
 

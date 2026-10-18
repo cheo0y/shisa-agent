@@ -60,7 +60,7 @@ export function parsePatch(body: Record<string, unknown>): Result<TodoPatch> {
     out.doing = body.doing as boolean | null;
   }
   if (body.today !== undefined) {
-    // 오늘 할 일로 고르기(true)·빼기(false·null)
+    // 오늘 할 일에 넣기(true = 우선순위 1 오늘 꼭)·빼기(false·null = P1 이면 2 이번 주로). store.editTodo 가 우선순위로 바꾼다
     if (body.today !== null && typeof body.today !== "boolean") return fail("today must be boolean or null");
     out.today = body.today === true;
   }
@@ -94,7 +94,7 @@ export function opPatch(op: TodoOp): Result<TodoPatch> {
 }
 
 // 우선순위 뜻(스키마·프롬프트 공용). 4 = 언젠가·백로그: 기한이 딱히 없고 별로 안 중요한 것
-export const PRIORITY_DESC = "1=오늘 꼭, 2=이번 주, 3=참고, 4=언젠가·백로그(기한 없고 별로 안 중요함)";
+export const PRIORITY_DESC = "1=오늘 꼭(= 오늘 할 일 탭. 오늘 안에 해야 하는 것만), 2=이번 주, 3=참고, 4=언젠가·백로그(기한 없고 별로 안 중요함)";
 export const PRIORITIES = [1, 2, 3, 4] as const;
 
 // 채팅·DM 구조화 출력의 todo_ops 스키마

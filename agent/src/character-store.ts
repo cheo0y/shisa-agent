@@ -18,7 +18,7 @@ import {
   type BuiltinId, type LinesEntry, type LinesPatch, type Mood,
 } from "./characters.ts";
 import { PHRASES, unknownVars } from "./phrases.ts";
-import { LINES, QUICK_LINES, SHISA_EXTRA } from "./local-mode.ts";
+import { LINES, QUICK_LINES, SHISA_EXTRA, WEATHER_LINES } from "./local-mode.ts";
 import { SAY_VARS, type ClipKind, type ClipTable } from "./clips.ts";
 
 // ---- 그림·영상 칸 ----
@@ -141,7 +141,7 @@ export function shisaDefaults(): LinesEntry {
     prompt: { intro: SHISA_INTRO, tone: SHISA_TONE, persona: "" },
     flair: { lead: {}, tail: Object.fromEntries(MOODS.map((m) => [m, [...(s.tail?.[m] ?? [])]])) },
     phrases: Object.fromEntries(PHRASES.map((p) => [p.key, [...p.default]])),
-    local: { ...LINES, ...SHISA_EXTRA, ...Object.fromEntries(Object.entries(QUICK_LINES).filter(([k]) => k !== "cheer")) } as LinesEntry["local"],
+    local: { ...LINES, ...SHISA_EXTRA, ...WEATHER_LINES, ...Object.fromEntries(Object.entries(QUICK_LINES).filter(([k]) => k !== "cheer")) } as LinesEntry["local"],
     cheer: [...QUICK_LINES.cheer],
   };
 }

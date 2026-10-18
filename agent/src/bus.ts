@@ -14,6 +14,7 @@ import { FOCUS_CMDS, DAY_RE, type FocusApi, type FocusCmd } from "./focus.ts";
 import { createReadStream, statSync } from "node:fs";
 import { extname } from "node:path";
 import { ATTACH_ID, attachmentInput, attachmentRef, type Attachment, type ContentBlock } from "./attachments.ts";
+import { parseRange } from "./calendar-view.ts";
 
 export type Mood = "idle" | "thinking" | "working" | "alert";
 export type Bubble = {
@@ -27,6 +28,7 @@ export type Bubble = {
   actionId?: string;
   always?: boolean; // permission: [항상 허용] 버튼도(카드에 규칙 범위가 있을 때만)
   blocked?: string; // merge: ✓ 를 막는 이유(실패한 검사·충돌·초안) — 오버레이는 ✓ 를 끄고 이유를 보인다
+  carry?: { n: number }; // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] (POST /today/carry)
 };
 export type BubbleImage = "merge" | "merge_complete" | "lots" | "daily" | "daily_all_complete" | "daily_half_complete" | "to_do_new";
 export type PanelSection = "overview" | "projects" | "todos" | "today" | "chat";
@@ -43,6 +45,7 @@ export type BusHandlers = {
   todoRestore?(id: string): unknown; // 휴지통에서 되살리기. 휴지통에 없으면 undefined → 404
   todoPurge?(id: string): boolean; // 영구 삭제(휴지통에 있는 것만). false → 404
   todoTrashEmpty?(): number; // 휴지통 비우기 → 지운 개수
+  todayCarry?(decision: "keep" | "demote"): { moved: number } | Promise<{ moved: number }>; // 어제 남은 오늘 꼭: 그대로 · 이번 주로
   todoRevert?(id: string): unknown; // 자동 완료 되돌리기: "missing" → 404, "not_auto" → 409, 그 외 바뀐 할 일 → 200
   // 할 일 팝오버: 묻기(바꾸지 않음) → 적용/거절. 없는 할 일이면 undefined/false → 404
   todoAsk?(id: string, text: string): Promise<unknown>;
@@ -130,7 +133,9 @@ export type BusHandlers = {
   // 연결 상태(connections.ts). 없으면 503
   connections?: ConnectionsApi;
   // AI 없이 고르는 질문(local-mode.ts QUICK_ASKS → quickAnswer). 모르는 id 면 undefined → 400. 없으면 503
-  localAsk?(id: string): unknown;
+  localAsk?(id: string): unknown; // 「오늘 날씨?」는 예보를 가져오느라 Promise
+  // 날씨 지역 검색(weather.ts Open-Meteo Geocoding): GET /weather/search?q= → { ok, items: [{ name, label, latitude, longitude, timezone, … }] } | { ok: false, error }. 없으면 503
+  weatherSearch?(q: string): Promise<unknown>;
   // 지금 무엇이 연결됐나(status.ts): GET /status. 없으면 503
   status?: () => unknown;
   // 설치 마법사가 config.json 의 connectors 를 고친 뒤: 다시 읽어 바뀌었는지 + (launchd 아래면) 다시 켜는지. POST /connectors/reload. 없으면 503
@@ -144,6 +149,8 @@ export type BusHandlers = {
   // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
   calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
   calendarList?: () => unknown;
+  // 캘린더 탭: 보는 기간의 일정(캘린더마다 id·별칭·색). GET /calendar/events?from=&to=(&fresh=1) — calendar-view.ts. 없으면 503
+  calendarEvents?: (range: { from: string; to: string; fresh: boolean }) => Promise<unknown>;
   // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
   mailRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
@@ -471,6 +478,12 @@ export class Bus {
       if (!h.settings) return json(res, 503, { error: "settings unavailable" });
       return json(res, 200, h.settings.get());
     }
+    if (req.method === "GET" && url.pathname === "/weather/search") {
+      if (!h.weatherSearch) return json(res, 503, { error: "weather unavailable" });
+      const q = (url.searchParams.get("q") ?? "").trim();
+      if (!q || q.length > 60) throw new BadRequest("q must be 1~60 chars");
+      return json(res, 200, await h.weatherSearch(q));
+    }
     if (req.method === "GET" && url.pathname === "/connections") {
       if (!h.connections) return json(res, 503, { error: "connections unavailable" });
       return json(res, 200, await h.connections.list());
@@ -565,6 +578,12 @@ export class Bus {
     }
     if (req.method === "GET" && url.pathname === "/connectors/calendar") {
       return h.calendarList ? json(res, 200, h.calendarList()) : json(res, 503, { error: "calendar list unavailable" });
+    }
+    if (req.method === "GET" && url.pathname === "/calendar/events") {
+      if (!h.calendarEvents) return json(res, 503, { error: "calendar events unavailable" });
+      const r = parseRange(url.searchParams);
+      if ("error" in r) return json(res, 400, { error: r.error });
+      return json(res, 200, await h.calendarEvents(r));
     }
     // 직접 만든 프로젝트 — 쓰기(POST·PATCH·DELETE)는 POST 와 같은 헤더 규칙
     if (req.method === "GET" && url.pathname === "/projects/calendar-events") {
@@ -662,7 +681,7 @@ export class Bus {
         const body = await readJson(req, false);
         for (const k of Object.keys(body)) if (k !== "id") throw new BadRequest(`unknown key: ${k}`);
         if (typeof body.id !== "string") throw new BadRequest("id required");
-        const answer = h.localAsk(body.id);
+        const answer = await h.localAsk(body.id);
         if (!answer) throw new BadRequest("unknown id");
         return json(res, 200, { ok: true, answer });
       }
@@ -826,6 +845,12 @@ export class Bus {
       if (url.pathname === "/briefing") {
         h.briefing().catch(() => {}); // 오래 걸리므로 기다리지 않는다
         return json(res, 202, { ok: true });
+      }
+      if (url.pathname === "/today/carry") {
+        if (!h.todayCarry) return json(res, 503, { error: "today unavailable" });
+        const body = await readJson(req);
+        if (body.decision !== "keep" && body.decision !== "demote") throw new BadRequest("decision must be keep or demote");
+        return json(res, 200, { ok: true, ...(await h.todayCarry(body.decision)) });
       }
       if (url.pathname === "/todos/reorder") {
         if (!h.todoReorder) return json(res, 503, { error: "todo reorder unavailable" });

@@ -20,8 +20,10 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
+import { weatherPeekLine } from "./weather.ts";
 import { mailContextParts, readMailItems } from "./mail-sync.ts";
 import { findMail, mailBodyBlock, MAIL_TOOL_CHARS, refFrom } from "./mail-pick.ts";
+import { calendarToolText, calendarTz, rangeArgs, readCalendarBlock, type CalendarRead } from "./calendar-ai.ts";
 
 export { CTX_SERVER, CTX_TOOL_NAMES };
 export type ContextMode = "tools" | "inline";
@@ -47,7 +49,7 @@ export function fmtNow(now: Date = new Date()) {
 
 // ── 머리말 ─────────────────────────────────────────────
 const KIND_KO: Record<string, string> = { chat: "채팅", todo: "할 일 대화", hover: "캐릭터 대화" };
-export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작업 세션·답 안 한 Slack·프로필·프로젝트 현황·회의)은 여기 없다 — 필요하면 cy 도구로 찾아라.";
+export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작업 세션·답 안 한 Slack·프로필·프로젝트 현황·회의·일정)은 여기 없다 — 필요하면 cy 도구로 찾아라.";
 
 // 매 턴 붙는 작은 머리말: 지금 시각(KST), 사용자, 이 대화(스레드·할 일). 집어 든 할 일의 자세한 블록은 chat.ts focusBlock
 // guidelines: 사용자가 정한 행동 지침 블록(guidelines.ts guidelinesBlock) — 상한(HEADER_MAX)과 따로, 늘 끝에 붙는다
@@ -70,6 +72,8 @@ export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & P
     workHoursLine(workHoursOf(cfg as Record<string, unknown>), now), // 「퇴근까지 얼마나 남았어?」 같은 질문용(설정 「근무 시간」)
     userLine(cfg),
   ];
+  const weather = weatherPeekLine(); // 날씨 알리미 지역을 골랐고 예보가 캐시에 있으면 한 줄(weather.ts)
+  if (weather) lines.push(weather);
   if (opts.thread) lines.push(`- 이 대화: ${KIND_KO[opts.thread.kind] ?? opts.thread.kind} "${clip(opts.thread.title, 60)}"`);
   if (opts.focus) lines.push(`- 대상 할 일: id=${opts.focus.id} [P${opts.focus.priority}] ${clip(opts.focus.title, 80)}`);
   if (opts.mail) lines.push(clip(opts.mail, 160)); // 메일(IMAP)을 연결했으면 몇 통 왔는지 한 줄(mail-sync.ts mailSummaryLine)
@@ -85,6 +89,7 @@ export const CTX_GUIDE = `- 업무 맥락은 프롬프트에 넣지 않았다. �
   - 할 일(뭐 해야 돼·열린 일·백로그·끝낸 일·todo_ops 에 쓸 id·할 일 규칙) → todos_list(status)
   - 어제·최근에 한 작업 → sessions_recent(project?, hours?) — 한 세션의 마지막 요청·응답 전문은 session_get(id)
   - 답 안 한 Slack DM·멘션 → slack_unanswered · 다가오는 회의(respond_event 의 event_id) → meetings_upcoming
+  - 일정(오늘·내일 밖도: 다음 주·이번 달·특정 날짜·요일) → calendar_events(from, to) — 사용자가 말한 기간을 YYYY-MM-DD 로 넣는다(주는 월요일 시작, 말이 없으면 오늘부터 7일). 결과에 없는 날의 일정을 지어내지 말고, 없으면 없다고 말한다. 결과 끝에 「from=… 로 다시」가 있으면 이어 부른다. 캘린더를 MCP 로 연결했으면 그 캘린더 도구로 읽는다
   - 최근 받은 메일(메일 앱 비밀번호 연결 — 보낸 사람·제목·본문 앞부분) → mail_recent · 한 통의 전체 본문(사용자가 본문·원문·자세히를 원하면) → mail_read(id=ref)
   - 프로젝트 현황(내가 만든 프로젝트·할 일 수 포함)·오늘 커밋·진행 중인 제안 → dashboard_summary · 최근 7일 프로젝트(레포 경로) → projects_recent
   - 사용자 취향·습관·자주 일하는 사람 → profile_get
@@ -129,7 +134,7 @@ const out = (title: string, body: string, isError = false): Text => ({ content: 
 // 메일(목록·전체 본문)은 자르지 않는다 — 개수·본문 상한 없음(mail-imap.ts·mail-pick.ts)
 const outAll = (title: string, body: string): Text => ({ content: [{ type: "text", text: `## ${title} ${DATA_NOTE}\n${body || "(없음)"}` }] });
 
-export type CtxDeps = { now?: () => Date; dashboard?: () => Promise<Dashboard> };
+export type CtxDeps = { now?: () => Date; dashboard?: () => Promise<Dashboard>; calendar?: CalendarRead; timeZone?: string };
 export type TodoStatus = "open" | "backlog" | "done" | "history" | "all";
 export const KG_KINDS = ENTITY_TYPES;
 
@@ -272,6 +277,14 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
       const body = found.length ? mailBodyBlock(found, { budget: MAIL_TOOL_CHARS, next: "tool", all: items }).split("\n").slice(1).join("\n") : "";
       return outAll("메일 전체 본문 (받은편지함 읽기 전용)", [body, ...(miss.length ? [`(없는 메일: ${miss.join(", ")} — mail_recent 의 ref 를 쓴다)`] : []), ...(!ids.length ? ["(id 를 주세요 — mail_recent 의 ref=…)"] : [])].filter(Boolean).join("\n"));
     }),
+    // 보는 기간의 일정(캘린더 탭과 같은 길: ICS 직접 읽기·반복 펼치기·꺼 둔 캘린더 제외·별칭). 길면 날짜 단위로 나눠 보낸다
+    calendar_events: (a: { from?: string; to?: string; days?: number } = {}) => guard("일정", async () => {
+      const tz = deps.timeZone ?? calendarTz();
+      const r = rangeArgs(a, now(), tz);
+      if ("error" in r) return outAll("일정", r.error);
+      const b = await readCalendarBlock(store, r, { ...(deps.calendar ? { read: deps.calendar } : {}), tz, tools: true });
+      return outAll(`${b.title} (캘린더 읽기 전용)`, calendarToolText(b, r, tz, CTX_MAX_OUT - 400));
+    }),
     meetings_upcoming: () => guard("다가오는 회의", () => {
       const s = meetingsContext(store, now());
       return out("다가오는 회의 (회의 응답 도구의 일정 id 는 eventId)", s.split("\n").slice(1).join("\n")); // 비어 있으면 캘린더 상태 한 줄(calendar-state.ts)
@@ -297,6 +310,7 @@ export function ctxMcpServer(cfg: Config, store: Store, deps: CtxDeps = {}) {
     tool("projects_recent", "최근 7일 프로젝트(레포 경로·마지막 활동·세션·커밋·브랜치)", {}, h.projects_recent, RO),
     tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분). 많으면 나눠 오니 끝 줄의 from 으로 이어 부른다", { from: z.number().int().min(0).optional().describe("몇 번째 메일부터(이어 읽기)") }, h.mail_recent, RO),
     tool("mail_read", "메일 한 통(또는 여러 통)의 전체 본문 — id 는 mail_recent 줄의 ref(mail:…)", { id: z.string().max(1000).optional().describe("ref, 예: mail:abc@example.com"), ids: z.array(z.string().max(1000)).optional().describe("여러 통이면") }, h.mail_read, RO),
+    tool("calendar_events", "기간의 일정(날짜별: 요일 날짜 · 시각~시각 · 제목 · 캘린더 별칭 · 장소·회의 링크 유무). 다음 주·이번 달·특정 날짜처럼 사용자가 말한 기간을 넣는다. 길면 나눠 오니 끝 줄의 from 으로 이어 부른다", { from: z.string().optional().describe("시작 날짜 YYYY-MM-DD(또는 ISO 시각). 없으면 오늘"), to: z.string().optional().describe("끝 날짜 YYYY-MM-DD(그날까지 들어감, 또는 ISO 시각). 없으면 from 부터 days 일"), days: z.number().int().min(1).optional().describe("to 가 없을 때 며칠(기본 7)") }, h.calendar_events, RO),
     tool("meetings_upcoming", "다가오는 회의(eventId·시간·내 응답) — 회의 수락·거절할 때", {}, h.meetings_upcoming, RO),
   ];
   return createSdkMcpServer({

@@ -101,7 +101,7 @@ test("브리핑은 최신 하나로 저장되고 대시보드 신호를 보낸�
   assert.equal(d.briefing?.replyMd, "## 오늘");
   assert.equal(d.todos.length, 1);
   assert.equal(d.proposals.length, 1);
-  assert.equal(d.today.items.length, 0);
+  assert.equal(d.today.items.length, d.todos.filter((t) => t.priority === 1).length, "오늘 할 일 = P1");
   assert.ok(s.signals.includes("dashboard"));
   assert.equal(s.agent.todoDone("mail:1"), true);
   assert.equal(s.agent.todoDone("nope"), false);
