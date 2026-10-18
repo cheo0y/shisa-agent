@@ -15,7 +15,7 @@ import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, dance
 import { applyCharacters } from '../src/character-registry.js';
 import { BubbleExpiry } from '../src/bubble-expiry.js';
 import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
-import { createPressTracker, missedClick, staleHold } from '../src/press.js';
+import { createPressTracker, missedClick, missedPress, staleHold } from '../src/press.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -1013,8 +1013,9 @@ cy.onVisibility(({ hidden, character }) => {
 // ---- 클릭 투과: 캐릭터/말풍선 위에서만 마우스 받기 ----
 let interactive = false;
 let last = null; // 마지막 마우스 좌표
-let down = null; // 캐릭터 mousedown 위치
+let down = null; // 캐릭터 mousedown 위치(missed = 누름이 삼켜져 첫 움직임으로 친 것)
 let dragging = false;
+const press = createPressTracker(); // 받은 누름(src/press.js)
 
 function setInteractive(v) {
   if (v === interactive) return;
@@ -1037,6 +1038,7 @@ function recheckHit() {
 // 눌린 상태로 알았는데 실제로는 버튼이 안 눌려 있으면(메뉴가 mouseup 을 삼킨 경우) 드래그를 풀어 준다
 function resetPress() {
   if (dragging) cy.dragEnd();
+  if (down?.missed) press.drop(0); // 뗌 없이 끝났다 — 다음 뗌은 다시 놓친 누름으로
   down = null;
   dragging = false;
 }
@@ -1050,6 +1052,12 @@ window.addEventListener('pageshow', catchUp);
 document.addEventListener('mousemove', (e) => {
   catchUp();
   last = { x: e.clientX, y: e.clientY };
+  // 누름이 삼켜진 끌기(src/press.js): 눌린 채 온 첫 움직임을 누름으로 · 뗌은 이 누름의 짝이라 클릭으로 안 친다
+  if (missedPress({ buttons: e.buttons, ctrlKey: e.ctrlKey, onChar: e.target instanceof Element && e.target.closest('#char-wrap'), held: press.has(0), pressing: !!down })) {
+    down = { x: e.screenX, y: e.screenY, at: Date.now(), missed: true };
+    press.down(0);
+    hoverAsk.cancel();
+  }
   if (down) down.movedAt = Date.now();
   if (down && (e.buttons & 1) === 0) resetPress();
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
@@ -1183,7 +1191,6 @@ function onCharacterClick() {
 }
 
 // 누름을 못 받고 뗌만 왔으면(윈도우에서 창을 숨겼다 보인 뒤 Chromium 이 누름을 삼킴, src/press.js) 뗌을 클릭으로 친다
-const press = createPressTracker();
 document.addEventListener('mousedown', (e) => press.down(e.button), true);
 window.addEventListener('mouseup', (e) => {
   const el = e.target instanceof Element ? e.target : null;
