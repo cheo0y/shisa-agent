@@ -154,7 +154,7 @@ test('IPC 배선: 세션 창 openInClaude → 메인 session-claude(run 을 데�
   assert.match(main, /const plan = planResume\(r\.data\.run,/);
   assert.match(main, /execFile\('osascript', plan\.args,/);
   assert.doesNotMatch(main, /\bexec\(|execSync|shell: true/);
-  assert.match(html, /id="btn-claude"[^>]*>Claude Code에서 열기</);
+  assert.match(html, /id="btn-claude"[^>]*data-i18n="session\.btn_claude"[^>]*>Claude Code에서 열기</);
   assert.match(sess, /cy\.openInClaude\(r\.id\)/);
-  assert.match(sess, /item\('Claude Code에서 열기', \(\) => openInClaude\(r\)\)/);
+  assert.match(sess, /item\(t\('session\.btn_claude'\), \(\) => openInClaude\(r\)\)/);
 });

@@ -3,6 +3,7 @@
 //   agent = { runId, toolUseId, description, status: running|done|failed|stopped, tools, last, startedAt, endedAt?, via?, background?, worktree? }
 //   background: 채팅이 백그라운드로 넘긴 에이전트(답과 따로 돌고, 끝나면 결과가 대화에 새 답으로) — 카드에서 멈출 수 있다. 상한·대기 없이 바로 돈다
 //   worktree: 워크트리 격리 에이전트의 { path, branch? }(자기 워크트리에서 돌았다)
+import { t as tr } from './i18n.js';
 import { isAbsPath } from './resume.js';
 
 const STATUSES = new Set(['running', 'done', 'failed', 'stopped']);
@@ -21,7 +22,7 @@ export function normAgents(raw) {
     if (typeof a.startedAt !== 'string' || Number.isNaN(Date.parse(a.startedAt))) continue;
     out.push({
       runId: a.runId, toolUseId: a.toolUseId,
-      description: typeof a.description === 'string' && a.description.trim() ? a.description.trim() : '서브에이전트',
+      description: typeof a.description === 'string' && a.description.trim() ? a.description.trim() : tr('session.ag_default'),
       status: STATUSES.has(a.status) ? a.status : 'stopped',
       tools: Number.isInteger(a.tools) && a.tools > 0 ? a.tools : 0,
       last: typeof a.last === 'string' ? a.last : '',
@@ -38,10 +39,10 @@ export function normAgents(raw) {
 
 // 상태 표시: 아이콘·글·색(tone)
 const LABEL = {
-  running: { icon: '⏺', text: '진행 중', tone: 'run' },
-  done: { icon: '✓', text: '끝남', tone: 'ok' },
-  failed: { icon: '✗', text: '실패', tone: 'bad' },
-  stopped: { icon: '–', text: '끝남(결과 없음)', tone: 'muted' },
+  running: { icon: '⏺', get text() { return tr('session.ag_running'); }, tone: 'run' },
+  done: { icon: '✓', get text() { return tr('session.ag_done'); }, tone: 'ok' },
+  failed: { icon: '✗', get text() { return tr('session.ag_failed'); }, tone: 'bad' },
+  stopped: { icon: '–', get text() { return tr('session.ag_stopped'); }, tone: 'muted' },
 };
 export const agentStatus = (a) => LABEL[a?.status] ?? LABEL.stopped;
 
@@ -63,14 +64,14 @@ export function agentStrip(agents, { open = false } = {}) {
   return {
     running: running.map((a) => ({ agent: a, text: runningLine(a) })),
     finished: finished.length ? {
-      label: `에이전트 ${finished.length}개 끝남`,
+      label: tr('session.ag_finished', { n: finished.length }),
       open,
-      rows: open ? finished.map((a) => ({ agent: a, icon: agentStatus(a).icon, tone: agentStatus(a).tone, text: `${a.description}${a.tools ? ` · 도구 ${a.tools}번` : ''}` })) : [],
+      rows: open ? finished.map((a) => ({ agent: a, icon: agentStatus(a).icon, tone: agentStatus(a).tone, text: `${a.description}${a.tools ? ` · ${tr('session.ag_tools', { n: a.tools })}` : ''}` })) : [],
     } : null,
   };
 }
 export function runningLine(a) {
-  const parts = [a.description, ...(a.background ? ['백그라운드'] : []), ...(a.worktree ? [`🌿 ${a.worktree.branch ?? '워크트리'}`] : []), `도구 ${a.tools}번`];
+  const parts = [a.description, ...(a.background ? [tr('session.ag_background')] : []), ...(a.worktree ? [`🌿 ${a.worktree.branch ?? tr('session.ag_worktree')}`] : []), tr('session.ag_tools', { n: a.tools })];
   if (a.last) parts.push(clip(a.last.replace(/\s+/g, ' '), 80));
   return parts.join(' · ');
 }
@@ -78,14 +79,13 @@ export function runningLine(a) {
 // 대화 속 카드 글: "🤖 에이전트 시작: <설명>" + 상태
 export function agentCard(a) {
   const s = agentStatus(a);
-  const bg = a.background ? '백그라운드 · ' : '';
-  const status = a.status === 'running' ? `${bg}진행 중 · 도구 ${a.tools}번`
-    : a.status === 'done' ? `끝남 ✓${a.tools ? ` · 도구 ${a.tools}번` : ''}${a.background ? ' · 결과는 아래 답에' : ''}`
-    : a.status === 'failed' ? '실패 ✗' : '끝남(결과 없음)';
-  const note = a.background && isLive(a) ? '따로 돌아요 — 다른 말을 해도 기다리지 않아요' : '';
+  const status = a.status === 'running' ? tr(a.background ? 'session.ag_card_running_bg' : 'session.ag_card_running', { n: a.tools })
+    : a.status === 'done' ? `${tr('session.ag_card_done')}${a.tools ? ` · ${tr('session.ag_tools', { n: a.tools })}` : ''}${a.background ? tr('session.ag_bg_result') : ''}`
+    : a.status === 'failed' ? tr('session.ag_card_failed') : tr('session.ag_stopped');
+  const note = a.background && isLive(a) ? tr('session.ag_bg_note') : '';
   // 워크트리: 🌿 브랜치 · 경로(세션 창에서 복사할 수 있게 그대로)
   const worktree = a.worktree ? `🌿 ${a.worktree.branch ? `${a.worktree.branch} · ` : ''}${a.worktree.path}` : '';
-  return { title: `🤖 에이전트 시작: ${a.description}`, status, tone: s.tone, last: a.status === 'running' && a.last ? clip(a.last.replace(/\s+/g, ' '), 100) : '', ...(note ? { note } : {}), ...(worktree ? { worktree } : {}) };
+  return { title: tr('session.ag_start', { desc: a.description }), status, tone: s.tone, last: a.status === 'running' && a.last ? clip(a.last.replace(/\s+/g, ' '), 100) : '', ...(note ? { note } : {}), ...(worktree ? { worktree } : {}) };
 }
 
 // 대화 속 자리: 시작 시각(startedAt) 바로 뒤 첫 말 앞. msgs = 화면에 그리는 말(오래된 것 먼저, at 있음)
@@ -112,7 +112,7 @@ export function placeAgents(agents, msgs, { moreAbove = false } = {}) {
 export const agentsSig = (agents) => (agents ?? []).map((a) => `${a.runId}/${a.toolUseId}/${a.status}/${a.tools}/${a.last}/${a.worktree?.path ?? ''}`).join('|');
 
 // 캐릭터 캡션: "에이전트 N개 실행 중"(없으면 '')
-export const runningCaption = (n) => (n > 0 ? `에이전트 ${n}개 실행 중` : '');
+export const runningCaption = (n) => (n > 0 ? tr('session.ag_caption', { n }) : '');
 
 // ── 대화 속 작업 세션 카드: 채팅이 긴 코드 작업을 작업 세션(수정 run)으로 넘기면, 넘긴 답 바로 아래에 Orca 작업 공간 카드처럼.
 //   session = { runId, title, repo, branch?, status: running|done|failed|stopped, last, startedAt, endedAt?, askedAt?, prUrl?, continued? }
@@ -127,7 +127,7 @@ export function normSessions(raw) {
   for (const s of list) {
     if (!s || typeof s !== 'object' || typeof s.runId !== 'string' || !RUN_ID.test(s.runId) || !okTime(s.startedAt)) continue;
     out.push({
-      runId: s.runId, title: str(s.title) || '작업', repo: str(s.repo), status: SESSION_STATUSES.has(s.status) ? s.status : 'stopped',
+      runId: s.runId, title: str(s.title) || tr('session.task'), repo: str(s.repo), status: SESSION_STATUSES.has(s.status) ? s.status : 'stopped',
       last: str(s.last), startedAt: s.startedAt,
       ...(str(s.branch) ? { branch: str(s.branch) } : {}),
       ...(okTime(s.endedAt) ? { endedAt: s.endedAt } : {}),
@@ -142,13 +142,13 @@ export function normSessions(raw) {
 // 짧은 경과: 방금 · 5분 · 2시간 · 3일(Orca 의 "3d" 처럼). 음수·이상한 값은 '방금'
 export function shortAge(ms) {
   const s = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
-  if (s < 60) return '방금';
-  if (s < 3600) return `${Math.floor(s / 60)}분`;
-  if (s < 86400) return `${Math.floor(s / 3600)}시간`;
-  return `${Math.floor(s / 86400)}일`;
+  if (s < 60) return tr('session.age_now');
+  if (s < 3600) return tr('session.age_m', { n: Math.floor(s / 60) });
+  if (s < 86400) return tr('session.age_h', { n: Math.floor(s / 3600) });
+  return tr('session.age_d', { n: Math.floor(s / 86400) });
 }
 
-const SESSION_STATUS = { running: '진행 중', done: '끝남', failed: '실패', stopped: '멈춤' };
+const SESSION_STATUS = Object.defineProperties({}, Object.fromEntries(['running', 'done', 'failed', 'stopped'].map((k) => [k, { get: () => tr(`session.ss_${k}`), enumerable: true }])));
 const SESSION_DOT = { done: 'ok', failed: 'bad', stopped: 'off' };
 const SESSION_ICON = { done: '✓', failed: '✗', stopped: '–' };
 
@@ -156,7 +156,9 @@ const SESSION_ICON = { done: '✓', failed: '✗', stopped: '–' };
 // dot: on(돌고 있고 데몬 연결 — 초록) · ok · bad · off(멈춤·연결 끊김). 돌 때 경과 = 시작부터, 끝났으면 끝난 뒤로
 export function sessionCard(s, { now = Date.now(), connected = true } = {}) {
   const running = s.status === 'running';
-  const age = shortAge(now - Date.parse(running ? s.startedAt : (s.endedAt ?? s.startedAt)));
+  const ms = now - Date.parse(running ? s.startedAt : (s.endedAt ?? s.startedAt));
+  const age = shortAge(ms);
+  const fresh = !(Number.isFinite(ms) && ms >= 60000);
   const status = SESSION_STATUS[s.status] ?? SESSION_STATUS.stopped;
   return {
     tone: agentStatus(s).tone,
@@ -166,9 +168,9 @@ export function sessionCard(s, { now = Date.now(), connected = true } = {}) {
     header: s.repo || s.title,
     sub: s.branch ?? '',
     label: s.title,
-    last: s.last?.trim() ? clip(s.last.replace(/\s+/g, ' ').trim(), 160) : running ? '시작하는 중…' : '',
+    last: s.last?.trim() ? clip(s.last.replace(/\s+/g, ' ').trim(), 160) : running ? tr('session.ss_starting') : '',
     age,
-    ageTitle: running ? (age === '방금' ? '방금 시작했어요' : `시작한 지 ${age}`) : `${status} · ${age === '방금' ? '방금' : `${age} 전`}`,
+    ageTitle: running ? (fresh ? tr('session.ss_just_started') : tr('session.ss_since', { age })) : tr(fresh ? 'session.ss_ended_now' : 'session.ss_ended_ago', { status, age }),
     status,
   };
 }

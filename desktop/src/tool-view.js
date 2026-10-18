@@ -1,5 +1,6 @@
 // 작업 세션 창의 도구 줄 — Claude Code 터미널처럼 "⏺ Bash(명령)" 머리줄과 "⎿ 결과 몇 줄 … +N줄".
 // 순수 함수만(렌더러·테스트 둘 다 쓴다). 입력은 데몬이 남긴 tool_use `input`(짧은 한 줄, docs/contract.md "작업 세션").
+import { t as tr } from './i18n.js';
 import { diffLines } from './session.js';
 
 export const ARG_MAX = 120;      // 머리줄 인자 길이
@@ -101,32 +102,32 @@ export function diffSummary(diff) {
     for (const l of diffLines(d.old, d.new)) { if (l.op === '+') add++; else if (l.op === '-') del++; }
   }
   const parts = [];
-  if (created && del === 0) return { add, del, text: `${add}줄 작성` };
-  if (add) parts.push(`${add}줄 추가`);
-  if (del) parts.push(`${del}줄 삭제`);
-  return { add, del, text: parts.join(', ') || '바뀐 줄 없음' };
+  if (created && del === 0) return { add, del, text: tr('session.diff_created', { n: add }) };
+  if (add) parts.push(tr('session.diff_add', { n: add }));
+  if (del) parts.push(tr('session.diff_del', { n: del }));
+  return { add, del, text: parts.join(tr('session.diff_sep')) || tr('session.diff_none') };
 }
 
 // 결과 미리보기(접힌 상태). kind:
 //  running — 아직 결과 없음 · quiet — 본문 안 남김(크기만) · empty — 출력 없음
 //  summary — 한 줄 요약(diff·Read) · lines — 앞 몇 줄 + "… +N줄"
 export function resultPreview(t, { maxLines = PREVIEW_LINES } = {}) {
-  if (!t.done) return { kind: 'running', lines: ['실행 중…'], more: '', error: false };
+  if (!t.done) return { kind: 'running', lines: [tr('session.running_tool')], more: '', error: false };
   const error = !!t.isError;
   if (t.output == null) {
-    if (t.size != null) return { kind: 'quiet', lines: [`결과 ${Number(t.size).toLocaleString()}자 — 기록 안 함`], more: '', error };
-    return { kind: 'empty', lines: ['(출력 없음)'], more: '', error };
+    if (t.size != null) return { kind: 'quiet', lines: [tr('session.res_quiet', { n: Number(t.size).toLocaleString() })], more: '', error };
+    return { kind: 'empty', lines: [tr('session.res_empty')], more: '', error };
   }
   const all = String(t.output).split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
   if (!error && t.diff) return { kind: 'summary', lines: [diffSummary(t.diff).text], more: '', error, expandable: true };
   if (!error && t.name === 'Read') {
-    const text = t.truncated && t.size ? `${Number(t.size).toLocaleString()}자 읽음` : `${all.length}줄 읽음`;
+    const text = t.truncated && t.size ? tr('session.read_chars', { n: Number(t.size).toLocaleString() }) : tr('session.read_lines', { n: all.length });
     return { kind: 'summary', lines: [text], more: '', error, expandable: all.length > 0 };
   }
-  if (!all.length) return { kind: 'empty', lines: ['(출력 없음)'], more: '', error };
+  if (!all.length) return { kind: 'empty', lines: [tr('session.res_empty')], more: '', error };
   const shown = all.slice(0, maxLines).map((l) => ellipsize(l, LINE_MAX));
   const rest = all.length - shown.length;
-  const more = rest > 0 ? `… +${rest}줄${t.truncated ? ' 이상' : ''}` : t.truncated ? '… 더 있음' : '';
+  const more = rest > 0 ? tr(t.truncated ? 'session.more_lines_plus' : 'session.more_lines', { n: rest }) : t.truncated ? tr('session.more_some') : '';
   return { kind: 'lines', lines: shown, more, error };
 }
 
@@ -134,9 +135,9 @@ export function resultPreview(t, { maxLines = PREVIEW_LINES } = {}) {
 // running: run 이 아직 돌고 있나(결과 없이 끝난 run 이면 "멈춤"). latest: 마지막 도구의 머리줄({name, arg, state})
 export function subagentSummary(t, { running = true, cwd } = {}) {
   const tools = t?.sub?.tools ?? [];
-  const state = t?.handedOff ? '백그라운드로 넘김 — 따로 도는 세션에서 진행' : t?.done ? (t.isError ? '실패' : '완료') : running ? '진행 중…' : '멈춤';
+  const state = tr(t?.handedOff ? 'session.sub_handed' : t?.done ? (t.isError ? 'session.sub_failed' : 'session.sub_done') : running ? 'session.sub_running' : 'session.sub_stopped');
   const count = tools.length;
-  const text = count ? `도구 ${count}번 · ${state}` : state;
+  const text = count ? tr('session.sub_count', { n: count, state }) : state;
   const last = tools[tools.length - 1];
   const latest = last ? { ...toolHeader(last.name, last.input, { cwd }), state: !last.done ? 'run' : last.isError ? 'bad' : 'ok' } : null;
   return { text, count, state, latest, more: t?.sub?.more || '' };

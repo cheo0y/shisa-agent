@@ -2,6 +2,7 @@
 // 메인이 run(GET /runs/:id)의 sdkSessionId·cwd 를 거르고 → 세션 기록 파일이 있는지 보고 → osascript 로 Terminal 에
 // `cd '<cwd>' && claude --resume '<sid>'` 를 띄운다(윈도우는 winResumeLaunches: Windows Terminal → cmd).
 // 렌더러(브라우저)에서도 쓰니 node 모듈은 안 쓴다.
+import { t as tr } from './i18n.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const okSessionId = (sid) => typeof sid === 'string' && UUID.test(sid);
@@ -91,26 +92,26 @@ export function sessionCwd(text, dirName) {
 export function planResume(run, { home, claudeDir, worktreesDir, exists, findSession, platform, wt }) {
   const sid = run?.sdkSessionId;
   let cwd = run?.cwd;
-  if (!okSessionId(sid)) return { ok: false, error: '이 세션에는 Claude Code 세션 id 가 없어요.' };
-  if (!okCwd(cwd, home)) return { ok: false, error: '작업 폴더 경로가 이상해서 못 열어요.' };
+  if (!okSessionId(sid)) return { ok: false, error: tr('session.rs_no_sid') };
+  if (!okCwd(cwd, home)) return { ok: false, error: tr('session.rs_bad_cwd') };
   if (!exists(sessionFile(claudeDir, cwd, sid))) {
     const found = typeof findSession === 'function' ? findSession(sid) : null;
-    if (!found || !okCwd(found.cwd, home) || !exists(sessionFile(claudeDir, found.cwd, sid))) return { ok: false, error: '이 세션 기록을 찾을 수 없어요.' };
+    if (!found || !okCwd(found.cwd, home) || !exists(sessionFile(claudeDir, found.cwd, sid))) return { ok: false, error: tr('session.rs_no_file') };
     cwd = found.cwd;
   }
   let mkdir = false;
   if (!exists(cwd)) {
     if (typeof worktreesDir === 'string' && WIN_ABS.test(worktreesDir)) {
-      if (!winUnder(cwd, worktreesDir)) return { ok: false, error: '작업 폴더가 없어져서 못 열어요.' };
+      if (!winUnder(cwd, worktreesDir)) return { ok: false, error: tr('session.rs_gone') };
     } else {
       const wtd = typeof worktreesDir === 'string' ? worktreesDir.replace(/\/+$/, '') : '';
-      if (!wtd || !cwd.startsWith(`${wtd}/`)) return { ok: false, error: '작업 폴더가 없어져서 못 열어요.' };
+      if (!wtd || !cwd.startsWith(`${wtd}/`)) return { ok: false, error: tr('session.rs_gone') };
     }
     mkdir = true;
   }
   if (platform === 'win32') {
     const launches = winResumeLaunches(cwd, sid, { wt });
-    return launches.length ? { ok: true, cwd, sid, mkdir, launches } : { ok: false, error: '작업 폴더 경로가 이상해서 못 열어요.' };
+    return launches.length ? { ok: true, cwd, sid, mkdir, launches } : { ok: false, error: tr('session.rs_bad_cwd') };
   }
   return { ok: true, cwd, sid, mkdir, args: terminalArgs(resumeCommand(cwd, sid)) };
 }
@@ -118,8 +119,7 @@ export function planResume(run, { home, claudeDir, worktreesDir, exists, findSes
 // 세션 창 버튼·메뉴: sdkSessionId 가 있을 때만. 도는 중이면 툴팁에 경고
 export const canResume = (run) => okSessionId(run?.sdkSessionId) && isAbsPath(run?.cwd);
 export function resumeTip(run) {
-  const base = '터미널에서 Claude Code(claude --resume)로 이 세션을 이어 가요';
-  return run?.status === 'running' ? `${base} — 지금 도는 중이라 두 곳에서 동시에 이어가면 기록이 갈라질 수 있어요` : base;
+  return tr(run?.status === 'running' ? 'session.rs_tip_running' : 'session.rs_tip');
 }
 
 // 세션 불러오기 입력: UUID 만, 아니면 붙여 넣은 `claude --resume <id>`·`…/<id>.jsonl` 에서 UUID 하나를 뽑는다. 없으면 null
@@ -130,18 +130,17 @@ export function parseSessionId(text) {
 // 불러온 결과 한 줄
 export function importNote(d) {
   const n = Number.isInteger(d?.imported) && d.imported > 0 ? d.imported : 0;
-  if (d?.existing) return n ? `이미 있던 세션이에요 — 새 기록 ${n}줄을 더 불러왔어요.` : '이미 있던 세션이에요.';
-  return n ? `Claude Code 세션 기록 ${n}줄을 불러왔어요.` : '세션을 만들었지만 불러올 터미널 기록이 없었어요.';
+  if (d?.existing) return n ? tr('session.im_existing_n', { n }) : tr('session.im_existing');
+  return n ? tr('session.im_new_n', { n }) : tr('session.im_new_empty');
 }
 
 // ↻ 새로고침(터미널에서 이어 간 대화 불러오기): Claude Code 세션 id 가 있을 때만
 export const canSync = (run) => okSessionId(run?.sdkSessionId);
 export function syncTip(run) {
-  const base = '터미널 Claude Code 에서 이어 간 대화(서브에이전트 포함)를 불러와요';
-  return run?.watching ? `${base} — 지금 터미널 기록을 지켜보며 자동으로 불러오는 중이에요` : base;
+  return tr(run?.watching ? 'session.sy_tip_watching' : 'session.sy_tip');
 }
 // 불러온 결과 한 줄
 export function syncNote(n) {
   const k = Number.isInteger(n) && n > 0 ? n : 0;
-  return k ? `터미널에서 이어 간 기록 ${k}줄을 불러왔어요.` : '새로 불러올 터미널 기록이 없어요.';
+  return k ? tr('session.sy_n', { n: k }) : tr('session.sy_none');
 }

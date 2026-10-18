@@ -4,15 +4,19 @@ import { applyCharacters } from '../src/character-registry.js';
 import DOMPurify from './vendor/purify.js';
 import { Marked } from './vendor/marked.js';
 import { createMarkdown } from '../src/markdown.js';
-import { relativeTime, clockTime } from '../src/dashboard.js';
+import { clockTime } from '../src/dashboard.js';
+import { t, bindLanguage } from '../src/i18n.js';
+const tr = t; // 도구(t)를 받는 함수 안에서
 import {
   kindIcon, kindLabel, STATUS_LABELS, sortRuns, upsertRun, fmtCost, fmtDuration, canSend, canControl, readOnlyReason,
   initialTranscript, addEvents, buildItems, toolsSummary, diffLines, runningSubagents, toolSig,
   isAtBottom, initialScroll, scrollReducer, composerKey, cleanMessage, okRunId,
-  composerMode, gateComposer, awaitingFollowUp, groupRuns, routineHeader, shortWhen, lineage, pickInitial, cleanTask, threadSendBodies,
+  composerMode, gateComposer, awaitingFollowUp, groupRuns, routineHeader, shortWhen, whenAgo, lineage, pickInitial, cleanTask, threadSendBodies,
   cleanModels, modelFor, focusTarget,
 } from '../src/session.js';
-import { cleanOrigin, originLabel, originKey } from '../src/origin.js';
+import { cleanOrigin, originKey } from '../src/origin.js';
+// 원래 화면 이름(채팅·할 일·제안)은 이 창 표에서(언어별)
+const originLabel = (o) => { const c = cleanOrigin(o); return c ? t(`session.origin_${c.type}`) : ''; };
 import { toolHeader, resultPreview, shortPath, subagentSummary, ellipsize } from '../src/tool-view.js';
 import { canResume, resumeTip, canSync, syncTip, syncNote, parseSessionId, importNote } from '../src/resume.js';
 import { attachSlashMenu } from './slash-menu.js';
@@ -20,7 +24,7 @@ import { createAttachTray } from './attach-tray.js';
 import { attachSummary } from '../src/attachments.js';
 import {
   withDelivery, runningTool, deliveryView, mergeLocal, pruneLocals, newClientId, parseBtw, BTW_COMMAND, cleanBtw, BTW_KEEP,
-  isMaxTurns, isMaxTurnsText, MAX_TURNS_CONTINUE, keptWorktree,
+  isMaxTurns, isMaxTurnsText, maxTurnsContinue, keptWorktree,
 } from '../src/session-inbox.js';
 
 const cy = window.cy;
@@ -115,12 +119,12 @@ function runRow(r, { compact = false } = {}) {
       h('div.title', { text: r.title || kindLabel(r.kind) }),
       h('div.sub', {},
         r.watching && r.status !== 'running'
-          ? h('span.status', { class: 'status running', text: '터미널에서 진행 중', title: 'Claude Code 에서 이어 가는 걸 지켜보며 불러오는 중이에요' })
+          ? h('span.status', { class: 'status running', text: t('session.watching'), title: t('session.watching_title') })
           : h('span.status', { class: `status ${r.status}`, text: STATUS_LABELS[r.status] ?? r.status }),
-        h('span', { text: ` · ${compact ? shortWhen(r.startedAt) : relativeTime(r.startedAt)}` }),
+        h('span', { text: ` · ${compact ? shortWhen(r.startedAt) : whenAgo(r.startedAt)}` }),
         r.costUsd != null ? h('span', { text: ` · ${fmtCost(r.costUsd)}` }) : null,
-        r.parentId ? h('span.link-badge', { text: ' · ↳ 이어서', title: parent ? `이전 작업: ${parent.title}` : '이전 작업에 이어서' }) : null,
-        r.childIds?.length ? h('span.link-badge', { text: ` · 이어서 ${r.childIds.length}` }) : null)),
+        r.parentId ? h('span.link-badge', { text: t('session.cont_badge'), title: parent ? t('session.cont_parent', { title: parent.title }) : t('session.cont_parent_unknown') }) : null,
+        r.childIds?.length ? h('span.link-badge', { text: t('session.cont_children', { n: r.childIds.length }) }) : null)),
   );
 }
 
@@ -133,18 +137,18 @@ function renderList() {
       h('div.group-head', { text: grp.label }),
       h('div.group-body', { role: 'listbox' }, grp.runs.map((r) => runRow(r)))));
   }
-  if (!g.user.length) els.push(h('div.empty', { text: runs.length ? '내 작업은 아직 없어요.' : '아직 기록된 세션이 없어요.' }));
+  if (!g.user.length) els.push(h('div.empty', { text: runs.length ? t('session.empty_mine') : t('session.empty_any') }));
   if (g.routine.length) {
     const total = g.routine.reduce((n, x) => n + x.count, 0);
     const anyRunning = g.routine.some((x) => x.running);
-    const sec = h('section.routine', { 'aria-label': '정기 작업' },
+    const sec = h('section.routine', { 'aria-label': t('session.routine') },
       h('button.routine-head', {
         type: 'button', 'aria-expanded': routineOpen ? 'true' : 'false',
         onclick: () => { routineOpen = !routineOpen; store.set('routineOpen', routineOpen); renderList(); },
       },
         h('span.caret', { text: routineOpen ? '▾' : '▸' }),
-        h('span', { text: '정기 작업' }),
-        anyRunning ? h('span.spinner', { title: '도는 중' }) : null,
+        h('span', { text: t('session.routine') }),
+        anyRunning ? h('span.spinner', { title: t('session.spinning') }) : null,
         h('span.count', { text: String(total) })));
     if (routineOpen) {
       for (const k of g.routine) {
@@ -157,7 +161,7 @@ function renderList() {
             h('span.caret', { text: open ? '▾' : '▸' }),
             h('span.ricon', { text: kindIcon(k.kind) }),
             h('span.rlabel', { text: routineHeader(k) }),
-            k.running ? h('span.spinner', { title: '도는 중' }) : null),
+            k.running ? h('span.spinner', { title: t('session.spinning') }) : null),
           open ? h('div.group-body', { role: 'listbox' }, k.runs.map((r) => runRow(r, { compact: true }))) : null));
       }
     }
@@ -206,24 +210,24 @@ async function refetch(full = false) {
 function renderHead() {
   const r = current();
   $('run-icon').textContent = r ? kindIcon(r.kind) : '';
-  $('run-title').textContent = r ? (r.title || kindLabel(r.kind)) : '세션을 고르세요';
+  $('run-title').textContent = r ? (r.title || kindLabel(r.kind)) : t('session.pick_session');
   const meta = $('run-meta');
   meta.replaceChildren();
   if (r) {
     meta.append(...[
       h('span', { class: `status ${r.status}`, text: STATUS_LABELS[r.status] ?? r.status }),
-      h('span', { text: `${kindLabel(r.kind)} · ${clockTime(r.startedAt)} 시작 · ${fmtDuration(r.startedAt, r.endedAt)}` }),
+      h('span', { text: t('session.meta_line', { kind: kindLabel(r.kind), time: clockTime(r.startedAt), dur: fmtDuration(r.startedAt, r.endedAt) }) }),
       r.model ? h('span', { text: r.model }) : null,
       r.costUsd != null ? h('span', { text: fmtCost(r.costUsd) }) : null,
       r.cwd ? h('span.cwd', { text: r.cwd, title: r.cwd }) : null,
       r.error ? h('span', { class: isMaxTurns(r) ? 'warn' : 'err', text: r.error }) : null,
-      keptWorktree(transcript.events) ? h('span.kept', { text: `📁 남긴 워크트리: ${keptWorktree(transcript.events)}`, title: '저장 안 된 작업이 있어 지우지 않았어요' }) : null,
+      keptWorktree(transcript.events) ? h('span.kept', { text: t('session.kept', { path: keptWorktree(transcript.events) }), title: t('session.kept_title') }) : null,
     ].filter(Boolean));
   }
   // 원래 화면(대화·할 일·제안)이 있으면
   const origin = cleanOrigin(r?.origin);
   $('btn-origin').hidden = !origin;
-  if (origin) $('btn-origin').title = `이 세션이 시작된 ${originLabel(origin)} 화면을 패널에서 열어요 (⌘O)`;
+  if (origin) $('btn-origin').title = t('session.origin_title', { origin: originLabel(origin) });
   // Claude Code에서 열기: SDK 세션 id 가 있을 때만(도는 중이면 툴팁에 경고)
   $('btn-claude').hidden = !canResume(r);
   if (canResume(r)) $('btn-claude').title = resumeTip(r);
@@ -235,15 +239,15 @@ function renderHead() {
   $('btn-interrupt').hidden = !ctl || !canSend(r);
   $('btn-stop').hidden = !ctl;
   $('btn-stop-run').hidden = !ctl; // 입력창 옆에도 — 잘 보이게
-  if (ctl) $('btn-stop').title = r.kind === 'fix' ? '세션을 끝내요 — 커밋 안 함' : '답하던 걸 멈춰요 — 대화에 "답을 멈췄어요"가 남아요';
+  if (ctl) $('btn-stop').title = t(r.kind === 'fix' ? 'session.btn_stop_title_fix' : 'session.btn_stop_title_chat');
   // 이전 작업 / 이어서 한 작업
   const lin = lineage(r, runs);
   const le = $('lineage');
   le.hidden = !lin.parent && !lin.children.length;
   const link = (x) => h('button.linkish', { type: 'button', text: x.title || kindLabel(x.kind), disabled: x.missing ? true : null, onclick: () => select(x.id) });
   le.replaceChildren(
-    ...(lin.parent ? [h('span.lin', {}, h('span.k', { text: '← 이전 작업 ' }), link(lin.parent))] : []),
-    ...(lin.children.length ? [h('span.lin', {}, h('span.k', { text: '이어서 한 작업 → ' }), ...lin.children.flatMap((c, i) => (i ? [h('span', { text: ', ' }), link(c)] : [link(c)])))] : []),
+    ...(lin.parent ? [h('span.lin', {}, h('span.k', { text: t('session.lin_parent') }), link(lin.parent))] : []),
+    ...(lin.children.length ? [h('span.lin', {}, h('span.k', { text: t('session.lin_children') }), ...lin.children.flatMap((c, i) => (i ? [h('span', { text: ', ' }), link(c)] : [link(c)])))] : []),
   );
   // 입력창: 늘 보인다. 모드에 따라 보내기/이어서 하기/물어보기. 뇌·Claude Code 가 없으면 막고 [연결하기]
   const m = gateComposer(composerMode(r), brain);
@@ -260,7 +264,7 @@ function renderHead() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'small primary connect-btn';
-    b.textContent = '연결하기';
+    b.textContent = t('session.connect');
     b.addEventListener('click', () => cy.openPanel?.('setup'));
     $('compose-hint').append(' ', b);
   }
@@ -280,7 +284,7 @@ function renderModel(r, m) {
   }
   sel.value = cur;
   sel.disabled = sending;
-  sel.title = m.mode === 'inject' ? '이 세션의 다음 턴부터 이 모델로 바꿔요' : '이번에 보낼 때 쓸 모델';
+  sel.title = t(m.mode === 'inject' ? 'session.model_title_inject' : 'session.model_title');
 }
 $('model').addEventListener('change', () => {
   const r = current();
@@ -323,10 +327,10 @@ function renderLog() {
   if (btw) log.append(btw);
   if (r?.status === 'running') {
     const subs = runningSubagents(items);
-    log.append(h('div.working', { text: subs ? `작업 중… · 서브에이전트 ${subs}개 실행 중` : '작업 중…' }));
+    log.append(h('div.working', { text: subs ? t('session.working_subs', { n: subs }) : t('session.working') }));
   }
-  else if (awaitingFollowUp(transcript.events)) log.append(h('div.working', { text: '답을 생각하는 중…' }));
-  if (!items.length) log.append(h('div.empty', { text: r ? '아직 기록이 없어요.' : '왼쪽에서 세션을 고르세요.' }));
+  else if (awaitingFollowUp(transcript.events)) log.append(h('div.working', { text: t('session.thinking') }));
+  if (!items.length) log.append(h('div.empty', { text: r ? t('session.no_log') : t('session.pick_left') }));
   contentChanged();
 }
 
@@ -337,42 +341,49 @@ function renderItem(item, live) {
       const dv = deliveryView(item, current(), curTool);
       const waiting = dv && ['sending', 'pending', 'unsent', 'cancelled', 'failed'].includes(dv.state);
       return h('div', { class: `msg user${item.injected ? ' injected' : ''}${item.followUp ? ' followup' : ''}${item.cli ? ' cli' : ''}${waiting ? ` queued d-${dv.state}` : ''}`, dataset: item.msgId ? { msg: item.msgId } : null },
-        h('div.who', {}, h('span', { text: item.cli ? '나 (터미널에서)' : item.followUp ? '나 (이어서 물어봄)' : item.injected ? '나 (세션 창에서 보냄)' : '요청' }), item.cli ? cliTag() : null),
-        md(h('div.bubble', { title: dv?.state === 'pending' ? '아직 모델에 닿지 않았어요 — 줄 서 있어요' : null }), item.text),
+        h('div.who', {}, h('span', { text: t(item.cli ? 'session.who_cli' : item.followUp ? 'session.who_followup' : item.injected ? 'session.who_injected' : 'session.who_request') }), item.cli ? cliTag() : null),
+        md(h('div.bubble', { title: dv?.state === 'pending' ? t('session.pending_title') : null }), item.text),
         dv ? deliveryLine(item, dv) : null);
     }
     case 'assistant':
       return h(`div.msg.assistant${item.followUp ? '.followup' : ''}${item.cli ? '.cli' : ''}`, {},
-        item.followUp ? h('div.who', { text: '답 (대화로 이어감)' }) : item.cli ? h('div.who', {}, cliTag()) : null,
+        item.followUp ? h('div.who', { text: t('session.who_answer_followup') }) : item.cli ? h('div.who', {}, cliTag()) : null,
         md(h('div.text'), item.text));
     case 'system':
       if (item.childId) {
         const c = runs.find((x) => x.id === item.childId);
         return h('div.note.system.child', {},
-          h('span', { text: '이어서 하기 → ' }),
-          h('button.linkish', { type: 'button', text: c?.title ?? '새 작업 세션', onclick: () => select(item.childId) }),
+          h('span', { text: t('session.child_prefix') }),
+          h('button.linkish', { type: 'button', text: c?.title ?? t('session.child_new'), onclick: () => select(item.childId) }),
           c ? h('span', { class: `status ${c.status}`, text: ` · ${STATUS_LABELS[c.status] ?? c.status}` }) : null);
       }
       if (item.worktree) {
         const i = item.text.indexOf(item.worktree);
         return h('div.note.system.kept', {},
-          h('span', { text: i > 0 ? item.text.slice(0, i) : '📁 워크트리를 남겨 뒀어요: ' }),
-          h('code.path', { text: item.worktree, title: '저장 안 된 작업이 남아 있는 워크트리 — 선택해서 복사할 수 있어요' }));
+          h('span', { text: i > 0 ? item.text.slice(0, i) : t('session.kept_note') }),
+          h('code.path', { text: item.worktree, title: t('session.kept_path_title') }));
       }
       return h('div', { class: `note system${item.cli ? ' cli' : ''}`, text: item.text });
     case 'tools':
       return renderTools(item, live);
     case 'result':
-      if (isMaxTurnsText(item.text)) return h('div.note.result.maxturns', { text: '턴 끝: 턴 한도에 닿음' });
+      if (isMaxTurnsText(item.text)) return h('div.note.result.maxturns', { text: t('session.turn_maxed') });
       return h('div', { class: `note result${item.isError ? ' bad' : ''}` },
-        h('span', { text: item.isError ? `턴 끝: ${item.text}` : '턴 끝' }),
-        item.costUsd != null ? h('span.cost', { text: ` · 누적 ${fmtCost(item.costUsd)}` }) : null);
+        h('span', { text: item.isError ? t('session.turn_end_err', { text: item.text }) : t('session.turn_end') }),
+        item.costUsd != null ? h('span.cost', { text: t('session.cost_total', { cost: fmtCost(item.costUsd) }) }) : null);
     case 'status':
       if (isMaxTurnsText(item.text)) return maxTurnsNote();
-      return h('div', { class: `note status ${String(item.text).split(':')[0]}`, text: `세션 ${STATUS_LABELS[String(item.text).split(':')[0]] ?? item.text}${item.text.includes(':') ? ` — ${item.text.slice(item.text.indexOf(':') + 1).trim()}` : ''}` });
+      return h('div', { class: `note status ${String(item.text).split(':')[0]}`, text: statusNote(item.text) });
     default:
       return h('div', { class: `note ${item.type}`, text: item.text });
   }
+}
+
+// 세션 상태 줄: "done" → 세션 완료 · "failed: 이유" → 세션 실패 — 이유
+function statusNote(text) {
+  const raw = String(text);
+  const status = STATUS_LABELS[raw.split(':')[0]] ?? raw;
+  return raw.includes(':') ? t('session.status_note_detail', { status, detail: raw.slice(raw.indexOf(':') + 1).trim() }) : t('session.status_note', { status });
 }
 
 // 내가 보낸 말 아래 상태 줄: ◷ 대기 중 — 지금 도는 도구(Bash …)가 끝나면 전달돼요 [지금 보내기][취소] / ✓ 전달됨 10:42 / 이어서 묻기로
@@ -380,9 +391,9 @@ function deliveryLine(item, dv) {
   const busy = !!item.msgId && pendingBusy.has(item.msgId);
   const r = current();
   const acts = [];
-  if (dv.actions.includes('now')) acts.push(h('button.ghost.small.q-now', { type: 'button', text: '지금 보내기', disabled: busy, title: '지금 도는 도구(Bash 면 그 프로세스)를 멈추고 이 말을 바로 보내요 — 작업은 이어서 계속돼요', onclick: () => pendingAction(item.msgId, 'now') }));
-  if (dv.actions.includes('cancel')) acts.push(h('button.ghost.small.q-cancel', { type: 'button', text: '취소', disabled: busy, title: '보내지 않고 빼요(글은 입력창으로)', onclick: () => pendingAction(item.msgId, 'cancel', item.text) }));
-  if (dv.actions.includes('followup') && r && r.status !== 'running') acts.push(h('button.ghost.small.q-now', { type: 'button', text: '이어서 묻기로 보내기', title: '끝난 작업에 이어서 이 말을 보내요', onclick: () => resend(item.text) }));
+  if (dv.actions.includes('now')) acts.push(h('button.ghost.small.q-now', { type: 'button', text: t('session.q_now'), disabled: busy, title: t('session.q_now_title'), onclick: () => pendingAction(item.msgId, 'now') }));
+  if (dv.actions.includes('cancel')) acts.push(h('button.ghost.small.q-cancel', { type: 'button', text: t('session.cancel'), disabled: busy, title: t('session.q_cancel_title'), onclick: () => pendingAction(item.msgId, 'cancel', item.text) }));
+  if (dv.actions.includes('followup') && r && r.status !== 'running') acts.push(h('button.ghost.small.q-now', { type: 'button', text: t('session.q_followup'), title: t('session.q_followup_title'), onclick: () => resend(item.text) }));
   return h('div.dmeta', { dataset: { s: dv.state } },
     h('span', { class: `st s-${dv.state}`, text: dv.state === 'pending' ? `◷ ${dv.status}` : dv.status }),
     dv.wait ? h('span.q-wait', { text: dv.wait, title: dv.wait }) : null,
@@ -396,7 +407,7 @@ async function pendingAction(msgId, action, text) {
   $('compose-err').textContent = '';
   try {
     const res = await cy.pendingMessage(r.id, msgId, action);
-    if (!res?.ok) $('compose-err').textContent = res?.status === 409 ? '이미 모델에 전달됐어요.' : `못 했어요: ${res?.data?.error ?? res?.error ?? ''}`;
+    if (!res?.ok) $('compose-err').textContent = res?.status === 409 ? t('session.err_already') : t('session.err_failed', { error: res?.data?.error ?? res?.error ?? '' });
     else if (action === 'cancel' && text && !input.value.trim()) { input.value = text; autosize(); input.focus(); }
   } finally { pendingBusy.delete(msgId); renderLog(); }
 }
@@ -412,15 +423,15 @@ async function resend(text) {
 function maxTurnsNote() {
   const r = current();
   const box = h('div.note.status.maxturns', {},
-    h('span', { text: `턴 한도에 닿아 멈췄어요${r?.costUsd != null ? ` · 누적 ${fmtCost(r.costUsd)}` : ''}` }));
+    h('span', { text: `${t('session.maxturns')}${r?.costUsd != null ? t('session.cost_total', { cost: fmtCost(r.costUsd) }) : ''}` }));
   if (r && r.status !== 'running') {
-    box.append(h('button.ghost.small.q-now', { type: 'button', text: '이어서 하기', title: '멈춘 데서 새 턴으로 이어서 해요', onclick: async (e) => {
+    box.append(h('button.ghost.small.q-now', { type: 'button', text: t('session.btn_continue'), title: t('session.maxturns_title'), onclick: async (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
-      const res = await cy.continueRun(r.id, MAX_TURNS_CONTINUE, null);
+      const res = await cy.continueRun(r.id, maxTurnsContinue(), null);
       if (res?.ok && okRunId(res.data?.runId)) { await loadRuns(); await select(res.data.runId); }
       else if (res?.ok) await refetch();
-      else { $('compose-err').textContent = `이어서 하지 못했어요: ${res?.data?.error ?? ''}`; btn.disabled = false; }
+      else { $('compose-err').textContent = t('session.err_continue', { error: res?.data?.error ?? '' }); btn.disabled = false; }
     } }));
   }
   return box;
@@ -430,19 +441,19 @@ function maxTurnsNote() {
 function btwBlock(r) {
   const list = r ? btwByRun.get(r.id) : null;
   if (!list?.length) return null;
-  return h('div.btw-list', { 'aria-label': '곁질문(/btw)' }, list.map((b) => h('div.btw', { dataset: { id: b.id } },
+  return h('div.btw-list', { 'aria-label': t('session.btw_label') }, list.map((b) => h('div.btw', { dataset: { id: b.id } },
     h('div.btw-q', {},
-      h('span.btw-tag', { text: 'btw', title: '곁질문 — 작업을 멈추거나 끼어들지 않고, 이 세션 기록만 보고 답해요' }),
+      h('span.btw-tag', { text: 'btw', title: t('session.btw_title') }),
       h('span.btw-qt', { text: b.q }),
-      h('button.btw-x', { type: 'button', text: '×', title: '닫기', 'aria-label': '곁질문 닫기', onclick: () => {
+      h('button.btw-x', { type: 'button', text: '×', title: t('session.close'), 'aria-label': t('session.btw_close'), onclick: () => {
         btwByRun.set(r.id, (btwByRun.get(r.id) ?? []).filter((x) => x.id !== b.id)); saveBtw(); renderLog();
       } })),
-    b.loading ? h('div.btw-a.loading', { text: '기록을 보고 답하는 중…' })
-      : b.error ? h('div.btw-a.err', { text: b.error })
+    b.loading ? h('div.btw-a.loading', { text: t('session.btw_loading') })
+      : b.error ? h('div.btw-a.err', { text: b.closed ? t('session.btw_closed') : b.error })
         : md(h('div.btw-a'), b.a ?? ''))));
 }
 async function askBtw(r, q, ids = []) {
-  const item = { id: newClientId(), q: q || '(첨부에 대해)', at: new Date().toISOString(), loading: true };
+  const item = { id: newClientId(), q: q || t('session.btw_attach_only'), at: new Date().toISOString(), loading: true };
   btwByRun.set(r.id, [...(btwByRun.get(r.id) ?? []), item].slice(-BTW_KEEP));
   scroll = scrollReducer(scroll, { type: 'jump' });
   renderLog();
@@ -450,14 +461,14 @@ async function askBtw(r, q, ids = []) {
   const res = await cy.btw(r.id, q, model, ids).catch(() => null);
   delete item.loading;
   if (res?.ok && typeof res.data?.answer === 'string') item.a = res.data.answer;
-  else item.error = res?.data?.error ? `답을 못 받았어요: ${res.data.error}` : `${who()}에 연결되지 않아서 못 물어봤어요.`;
+  else item.error = res?.data?.error ? t('session.btw_err', { error: res.data.error }) : t('session.btw_offline', { who: who() });
   saveBtw();
   if (selected === r.id) renderLog();
 }
 
 // 터미널 Claude Code 에서 이어 간 줄 표시
 function cliTag() {
-  return h('span.cli-tag', { text: 'Claude Code', title: '터미널의 Claude Code(claude --resume)에서 이어 간 대화를 불러온 거예요' });
+  return h('span.cli-tag', { text: 'Claude Code', title: t('session.cli_title') });
 }
 
 function renderTools(group, live) {
@@ -509,7 +520,7 @@ function renderSub(t, cwd, row) {
     row.replaceWith(renderTool(t, cwd));
   };
   const head = h('div.sub-head', {
-    role: 'button', tabindex: '0', 'aria-expanded': open ? 'true' : 'false', title: open ? '접기' : '서브에이전트가 한 일 펼치기',
+    role: 'button', tabindex: '0', 'aria-expanded': open ? 'true' : 'false', title: tr(open ? 'session.sub_fold' : 'session.sub_unfold'),
     onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } },
   },
     h('span.elbow', { text: '⎿' }),
@@ -526,14 +537,14 @@ function renderSub(t, cwd, row) {
     return box;
   }
   const body = h('div.sub-body');
-  if (t.sub.prompt) body.append(h('div.sub-prompt', { text: `지시: ${ellipsize(t.sub.prompt.replace(/\s+/g, ' '), 300)}`, title: t.sub.prompt.slice(0, 4000) }));
+  if (t.sub.prompt) body.append(h('div.sub-prompt', { text: tr('session.sub_prompt', { text: ellipsize(t.sub.prompt.replace(/\s+/g, ' '), 300) }), title: t.sub.prompt.slice(0, 4000) }));
   for (const l of t.sub.lines) {
     if (l.type === 'tool') body.append(renderTool(l.tool, cwd));
     else if (l.type === 'text') body.append(md(h('div.sub-text'), l.text));
     else body.append(h('div.sub-note', { text: l.text }));
   }
   if (s.more) body.append(h('div.sub-note', { text: s.more }));
-  if (!t.sub.lines.length && !t.sub.prompt) body.append(h('div.sub-note', { text: '아직 기록이 없어요' }));
+  if (!t.sub.lines.length && !t.sub.prompt) body.append(h('div.sub-note', { text: tr('session.sub_empty') }));
   box.append(body);
   return box;
 }
@@ -552,9 +563,9 @@ function toolBody(t, head) {
   }
   if (t.output != null && (!t.diff || t.isError)) {
     if (t.output.trim()) body.append(h('pre', { class: `out${t.isError ? ' bad' : ''}`, text: t.output }));
-    if (t.truncated) body.append(h('div.trunc', { text: `… 잘림${t.size ? ` (원래 ${t.size.toLocaleString()}자)` : ''}` }));
+    if (t.truncated) body.append(h('div.trunc', { text: t.size ? tr('session.truncated_size', { n: t.size.toLocaleString() }) : tr('session.truncated') }));
   }
-  if (!body.childElementCount) body.append(h('div.trunc', { text: t.done ? '더 보여 줄 내용이 없어요' : '실행 중…' }));
+  if (!body.childElementCount) body.append(h('div.trunc', { text: tr(t.done ? 'session.nothing_more' : 'session.running_tool') }));
   return body;
 }
 
@@ -601,7 +612,7 @@ if (!cy.chatAttach) $('attach').hidden = true;
 async function readyAttachments() {
   if (!tray.has()) return [];
   const st = await tray.ready();
-  if (st.failed) { $('compose-err').textContent = '못 올린 첨부가 있어요 — ✕ 로 빼고 다시 보내 주세요.'; return null; }
+  if (st.failed) { $('compose-err').textContent = t('session.err_attach'); return null; }
   return st.ids;
 }
 async function send() {
@@ -614,7 +625,7 @@ async function send() {
   // /btw 질문 — 작업을 건드리지 않는 곁질문(어느 모드든)
   const btw = text ? parseBtw(text) : null;
   if (btw !== null) {
-    if (!btw && !tray.has()) { $('compose-err').textContent = '/btw 뒤에 물을 말을 적어 주세요.'; return; }
+    if (!btw && !tray.has()) { $('compose-err').textContent = t('session.err_btw_empty'); return; }
     $('compose-err').textContent = '';
     const ids = await readyAttachments();
     if (ids === null) return;
@@ -652,7 +663,7 @@ async function send() {
       if (clientId) await refetch(); // 데몬 기록(대기 중)으로 — SSE 가 먼저 왔으면 그대로
       if (m.mode === 'continue' && okRunId(res.data?.runId)) { await loadRuns(); await select(res.data.runId); } // 연결된 새 작업으로
       else if (m.mode !== 'inject') await refetch();
-    } else $('compose-err').textContent = res?.status === 409 && clientId ? '작업이 마무리 중이거나 끝나서 못 보냈어요 — 글은 입력창에 돌려놨어요.' : res?.data?.error ? `못 보냈어요: ${res.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`;
+    } else $('compose-err').textContent = res?.status === 409 && clientId ? t('session.err_send_409') : res?.data?.error ? t('session.err_send', { error: res.data.error }) : t('session.err_send_offline', { who: who() });
   } finally {
     sending = false;
     renderHead();
@@ -667,7 +678,7 @@ async function sendToThread(r, text, model, ids = []) {
     res = await cy.chatSend({ ...body, ...(model ? { model } : {}), ...(ids.length ? { attachments: ids } : {}) });
     if (res?.ok || res?.status !== 404) return res;
   }
-  $('compose-err').textContent = '원래 대화를 못 찾아서 이 결과로 물어봤어요.';
+  $('compose-err').textContent = t('session.err_no_thread');
   return cy.continueRun(r.id, text, model, ids);
 }
 
@@ -683,7 +694,7 @@ async function openInClaude(r = current()) {
   if (!canResume(r)) return;
   $('compose-err').textContent = '';
   const res = await cy.openInClaude(r.id);
-  if (!res?.ok) $('compose-err').textContent = res?.error && res.error !== 'bad args' ? res.error : 'Claude Code에서 못 열었어요.';
+  if (!res?.ok) $('compose-err').textContent = res?.error && res.error !== 'bad args' ? res.error : t('session.err_claude');
 }
 $('btn-claude').addEventListener('click', () => openInClaude());
 // 뇌(말 거는 AI) 연결 상태 — 바뀌면 입력창을 다시 그린다
@@ -695,7 +706,7 @@ function applyCoder() {
   if (off && !coderNote) {
     coderNote = document.createElement('div');
     coderNote.className = 'empty';
-    coderNote.textContent = '코드 고치기·새 작업은 Claude Code 또는 Codex가 있어야 해요. 여기서는 브리핑·대화 기록만 볼 수 있어요.';
+    coderNote.textContent = t('session.coder_note');
     $('btn-new').after(coderNote);
   }
   if (coderNote) coderNote.hidden = !off;
@@ -717,7 +728,7 @@ async function syncRun(r = current()) {
     if (res?.ok) {
       $('compose-hint').textContent = syncNote(res.data?.imported);
       if (r.id === selected) await refetch();
-    } else $('compose-err').textContent = res?.data?.error || res?.error || '터미널 기록을 못 불러왔어요.';
+    } else $('compose-err').textContent = res?.data?.error || res?.error || t('session.err_sync');
   } finally { syncing = false; btn.disabled = false; }
 }
 $('btn-sync').addEventListener('click', () => syncRun());
@@ -731,10 +742,10 @@ function rowMenu(r, x, y) {
   const o = cleanOrigin(r.origin);
   const item = (text, fn, disabled) => h('button.mi', { type: 'button', role: 'menuitem', text, disabled: disabled ? true : null, onclick: () => { closeMenu(); fn(); } });
   menu.replaceChildren(...[
-    item(o ? `↩︎ 원래 화면 열기 (${originLabel(o)})` : '원래 화면 없음', () => openOrigin(r), !o),
-    item('이 세션 보기', () => select(r.id)),
-    canResume(r) ? item('Claude Code에서 열기', () => openInClaude(r)) : null,
-    canSync(r) ? item('↻ 터미널에서 이어 간 대화 불러오기', () => syncRun(r)) : null,
+    item(o ? t('session.menu_origin', { origin: originLabel(o) }) : t('session.menu_no_origin'), () => openOrigin(r), !o),
+    item(t('session.menu_view'), () => select(r.id)),
+    canResume(r) ? item(t('session.btn_claude'), () => openInClaude(r)) : null,
+    canSync(r) ? item(t('session.menu_sync'), () => syncRun(r)) : null,
   ].filter(Boolean));
   menu.hidden = false;
   const w = menu.offsetWidth || 200, hgt = menu.offsetHeight || 70;
@@ -760,11 +771,11 @@ $('btn-new').addEventListener('click', async () => {
   $('im-err').textContent = '';
   $('nt-card').hidden = true;
   const sel = $('nt-repo');
-  sel.replaceChildren(h('option', { value: '', text: '불러오는 중…' }));
+  sel.replaceChildren(h('option', { value: '', text: t('session.loading') }));
   const r = await cy.listRepos();
   const repos = Array.isArray(r?.data?.repos) ? r.data.repos : [];
   const last = store.get('lastRepo', '');
-  sel.replaceChildren(...(repos.length ? repos.map((x) => h('option', { value: x.path, text: `${x.name} — ${x.path}`, selected: x.path === last ? true : null })) : [h('option', { value: '', text: r?.ok ? '허용된 레포가 없어요(repoRoots)' : `${who()}에 연결되지 않았어요` })]));
+  sel.replaceChildren(...(repos.length ? repos.map((x) => h('option', { value: x.path, text: `${x.name} — ${x.path}`, selected: x.path === last ? true : null })) : [h('option', { value: '', text: r?.ok ? t('session.no_repos') : t('session.offline', { who: who() }) })]));
   $('nt-text').focus();
 });
 $('nt-cancel').addEventListener('click', () => showNewTask(false));
@@ -775,7 +786,7 @@ $('nt-submit').addEventListener('click', async () => {
   $('nt-err').textContent = '';
   try {
     const r = await cy.newTask(t.repo, t.text);
-    if (!r?.ok || !r.data?.proposal) { $('nt-err').textContent = r?.data?.error ? `못 만들었어요: ${r.data.error}` : `${who()}에 연결되지 않았어요.`; return; }
+    if (!r?.ok || !r.data?.proposal) { $('nt-err').textContent = r?.data?.error ? t('session.err_create', { error: r.data.error }) : t('session.offline_dot', { who: who() }); return; }
     store.set('lastRepo', t.repo);
     $('nt-text').value = '';
     proposalCard(r.data.proposal);
@@ -784,12 +795,12 @@ $('nt-submit').addEventListener('click', async () => {
 // ---- Claude Code 세션 불러오기: 세션 id → 채팅 run(POST /runs/import) → 그 세션으로 ----
 $('im-submit').addEventListener('click', async () => {
   const sid = parseSessionId($('im-sid').value);
-  if (!sid) { $('im-err').textContent = '세션 id(UUID)를 넣어 주세요.'; return; }
+  if (!sid) { $('im-err').textContent = t('session.err_need_sid'); return; }
   $('im-submit').disabled = true;
   $('im-err').textContent = '';
   try {
     const r = await cy.importSession(sid);
-    if (!r?.ok || !r.data?.runId) { $('im-err').textContent = r?.data?.error ? `못 불러왔어요: ${r.data.error}` : `${who()}에 연결되지 않았어요.`; return; }
+    if (!r?.ok || !r.data?.runId) { $('im-err').textContent = r?.data?.error ? t('session.err_import', { error: r.data.error }) : t('session.offline_dot', { who: who() }); return; }
     $('im-sid').value = '';
     showNewTask(false);
     await loadRuns();
@@ -801,21 +812,21 @@ $('im-sid').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isC
 function proposalCard(p) {
   const card = $('nt-card');
   card.hidden = false;
-  const msg = h('div.pc-msg', { text: '승인 대기 중 — 승인하면 작업 세션이 시작돼요.' });
-  const approve = h('button.primary', { type: 'button', text: '승인하고 시작' });
-  const hold = h('button.ghost', { type: 'button', text: '보류' });
+  const msg = h('div.pc-msg', { text: t('session.pc_wait') });
+  const approve = h('button.primary', { type: 'button', text: t('session.pc_approve') });
+  const hold = h('button.ghost', { type: 'button', text: t('session.pc_hold') });
   approve.addEventListener('click', async () => {
     approve.disabled = hold.disabled = true;
     const r = await cy.decideProposal(p.id, 'approve');
-    if (!r?.ok) { msg.textContent = '승인 못 했어요 — 다시 해 주세요.'; approve.disabled = hold.disabled = false; return; }
-    msg.textContent = '승인했어요. 작업 세션이 열리면 바로 보여 드릴게요…';
+    if (!r?.ok) { msg.textContent = t('session.pc_fail'); approve.disabled = hold.disabled = false; return; }
+    msg.textContent = t('session.pc_ok');
     pendingProposal = p.id;
     adoptPending();
   });
   hold.addEventListener('click', async () => {
     approve.disabled = hold.disabled = true;
     await cy.decideProposal(p.id, 'hold');
-    msg.textContent = '보류했어요.';
+    msg.textContent = t('session.pc_held');
   });
   card.replaceChildren(h('div.pc-title', { text: `🛠 ${p.title}` }), h('div.pc-repo', { text: p.repo }), msg, h('div.row', {}, hold, approve));
 }
@@ -830,7 +841,7 @@ $('btn-interrupt').addEventListener('click', async () => {
   const r = current();
   if (!r) return;
   const res = await cy.interrupt(r.id);
-  if (!res?.ok) $('compose-err').textContent = `중단 못 했어요: ${res?.data?.error ?? res?.error ?? ''}`;
+  if (!res?.ok) $('compose-err').textContent = t('session.err_interrupt', { error: res?.data?.error ?? res?.error ?? '' });
   else input.focus();
 });
 let stopArmed = null;
@@ -839,16 +850,16 @@ async function stopRun(btn, label) {
   const r = current();
   if (!r) return;
   if (!stopArmed) {
-    btn.textContent = '정말 멈출까요?';
+    btn.textContent = t('session.stop_confirm');
     stopArmed = setTimeout(() => { stopArmed = null; btn.textContent = label; }, 3000);
     return;
   }
   clearTimeout(stopArmed); stopArmed = null; btn.textContent = label;
   const res = await cy.stop(r.id);
-  if (!res?.ok) $('compose-err').textContent = `정지 못 했어요: ${res?.data?.error ?? res?.error ?? ''}`;
+  if (!res?.ok) $('compose-err').textContent = t('session.err_stop', { error: res?.data?.error ?? res?.error ?? '' });
 }
-$('btn-stop').addEventListener('click', () => stopRun($('btn-stop'), '정지'));
-$('btn-stop-run').addEventListener('click', () => stopRun($('btn-stop-run'), '■ 멈추기'));
+$('btn-stop').addEventListener('click', () => stopRun($('btn-stop'), t('session.btn_stop')));
+$('btn-stop-run').addEventListener('click', () => stopRun($('btn-stop-run'), t('session.stop_run')));
 
 // ---- 실시간 ----
 cy.onRun((p) => {
@@ -887,14 +898,31 @@ function focusTool(toolUseId) {
   el.classList.add('flash');
   setTimeout(() => el.classList.remove('flash'), 2400);
 }
-cy.onConnection(({ connected }) => {
+let isConnected = false;
+function renderConn() {
   const c = $('conn');
-  c.textContent = connected ? '연결됨' : '연결 안 됨';
-  c.className = `conn ${connected ? 'on' : 'off'}`;
+  c.textContent = t(isConnected ? 'session.conn_on' : 'session.conn_off');
+  c.className = `conn ${isConnected ? 'on' : 'off'}`;
+}
+cy.onConnection(({ connected }) => {
+  isConnected = !!connected;
+  renderConn();
   if (connected) { loadRuns(); loadModels(); if (selected) refetch(); }
 });
 
 setInterval(() => { if (current()?.status === 'running') renderHead(); }, 1000); // 경과 시간
+
+// 화면 글 언어(src/i18n.js): 바뀌면 HTML 글(data-i18n)과 목록·머리말·기록·연결 표시를 다시
+function rerenderLang() {
+  renderList();
+  renderHead();
+  rendered.clear();
+  renderLog();
+  renderConn();
+  if (coderNote) coderNote.textContent = t('session.coder_note');
+  if (!stopArmed) { $('btn-stop').textContent = t('session.btn_stop'); $('btn-stop-run').textContent = t('session.stop_run'); }
+}
+bindLanguage(cy, rerenderLang, { whoName: () => who() });
 loadRuns();
 loadModels();
 

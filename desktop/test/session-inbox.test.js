@@ -99,7 +99,7 @@ test('/btw: 파싱 · 슬래시 메뉴 맨 앞 · 저장한 곁질문 정리', (
   assert.equal(c.r1.length, BTW_KEEP);
   assert.equal(c.r1.at(-1).id, 'b14');
   assert.equal(c['bad id'], undefined);
-  assert.deepEqual(c.r2, [{ id: 'x', q: 'q', at: '', error: '창을 닫아서 답을 못 받았어요' }]);
+  assert.deepEqual(c.r2, [{ id: 'x', q: 'q', at: '', error: '창을 닫아서 답을 못 받았어요', closed: true }]);
   assert.deepEqual(cleanBtw(null), {});
 });
 

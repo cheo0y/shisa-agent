@@ -1,16 +1,18 @@
 // 작업 세션 창의 순수 로직 — run 목록·대화 기록 모델·도구 줄 묶기·diff·자동 스크롤·입력 키.
 // 데몬 /runs, SSE run·runs 이벤트를 받는다(docs/contract.md "작업 세션").
 import { chatTarget } from './origin.js';
+import { t, ago, monthDay } from './i18n.js';
+const tr = t; // 지역 변수 t(시각·글)와 겹치는 함수 안에서
+
+// 화면 글(src/i18n/session.js): 부를 때마다 지금 언어로(게터 — 언어를 바꾸면 바로)
+export const labelsOf = (prefix, keys) => Object.defineProperties({}, Object.fromEntries(keys.map((k) => [k, { get: () => t(`session.${prefix}${k}`), enumerable: true }])));
 
 export const KIND_ICONS = {
   fix: '🛠', briefing: '📋', chat: '💬', profile: '🧠', kg: '🕸',
   calendar: '📅', 'slack-ingest': '📥', 'todo-auto': '✅', action: '☑️', other: '⚙️',
 };
-export const KIND_LABELS = {
-  fix: '코드 수정', briefing: '브리핑', chat: '채팅', profile: '프로필 학습', kg: '지식그래프',
-  calendar: '캘린더', 'slack-ingest': 'Slack 수집', 'todo-auto': '할 일 자동 완료', action: '확인한 실행', other: '기타',
-};
-export const STATUS_LABELS = { running: '진행 중', done: '완료', failed: '실패', stopped: '정지됨' };
+export const KIND_LABELS = labelsOf('kind_', ['fix', 'briefing', 'chat', 'profile', 'kg', 'calendar', 'slack-ingest', 'todo-auto', 'action', 'other']);
+export const STATUS_LABELS = labelsOf('status_', ['running', 'done', 'failed', 'stopped']);
 
 export const kindIcon = (k) => KIND_ICONS[k] ?? KIND_ICONS.other;
 export const kindLabel = (k) => KIND_LABELS[k] ?? KIND_LABELS.other;
@@ -61,10 +63,10 @@ export function fmtDuration(startIso, endIso, now = Date.now()) {
   if (!Number.isFinite(s)) return '';
   const e = endIso ? Date.parse(endIso) : now;
   const sec = Math.max(0, Math.round((e - s) / 1000));
-  if (sec < 60) return `${sec}초`;
+  if (sec < 60) return t('session.dur_s', { s: sec });
   const m = Math.floor(sec / 60);
-  if (m < 60) return `${m}분 ${sec % 60}초`;
-  return `${Math.floor(m / 60)}시간 ${m % 60}분`;
+  if (m < 60) return t('session.dur_ms', { m, s: sec % 60 });
+  return t('session.dur_hm', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 // ---- 입력 가능 여부 ----
@@ -78,29 +80,29 @@ export function canControl(run) {
 export function readOnlyReason(run) {
   if (!run) return '';
   if (canSend(run)) return '';
-  if (run.kind === 'fix' && run.status === 'running') return '마무리(테스트·커밋) 중이라 지금은 메시지를 받지 않아요. 끝나면 이어서 할 수 있어요.';
-  if (run.status !== 'running') return run.kind === 'fix' ? '끝난 작업이에요 — 아래에 적으면 같은 브랜치에서 이어서 해요.' : '끝난 세션이에요 — 아래에 적으면 이 결과로 대화를 이어가요.';
-  return `${kindLabel(run.kind)} 세션은 지시를 받지 않아요 — 아래에 적으면 대화로 물어봐요.`;
+  if (run.kind === 'fix' && run.status === 'running') return t('session.ro_fix_running');
+  if (run.status !== 'running') return run.kind === 'fix' ? t('session.ro_fix_done') : t('session.ro_done');
+  return t('session.ro_kind', { kind: kindLabel(run.kind) });
 }
 
 // ---- 입력창 모드(Claude·ChatGPT 처럼 늘 쓸 수 있게) ----
 // inject: 돌고 있는 수정 run 에 바로 · continue: 끝난 수정 run → 연결된 새 run · followup: 그 밖 → 대화로 이어가기 · wait: 마무리 중
 // thread: 원래 대화(채팅·할 일)가 있는 run → 그 대화로(POST /chat {threadId, todoId?, parentRunId}). 수정 run 은 그대로
 export function composerMode(run) {
-  if (!run) return { mode: 'none', enabled: false, placeholder: '왼쪽에서 세션을 고르세요', button: '보내기', hint: '' };
-  if (canSend(run)) return { mode: 'inject', enabled: true, placeholder: '이 세션에 메시지 보내기 (Enter 보내기 · Shift+Enter 줄바꿈)', button: '보내기', hint: '' };
-  if (run.kind === 'fix' && run.status === 'running') return { mode: 'wait', enabled: false, placeholder: '마무리 중…', button: '보내기', hint: readOnlyReason(run) };
-  if (run.kind === 'fix') return { mode: 'continue', enabled: true, placeholder: '이어서 시킬 일 (같은 브랜치·PR 에서 새 작업으로 이어져요)', button: '이어서 하기', hint: '이어서 하면 이 작업에 연결된 새 작업 세션이 시작돼요. 커밋·푸시는 테스트를 통과해야 하고, 머지는 승인해야 해요.' };
+  if (!run) return { mode: 'none', enabled: false, placeholder: t('session.ph_none'), button: t('session.send'), hint: '' };
+  if (canSend(run)) return { mode: 'inject', enabled: true, placeholder: t('session.ph_inject'), button: t('session.send'), hint: '' };
+  if (run.kind === 'fix' && run.status === 'running') return { mode: 'wait', enabled: false, placeholder: t('session.ph_wait'), button: t('session.send'), hint: readOnlyReason(run) };
+  if (run.kind === 'fix') return { mode: 'continue', enabled: true, placeholder: t('session.ph_continue'), button: t('session.btn_continue'), hint: t('session.hint_continue') };
   const target = chatTarget(run.origin);
   if (target) {
     const todo = run.origin.type === 'todo';
     return {
-      mode: 'thread', enabled: true, target, button: '보내기',
-      placeholder: todo ? '이 할 일 대화에 이어서 말하기 (Enter 보내기)' : '원래 대화에 이어서 말하기 (Enter 보내기)',
-      hint: todo ? '그 할 일의 대화로 이어가요 — 답은 여기 아래와 그 대화(채팅 탭) 둘 다에 남아요. 바꾸라는 말이면 바로 바꿔요.' : '원래 대화로 이어가요 — 답은 여기 아래와 그 대화(채팅 탭) 둘 다에 남아요.',
+      mode: 'thread', enabled: true, target, button: t('session.send'),
+      placeholder: todo ? t('session.ph_todo') : t('session.ph_thread'),
+      hint: todo ? t('session.hint_todo') : t('session.hint_thread'),
     };
   }
-  return { mode: 'followup', enabled: true, placeholder: '이 결과에 대해 더 물어보기 (Enter 보내기)', button: '물어보기', hint: '대화로 이어가요 — 답은 여기 아래에 붙어요.' };
+  return { mode: 'followup', enabled: true, placeholder: t('session.ph_followup'), button: t('session.btn_followup'), hint: t('session.hint_followup') };
 }
 
 // 뇌(AI)·Claude Code 연결에 따라 입력창을 막는다(brain-state.js brainView). 에러 대신 쉬운 안내 + [연결하기]
@@ -108,10 +110,10 @@ export function composerMode(run) {
 export function gateComposer(m, brain = {}) {
   if (!m?.enabled) return m;
   if (m.mode === 'continue' && brain.coder === false) {
-    return { ...m, enabled: false, locked: 'coder', placeholder: 'Claude Code 또는 Codex를 연결하면 이어서 할 수 있어요', hint: '코드 작업 이어 하기는 Claude Code 또는 Codex가 있어야 해요. 설치 탭에서 연결할 수 있어요.' };
+    return { ...m, enabled: false, locked: 'coder', placeholder: t('session.ph_need_coder'), hint: t('session.hint_need_coder') };
   }
   if (brain.ready === false && m.mode !== 'inject') {
-    return { ...m, enabled: false, locked: 'brain', placeholder: '뇌(AI)를 연결하면 여기서 이어서 말할 수 있어요', hint: '아직 대화할 AI(뇌)가 연결되지 않았어요. Claude Code·Codex 로그인이나 Gemini·OpenAI·Claude API·Genspark 키 중 하나면 돼요.' };
+    return { ...m, enabled: false, locked: 'brain', placeholder: t('session.ph_need_brain'), hint: t('session.hint_need_brain') };
   }
   return m;
 }
@@ -145,10 +147,7 @@ export function isRoutine(run) {
   if (typeof run.routine === 'boolean') return run.routine;
   return run.kind === 'briefing';
 }
-export const ROUTINE_LABELS = {
-  briefing: '정기 브리핑', 'slack-ingest': 'Slack 수집', calendar: '캘린더 동기화', profile: '프로필 학습',
-  kg: '지식그래프 갱신', 'todo-auto': '할 일 자동 완료', chat: '채팅', fix: '코드 수정', other: '기타',
-};
+export const ROUTINE_LABELS = labelsOf('routine_', ['briefing', 'slack-ingest', 'calendar', 'profile', 'kg', 'todo-auto', 'chat', 'fix', 'other']);
 
 const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 // 사용자 작업: 진행 중 / 오늘 / 어제 / 이전(최근 시작 순). 정기 작업: 종류별 묶음(횟수·마지막 시각·돌고 있나)
@@ -160,7 +159,7 @@ export function groupRuns(runs, now = Date.now()) {
   for (const r of [...(runs ?? [])].filter((x) => x && okRunId(x.id)).sort(byStart)) {
     if (isRoutine(r)) {
       const k = ROUTINE_LABELS[r.kind] ? r.kind : 'other';
-      const g = routine.get(k) ?? { kind: k, label: ROUTINE_LABELS[k], count: 0, lastAt: r.startedAt, running: false, runs: [] };
+      const g = routine.get(k) ?? { kind: k, get label() { return ROUTINE_LABELS[k]; }, count: 0, lastAt: r.startedAt, running: false, runs: [] };
       g.count++; g.runs.push(r);
       if (r.status === 'running') g.running = true;
       routine.set(k, g);
@@ -170,9 +169,8 @@ export function groupRuns(runs, now = Date.now()) {
     const key = isLive(r) ? 'running' : t >= today ? 'today' : t >= yesterday ? 'yesterday' : 'older';
     buckets[key].push(r);
   }
-  const LABEL = { running: '진행 중', today: '오늘', yesterday: '어제', older: '이전' };
   return {
-    user: Object.keys(buckets).filter((k) => buckets[k].length).map((k) => ({ key: k, label: LABEL[k], runs: buckets[k] })),
+    user: Object.keys(buckets).filter((k) => buckets[k].length).map((k) => ({ key: k, get label() { return t(`session.group_${k}`); }, runs: buckets[k] })),
     routine: [...routine.values()].sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt))),
   };
 }
@@ -184,19 +182,29 @@ export function shortWhen(iso, now = Date.now()) {
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   const today = dayStart(now);
   if (t >= today) return hm;
-  if (t >= today - 864e5) return `어제 ${hm}`;
+  if (t >= today - 864e5) return tr('session.when_yesterday', { hm });
   return `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
+// 목록 줄의 상대 시각(dashboard.js relativeTime 과 같은 규칙, 언어별): 방금 · 5분 전 · 3시간 전 · 어제 · 4일 전 · 9월 3일
+export function whenAgo(iso, now = Date.now()) {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return '';
+  const d = now - at;
+  if (d >= 864e5 && d < 2 * 864e5) return t('date.yesterday');
+  if (d < 7 * 864e5) return ago(d);
+  const x = new Date(at);
+  return monthDay(x.getMonth() + 1, x.getDate());
+}
 export function routineHeader(g, now = Date.now()) {
-  return `${g.label} · ${g.count}회 · 마지막 ${shortWhen(g.lastAt, now)}`;
+  return t('session.routine_head', { label: g.label, count: g.count, when: shortWhen(g.lastAt, now) });
 }
 
 // 이전 작업 / 이어서 한 작업
 export function lineage(run, runs) {
   if (!run) return { parent: null, children: [] };
   const find = (id) => (runs ?? []).find((r) => r.id === id);
-  const parent = run.parentId ? (find(run.parentId) ?? { id: run.parentId, title: '(목록에 없는 작업)', missing: true }) : null;
-  const children = (Array.isArray(run.childIds) ? run.childIds : []).filter(okRunId).map((id) => find(id) ?? { id, title: '(목록에 없는 작업)', missing: true });
+  const parent = run.parentId ? (find(run.parentId) ?? { id: run.parentId, title: t('session.missing_run'), missing: true }) : null;
+  const children = (Array.isArray(run.childIds) ? run.childIds : []).filter(okRunId).map((id) => find(id) ?? { id, title: t('session.missing_run'), missing: true });
   return { parent, children };
 }
 
@@ -211,8 +219,8 @@ export function pickInitial(runs, saved) {
 // 새 작업 폼 검사
 export function cleanTask(repo, text) {
   const t = cleanMessage(text);
-  if (typeof repo !== 'string' || !repo.trim() || repo.length > 1000) return { ok: false, error: '레포를 고르세요' };
-  if (!t) return { ok: false, error: '할 일을 적어 주세요' };
+  if (typeof repo !== 'string' || !repo.trim() || repo.length > 1000) return { ok: false, error: tr('session.err_pick_repo') };
+  if (!t) return { ok: false, error: tr('session.err_need_text') };
   return { ok: true, repo: repo.trim(), text: t };
 }
 
@@ -346,7 +354,7 @@ export function toolSig(t) {
 export function toolsSummary(group) {
   const n = group.tools.length;
   const names = [...new Set(group.tools.map((t) => shortTool(t.name)))].slice(0, 4).join(', ');
-  return n === 1 ? names : `도구 ${n}개 · ${names}`;
+  return n === 1 ? names : t('session.tools_n', { n, names });
 }
 export function shortTool(name) {
   const m = /^mcp__([^_]+(?:-[^_]+)*)__(.+)$/.exec(String(name));

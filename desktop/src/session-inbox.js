@@ -1,6 +1,7 @@
 // 작업 세션 창: 돌고 있는 run 에 보낸 말의 전달 상태 · 미리 그린 풍선 · /btw 곁질문 · 턴 한도 멈춤 — 순수 로직.
 // 데몬 기록(docs/contract.md "작업 세션"): user { msgId, pending, clientId? } 뒤에 delivery { msgId, state: delivered|cancelled|unsent, now? }.
 // 보낸 말은 CLI 가 지금 도는 도구 호출이 끝난 뒤(도구 경계)·턴이 끝난 뒤에야 모델에 붙인다 — 그때까지 「대기 중」.
+import { t as tr } from './i18n.js';
 import { toolHeader, ellipsize } from './tool-view.js';
 
 export const okClientId = (v) => typeof v === 'string' && /^[\w-]{1,64}$/.test(v);
@@ -53,18 +54,18 @@ export function runningTool(items, { cwd } = {}) {
 export function deliveryView(item, run, tool) {
   if (!item || item.type !== 'user') return null;
   if (item.local) return item.failed
-    ? { state: 'failed', status: '못 보냈어요', wait: item.error || '', actions: [] }
-    : { state: 'sending', status: '보내는 중…', actions: [] };
+    ? { state: 'failed', status: tr('session.d_failed'), wait: item.error || '', actions: [] }
+    : { state: 'sending', status: tr('session.d_sending'), actions: [] };
   if (!item.pending) return null;
   const d = item.delivery;
-  if (d?.state === 'delivered') return { state: 'delivered', status: `✓ 전달됨${d.at ? ` ${hhmm(d.at)}` : ''}`, wait: d.now ? '하던 도구를 멈추고 바로 보냈어요' : '', actions: [] };
-  if (d?.state === 'cancelled') return { state: 'cancelled', status: '취소했어요', wait: '모델에 보내지 않았어요', actions: [] };
+  if (d?.state === 'delivered') return { state: 'delivered', status: d.at ? tr('session.d_delivered_at', { time: hhmm(d.at) }) : tr('session.d_delivered'), wait: d.now ? tr('session.d_now') : '', actions: [] };
+  if (d?.state === 'cancelled') return { state: 'cancelled', status: tr('session.d_cancelled'), wait: tr('session.d_cancelled_wait'), actions: [] };
   if (d?.state === 'unsent' || run?.status !== 'running') {
-    return { state: 'unsent', status: '작업이 먼저 끝나 전달되지 않았어요', wait: '다음 이어서 묻기로 보내요', actions: ['followup'] };
+    return { state: 'unsent', status: tr('session.d_unsent'), wait: tr('session.d_unsent_wait'), actions: ['followup'] };
   }
   return {
-    state: 'pending', status: '대기 중',
-    wait: tool ? `지금 도는 도구(${tool})가 끝나면 전달돼요` : '지금 하던 턴이 끝나면 전달돼요',
+    state: 'pending', status: tr('session.d_pending'),
+    wait: tool ? tr('session.d_wait_tool', { tool }) : tr('session.d_wait_turn'),
     actions: ['now', 'cancel'],
   };
 }
@@ -86,7 +87,7 @@ export function parseBtw(text) {
   const m = /^\s*\/btw(?:\s+([\s\S]*))?$/i.exec(String(text ?? ''));
   return m ? (m[1] ?? '').trim() : null;
 }
-export const BTW_COMMAND = { name: 'btw', description: '작업은 그대로 두고 옆에서 바로 묻기 — 이 세션 기록만 보고 답해요(작업엔 안 들어감)', argumentHint: '<질문>' };
+export const BTW_COMMAND = { name: 'btw', get description() { return tr('session.btw_desc'); }, get argumentHint() { return tr('session.btw_arg'); } };
 export const BTW_KEEP = 10; // run 마다 기억할 곁질문 수
 // 곁질문 목록 정리: run id → 최근 BTW_KEEP 개(모양 틀린 건 버림, 답을 기다리던 건 끊긴 것으로)
 export function cleanBtw(saved) {
@@ -95,17 +96,19 @@ export function cleanBtw(saved) {
   for (const [id, list] of Object.entries(saved)) {
     if (!/^[\w-]{1,64}$/.test(id) || !Array.isArray(list)) continue;
     const ok = list.filter((x) => x && typeof x.q === 'string' && typeof x.id === 'string').slice(-BTW_KEEP)
-      .map((x) => ({ id: x.id, q: x.q, at: typeof x.at === 'string' ? x.at : '', ...(typeof x.a === 'string' ? { a: x.a.slice(0, 8000) } : x.loading ? { error: '창을 닫아서 답을 못 받았어요' } : typeof x.error === 'string' ? { error: x.error.slice(0, 300) } : {}) }));
+      .map((x) => ({ id: x.id, q: x.q, at: typeof x.at === 'string' ? x.at : '', ...(typeof x.a === 'string' ? { a: x.a.slice(0, 8000) } : x.loading ? { error: tr('session.btw_closed'), closed: true } : typeof x.error === 'string' ? { error: x.error.slice(0, 300) } : {}) }));
     if (ok.length) out[id] = ok;
   }
   return out;
 }
 
 // 턴 한도로 멈춘 run(실패 아님 — 주황, [이어서 하기])
-export const MAX_TURNS_RE = /턴 한도|error_max_turns/;
+export const MAX_TURNS_RE = /턴 한도|ターン上限|error_max_turns/;
 export const isMaxTurns = (run) => !!run && run.status !== 'running' && MAX_TURNS_RE.test(String(run.error ?? ''));
 export const isMaxTurnsText = (text) => MAX_TURNS_RE.test(String(text ?? ''));
-export const MAX_TURNS_CONTINUE = '턴 한도로 멈춘 데서 이어서 해 줘. 남은 일을 마무리하고, 내가 물은 게 있으면 먼저 답해 줘.';
+// 지금 언어로(부를 때마다)
+export const maxTurnsContinue = () => tr('session.maxturns_continue');
+export const MAX_TURNS_CONTINUE = tr('session.maxturns_continue', null, 'ko');
 
 // 저장 안 된 작업이 있어 데몬이 남겨 둔 워크트리 경로(마지막 것)
 export function keptWorktree(events) {

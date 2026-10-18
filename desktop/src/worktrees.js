@@ -3,6 +3,7 @@
 //   worktree = { key, kind: fix|agent|sub, title, status: running|done|failed|stopped, tokens, askedAt, branch?, path?, runId?, toolUseId? }
 // 줄: 제목 · 브랜치 · 돌면 「12.3k 토큰…」(실시간으로 늘어남), 끝나면 초록 「완료」 · 빨강 「실패」 · 「멈춤」. 하나라도 돌면 카드 테두리 초록.
 // 누르면 작업 세션 창에서 그 run(에이전트면 그 Agent 줄).
+import { t as tr } from './i18n.js';
 import { placeSessions } from './agents.js';
 import { isAbsPath } from './resume.js';
 
@@ -20,7 +21,7 @@ export function normWorktrees(raw) {
   for (const w of list) {
     if (!w || typeof w !== 'object' || typeof w.key !== 'string' || !w.key || !KINDS.has(w.kind) || !okTime(w.askedAt)) continue;
     out.push({
-      key: w.key.slice(0, 200), kind: w.kind, title: str(w.title) || '작업', status: STATUSES.has(w.status) ? w.status : 'stopped',
+      key: w.key.slice(0, 200), kind: w.kind, title: str(w.title) || tr('session.task'), status: STATUSES.has(w.status) ? w.status : 'stopped',
       tokens: Number.isFinite(w.tokens) && w.tokens > 0 ? Math.round(w.tokens) : 0, askedAt: w.askedAt,
       ...(str(w.branch) ? { branch: str(w.branch) } : {}),
       ...(isAbsPath(w.path) ? { path: w.path } : {}), // /… · C:\…
@@ -34,12 +35,12 @@ export function normWorktrees(raw) {
 // 토큰 수: 950 토큰 · 12.3k 토큰 · 1.2M 토큰
 export function fmtTokens(n) {
   const v = Number.isFinite(n) && n > 0 ? n : 0;
-  if (v < 1000) return `${Math.round(v)} 토큰`;
-  if (v < 1e6) return `${(v / 1000).toFixed(1)}k 토큰`;
-  return `${(v / 1e6).toFixed(1)}M 토큰`;
+  if (v < 1000) return tr('session.tok', { n: Math.round(v) });
+  if (v < 1e6) return tr('session.tok', { n: `${(v / 1000).toFixed(1)}k` });
+  return tr('session.tok', { n: `${(v / 1e6).toFixed(1)}M` });
 }
 
-const STATE = { done: { text: '완료', tone: 'ok' }, failed: { text: '실패', tone: 'bad' }, stopped: { text: '멈춤', tone: 'muted' } };
+const STATE = { done: { get text() { return tr('session.wt_done'); }, tone: 'ok' }, failed: { get text() { return tr('session.wt_failed'); }, tone: 'bad' }, stopped: { get text() { return tr('session.wt_stopped'); }, tone: 'muted' } };
 // 줄 하나: 제목·브랜치·토큰(돌면 「…」)·끝난 상태 글(완료 초록·실패 빨강·멈춤 흐림)
 export function worktreeRow(w) {
   const running = w.status === 'running';
@@ -48,7 +49,7 @@ export function worktreeRow(w) {
     tokens: running ? `${fmtTokens(w.tokens)}…` : w.tokens ? fmtTokens(w.tokens) : '',
     state: running ? null : STATE[w.status] ?? STATE.stopped,
     clickable: !!w.runId,
-    tip: `${w.title}${w.branch ? ` — ${w.branch}` : ''}${w.path ? `\n${w.path}` : ''}${w.runId ? '\n누르면 작업 세션 창에서 봐요' : ''}`,
+    tip: `${w.title}${w.branch ? ` — ${w.branch}` : ''}${w.path ? `\n${w.path}` : ''}${w.runId ? `\n${tr('session.wt_click')}` : ''}`,
   };
 }
 
@@ -58,8 +59,8 @@ export function worktreeCard(rows) {
   const running = list.filter((w) => w.status === 'running').length;
   const done = list.filter((w) => w.status === 'done').length;
   const failed = list.filter((w) => w.status === 'failed').length;
-  const sub = running ? `${running}개 진행 중` : failed ? `완료 ${done} · 실패 ${failed}` : '다 끝났어요';
-  return { head: `🌿 워크트리 ${list.length}개`, sub, active: running > 0, rows: list.map(worktreeRow) };
+  const sub = running ? tr('session.wt_running', { n: running }) : failed ? tr('session.wt_mixed', { done, failed }) : tr('session.wt_all_done');
+  return { head: tr('session.wt_head', { n: list.length }), sub, active: running > 0, rows: list.map(worktreeRow) };
 }
 
 // 세션 창 열기 인자: 수정 run 은 run 만, 에이전트·서브에이전트는 그 Agent 줄까지
