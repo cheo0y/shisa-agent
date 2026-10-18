@@ -13,6 +13,7 @@ import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
+import { BubbleExpiry } from '../src/bubble-expiry.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -230,24 +231,58 @@ wrap.dataset.view = 'idle';
 // 한 항목 = (그림 말풍선) + 글 말풍선. 그림이 먼저 뜨고 글은 SEQUENCE_GAP 뒤에.
 const queue = new BubbleQueue();
 const els = new Map(); // id → .item
-const timers = new Map(); // id → timeout
 const current = (id) => queue.items.find((x) => x.id === id);
 
+// 만료: 말풍선마다 만료 시각(보인 시각 + ttl)을 적어 두고 타이머는 가장 이른 것 하나만 건다.
+// 맥에서 타이머가 몇 분씩 늦게 깨도(App Nap·배경 타이머 억제) 깨는 순간·새 말풍선·마우스·창 보임 때 지난 것을 한꺼번에 치운다
+const expiry = new BubbleExpiry();
+let expiryTimer = null;
+
 function schedule(b) {
-  clearTimeout(timers.get(b.id));
-  timers.delete(b.id);
-  if (!b.ttlMs) return;
-  timers.set(b.id, setTimeout(() => {
-    const el = els.get(b.id);
-    // 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다
-    if (el && (el.matches(':hover') || el.querySelector('.merge-ask:not([hidden])'))) return schedule({ ...b, ttlMs: 3000 });
-    dismiss(b.id);
-  }, b.ttlMs));
+  if (!b) return;
+  expiry.set(b.id, b.ttlMs);
+  armExpiry();
+}
+
+function armExpiry() {
+  clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const n = expiry.next();
+  if (n === null) return;
+  expiryTimer = setTimeout(() => { expiryTimer = null; catchUp(); }, Math.max(0, n - Date.now()) + 15);
+}
+
+// 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다(만료 시각을 3초씩 미룬다)
+function bubbleBusy(id) {
+  const el = els.get(id);
+  return !!el && (el.matches(':hover') || !!el.querySelector('.merge-ask:not([hidden])'));
+}
+
+// 만료 시각이 지난 말풍선을 큐에서 뺀다(그리기는 render 가)
+function dropExpired() {
+  let n = 0;
+  for (const id of expiry.sweep(bubbleBusy)) if (queue.remove(id)) n++;
+  return n;
+}
+
+// 늦게 깬 타이머·이벤트에서 부른다: 지난 말풍선 치우기 + 그림→글 순서·그림 내리기도 시각으로 맞춘다
+function catchUp() {
+  const t = Date.now();
+  let hit = false;
+  for (const el of els.values()) {
+    if (el._textAt && el._textAt <= t && el.classList.contains('text-pending')) { el.classList.remove('text-pending'); hit = true; }
+    if (el._stickerGoneAt && el._stickerGoneAt <= t && !el.classList.contains('sticker-gone')) { el.classList.add('sticker-gone'); hit = true; }
+  }
+  if (expiry.due().length) render();
+  else {
+    armExpiry();
+    if (hit) requestAnimationFrame(recheckHit);
+  }
 }
 
 function dismiss(id) {
-  clearTimeout(timers.get(id));
-  timers.delete(id);
+  expiry.delete(id);
+  armExpiry();
   if (queue.remove(id)) render();
 }
 
@@ -278,6 +313,7 @@ function buildEl(b) {
   const steps = sequence(b);
   if (steps.length === 2) {
     item.classList.add('text-pending');
+    item._textAt = Date.now() + steps[1].delay;
     setTimeout(() => { item.classList.remove('text-pending'); requestAnimationFrame(recheckHit); }, steps[1].delay);
   }
   fillEl(item, b);
@@ -314,6 +350,7 @@ function setSticker(item, b) {
   item.classList.remove('sticker-gone');
   st.src = assetUrl(b.image);
   clearTimeout(item._stickerTimer);
+  item._stickerGoneAt = Date.now() + stickerTtl(b);
   item._stickerTimer = setTimeout(() => { item.classList.add('sticker-gone'); requestAnimationFrame(recheckHit); }, stickerTtl(b));
 }
 
@@ -560,6 +597,8 @@ async function sendMergeAsk(id, q) {
 }
 
 function render() {
+  dropExpired();
+  expiry.keep(new Set(queue.items.map((x) => x.id))); // 큐에서 밀려난 것은 잊는다
   const vis = queue.visible();
   const ids = new Set(vis.map((b) => b.id));
 
@@ -587,6 +626,7 @@ function render() {
     el.classList.add(age === 0 ? 'newest' : `age-${Math.min(age, 2)}`);
     stack.append(el); // 순서 맞추기(이미 있으면 이동)
   });
+  armExpiry();
   requestAnimationFrame(recheckHit);
 }
 
@@ -595,11 +635,8 @@ function showBubble(raw) {
   const b = normalizeBubble(raw);
   if (!b) return;
   queue.add(b);
-  // 큐에서 밀려난 것들 타이머 정리
-  const alive = new Set(queue.items.map((x) => x.id));
-  for (const id of timers.keys()) if (!alive.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); }
   schedule(b);
-  render();
+  render(); // 밀려난 것의 만료 시각 정리 · 그새 지난 것도 같이 치운다
 }
 
 cy.onClear((p) => { if (p && typeof p.id === 'string') dismiss(p.id); });
@@ -635,6 +672,8 @@ function takeCharacters(data) {
 cy.getCharacters?.().then(takeCharacters).catch(() => {});
 cy.onCharacters?.(takeCharacters);
 cy.onState((p) => { if (typeof p?.character === 'string') setCharacter(p.character); setMood(p?.mood); dispatchActivity({ type: 'state', activity: p?.activity, runs: p?.runs, danceId: p?.danceId, danceClip: p?.danceClip, danceVariant: p?.danceVariant }); }); // danceClip: 일정 알림·춤·응원·점심 중 어느 칸 · danceVariant: 그 칸의 몇 번째 영상(데몬이 고른다)
+
+cy.onState(catchUp); // 데몬 상태가 올 때마다(타이머가 늦게 깨도) 지난 말풍선을 치운다
 
 cy.onConnection(({ connected }) => {
   wrap.classList.toggle('sleepy', !connected);
@@ -769,7 +808,7 @@ function showReply(r) {
   if (r.show) cy.openPanel(r.show);
 }
 
-cy.onChat((ev) => dispatchChat({ type: 'event', ev }));
+cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
 cy.onAgents?.((p) => { agentsRunning = Math.max(0, Number(p?.running) || 0); syncChat(); });
 
 // ids: 먼저 올려 둔 첨부 id(있으면 글 없이도)
@@ -901,6 +940,7 @@ function updateHover(el) {
 }
 
 cy.onVisibility(({ hidden }) => {
+  catchUp();
   stack.classList.toggle('hidden', !!hidden);
   requestAnimationFrame(recheckHit);
 });
@@ -935,7 +975,13 @@ function resetPress() {
   dragging = false;
 }
 
+// 렌더러 타이머가 늦게 깨도 사용자가 보거나 움직이는 순간엔 지난 말풍선을 바로 치운다
+document.addEventListener('visibilitychange', catchUp);
+window.addEventListener('focus', catchUp);
+window.addEventListener('pageshow', catchUp);
+
 document.addEventListener('mousemove', (e) => {
+  catchUp();
   last = { x: e.clientX, y: e.clientY };
   if (down && (e.buttons & 1) === 0) resetPress();
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
