@@ -123,3 +123,23 @@ input.mp-edit {
 @media (max-width: 420px) {
   .mp-edit-hint { display: none; }
 }
+
+/* 카드끼리 순서: 카드 머리 ⋮⋮ 끌기(포인터 이벤트)·화살표 키·카드 아래 ↑↓.
+   윈도우 무테 창에서 drag 영역(-webkit-app-region: drag)이 포인터를 먹지 않게 카드·손잡이는 no-drag */
+.mp-list { position: relative; } /* 카드 offsetLeft·Top 기준(끄는 중 자리 재기) */
+.mp, button.mp-card-grip { -webkit-app-region: no-drag; }
+button.mp-card-grip {
+  flex: none; align-self: center; margin: -2px 0 -2px -6px; padding: 2px 5px; font-size: 13px; line-height: 18px;
+  letter-spacing: -2px; color: var(--faint); cursor: grab; touch-action: none; user-select: none;
+}
+button.mp-card-grip:hover:not(:disabled), button.mp-card-grip:focus-visible { color: var(--fg); }
+button.mp-card-up, button.mp-card-down { padding: 3px 7px; color: var(--faint); }
+button.mp-card-up:hover:not(:disabled), button.mp-card-down:hover:not(:disabled) { color: var(--fg); }
+button.mp-card-up:disabled, button.mp-card-down:disabled { opacity: 0.35; }
+.mp-list.is-sorting, .mp-list.is-sorting * { cursor: grabbing; user-select: none; }
+.mp.mp-card-dragging { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); box-shadow: none; }
+.mp.mp-card-dragging > * { opacity: 0.3; }
+.mp-drag-ghost.mp-card-ghost { max-width: min(260px, 70vw); padding: 6px 12px; font-weight: 650; border-radius: 9px; }
+@media (max-width: 520px) {
+  .mp-list.mp-open { grid-template-columns: 1fr; }
+}

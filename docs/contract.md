@@ -241,15 +241,17 @@ type Bubble = {
 
 | | |
 |---|---|
-| `GET /projects/manual` | 200 `{ projects }` |
+| `GET /projects/manual` | 200 `{ projects }`(진행 중 먼저 사용자가 정한 순서, 그 뒤 끝난 것을 최근에 끝낸 것부터) |
 | `POST /projects/manual { name, note?, start?, due?, source? }` | 201 `{ project }`. `name` 필수 |
 | `GET /projects/manual/:id` | 200 `{ project, todos }`(묶인 할 일, 열린 것 먼저, 그 안은 프로젝트 순서) |
 | `PATCH /projects/manual/:id { name?, note?, start?, due?, status? }` | 200 `{ project }`. `null`·빈 글은 지우기, `status: done`이면 `doneAt` |
 | `POST /projects/manual/:id/order { todoIds }` | 200 `{ todos }`(다시 매긴 순서). `todoIds`는 그 프로젝트의 열린 할 일을 하나도 빠짐없이 원하는 순서로 담는다. 끝낸 할 일은 넣어도 되고, 안 넣으면 그 뒤에 예전 순서대로 남는다. 빠진 열린 할 일·다른 프로젝트나 휴지통의 할 일·같은 id 두 번·모르는 키는 400, 없는 프로젝트는 404 |
+| `POST /projects/manual/order { ids }` | 200 `{ projects }`(다시 매긴 목록). 프로젝트끼리 순서(카드 ⋮⋮ 끌기·화살표 키·↑↓). `ids`는 진행 중 프로젝트를 하나도 빠짐없이 원하는 순서로 담는다. 빠진 진행 중 프로젝트·모르는 id·끝난 프로젝트·같은 id 두 번·모르는 키는 400, `X-CY-Agent` 없으면 403 |
 | `DELETE /projects/manual/:id` | 200 `{ ok, unlinked }`. 프로젝트만 지우고 묶인 할 일은 남긴다(묶음만 푼다) |
 | `GET /projects/calendar-events` | 200 `{ connected, ok, from, to, events[] }`. 연결된 캘린더(ICS 여러 개·MCP)에서 지난 3일 ~ 앞으로 14일 일정. 항목: `id`, `title`, `start`, `end`, `allDay`, `past`, `calendar?`, `location?`, `description?`, `attendees?`, `joinUrl?`, `draft`(그 일정으로 채운 `POST /projects/manual` 본문: 제목 → 이름, 설명·장소·참석자 → 메모, 날짜 → 시작·기한, `source`). 취소·거절한 일정은 뺀다. 캘린더가 안 붙었으면 `connected: false` |
 
 할 일에 묶기: `POST /todos`·`POST /todos/:id`의 `projectId`(id, 빼기는 `null`). 없는 프로젝트면 400.
+프로젝트끼리 순서는 `manual_projects.sort_order`(작을수록 위)로 저장한다. 진행 중인 것만 이 순서를 따르고, 끝난 것은 따로 모여 끝낸 순서(최근 것 위)다. 새로 만들거나(패널 ＋·채팅 `project_ops`) 다시 열면 진행 중 맨 위에 온다. 이름·기한을 고쳐도 자리는 그대로다. 열이 없던 예전 DB는 열을 붙이며 그때 보이던 순서(기한 가까운 것, 없는 건 뒤, 같으면 최근에 만든 것)대로 0부터 채운다. 대시보드 `manualProjects`와 AI 맥락(대시보드 요약·`projects` 도구의 「내가 만든 프로젝트」)도 이 순서다.
 프로젝트 안 순서는 할 일마다 `projectOrder`(작을수록 위)로 저장한다. 새로 넣거나 다른 프로젝트로 옮기면 그 프로젝트 맨 아래, 빼면 순서도 지운다(다시 넣으면 다시 맨 아래). 같은 `projectId`를 다시 보내면 순서는 그대로다. 이름 바꾸기는 할 일 탭과 같은 `POST /todos/:id { title }`(빈 제목 400, 사용자가 고친 필드로 남는다).
 
 ## 할 일

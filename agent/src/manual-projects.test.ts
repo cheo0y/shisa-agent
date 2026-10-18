@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ManualProjects, applyProjectOps, calendarPick, calendarPickWindow, draftFromEvent, manualProjectsContext, parseNewProject, parseOrderBody, parseProjectPatch, pickEvents,
+  ManualProjects, applyProjectOps, calendarPick, calendarPickWindow, draftFromEvent, manualProjectsContext, parseNewProject, parseOrderBody, parseProjectOrderBody, parseProjectPatch, pickEvents,
 } from "./manual-projects.ts";
 import { CalendarSync, icsSource, type CalEvent } from "./calendar-sync.ts";
 import { calendarName } from "./ics.ts";
@@ -27,7 +27,7 @@ function setup(extra: Record<string, unknown> = {}) {
   return { cfg, agent, store };
 }
 
-test("저장: 만들기·목록(진행 중 먼저, 기한 가까운 것)·고치기·끝내기·지우기", () => {
+test("저장: 만들기·목록(진행 중 먼저, 새로 만든 건 맨 위)·고치기·끝내기·지우기", () => {
   const store = new Store(":memory:");
   let t = Date.parse("2026-10-17T01:00:00Z");
   const pj = new ManualProjects(store, () => new Date(t += 1000));
@@ -36,7 +36,7 @@ test("저장: 만들기·목록(진행 중 먼저, 기한 가까운 것)·고치
   const c = pj.add({ name: "책장 정리" });
   assert.match(a.id, /^proj:/);
   assert.deepEqual([a.name, a.note, a.due, a.status], ["가을 행사 준비", "장소 섭외", "2026-10-30", "open"]);
-  assert.deepEqual(pj.list().map((p) => p.name), ["분기 보고서", "가을 행사 준비", "책장 정리"]);
+  assert.deepEqual(pj.list().map((p) => p.name), ["책장 정리", "분기 보고서", "가을 행사 준비"], "새로 만든 것이 진행 중 맨 위");
 
   const e = pj.edit(a.id, { name: "가을 행사", note: null, start: "2026-10-18" })!;
   assert.deepEqual([e.name, e.note, e.start, e.due], ["가을 행사", undefined, "2026-10-18", "2026-10-30"]);
@@ -44,7 +44,7 @@ test("저장: 만들기·목록(진행 중 먼저, 기한 가까운 것)·고치
   const done = pj.edit(b.id, { status: "done" })!;
   assert.equal(done.status, "done");
   assert.ok(done.doneAt);
-  assert.deepEqual(pj.list().map((p) => p.name), ["가을 행사", "책장 정리", "분기 보고서"]); // 끝난 건 뒤로
+  assert.deepEqual(pj.list().map((p) => p.name), ["책장 정리", "가을 행사", "분기 보고서"]); // 끝난 건 뒤로
   assert.equal(pj.edit(b.id, { status: "open" })!.doneAt, undefined);
   assert.equal(pj.edit("proj:none", { name: "x" }), undefined);
 
@@ -389,5 +389,121 @@ test("API: POST /projects/manual/:id/order: 저장하면 대시보드·AI 맥락
     assert.equal((await call("POST", `/todos/${encodeURIComponent(a)}`, { title: "현수막 주문" })).status, 200);
     const after = (await s.agent.dashboard()).todos.find((t) => t.id === a)!;
     assert.deepEqual([after.title, after.userEdited, after.projectOrder], ["현수막 주문", true, 1]);
+  } finally { bus.close(); }
+});
+
+test("프로젝트 순서: 새로 만들면 맨 위, 순서 바꾸기 저장·검증(모르는 id·끝난 것·빠진 것), 끝난 건 끝낸 순서, 다시 열면 맨 위, 다시 열어도 그대로", () => {
+  const store = new Store(":memory:");
+  let t = Date.parse("2026-10-17T01:00:00Z");
+  const pj = new ManualProjects(store, () => new Date(t += 1000));
+  const a = pj.add({ name: "A", due: "2026-10-20" });
+  const b = pj.add({ name: "B" });
+  const c = pj.add({ name: "C" });
+  const d = pj.add({ name: "D" });
+  const names = () => pj.list().map((p) => p.name);
+  assert.deepEqual(names(), ["D", "C", "B", "A"], "기한이 있어도 새로 만든 것이 맨 위");
+  const r = pj.reorderProjects([a.id, c.id, d.id, b.id]);
+  assert.ok(r.ok);
+  assert.deepEqual(names(), ["A", "C", "D", "B"]);
+  assert.deepEqual(pj.list().map((p) => (store.db.prepare("SELECT sort_order AS o FROM manual_projects WHERE id = ?").get(p.id) as any).o), [0, 1, 2, 3], "0부터 다시 매김");
+  // 검증: 모르는 id·빠진 id. 실패하면 그대로
+  assert.match((pj.reorderProjects([a.id, c.id, d.id, b.id, "proj:none"]) as any).error, /no such project/);
+  assert.match((pj.reorderProjects([a.id, c.id, d.id]) as any).error, /missing project/);
+  assert.deepEqual(names(), ["A", "C", "D", "B"]);
+  // 끝내면 끝난 묶음(끝낸 순서, 최근 것 위)으로, 진행 중 순서엔 끝난 걸 넣으면 거절
+  pj.edit(c.id, { status: "done" });
+  pj.edit(a.id, { status: "done" });
+  assert.deepEqual(names(), ["D", "B", "A", "C"]);
+  assert.match((pj.reorderProjects([b.id, d.id, a.id]) as any).error, /not an open project/);
+  assert.ok(pj.reorderProjects([b.id, d.id]).ok);
+  assert.deepEqual(names(), ["B", "D", "A", "C"]);
+  // 다시 열면 진행 중 맨 위, 또 만들면 그 위
+  pj.edit(c.id, { status: "open" });
+  assert.deepEqual(names(), ["C", "B", "D", "A"]);
+  const e = pj.add({ name: "E" });
+  assert.deepEqual(names(), ["E", "C", "B", "D", "A"]);
+  // 이름·기한을 고쳐도 자리 그대로, 지워도 나머지 순서 그대로
+  pj.edit(b.id, { name: "B2", due: "2026-10-18" });
+  pj.delete(e.id);
+  assert.deepEqual(names(), ["C", "B2", "D", "A"]);
+  assert.deepEqual(new ManualProjects(store).list().map((p) => p.name), ["C", "B2", "D", "A"], "다시 열어도 그대로");
+  // 본문 모양
+  assert.deepEqual(parseProjectOrderBody({ ids: ["a", "b"] }), { ok: true, value: ["a", "b"] });
+  for (const bad of [null, [], { ids: [] }, { ids: "a" }, { ids: ["a", 1] }, { ids: ["a", "a"] }, { ids: ["a"], x: 1 }, { todoIds: ["a"] }]) assert.equal(parseProjectOrderBody(bad).ok, false, JSON.stringify(bad));
+});
+
+test("프로젝트 순서: 예전 DB(sort_order 없음)는 열을 붙이며 지금 보이던 순서(기한 가까운 것 → 최근 만든 것)로 0부터, 끝난 건 그대로", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "cy-porder-"));
+  try {
+    const file = join(dir, "cy.db");
+    const s1 = new Store(file);
+    s1.db.exec(`CREATE TABLE manual_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, note TEXT, start_day TEXT, due_day TEXT,
+      status TEXT NOT NULL DEFAULT 'open', created TEXT NOT NULL, updated TEXT NOT NULL, done_at TEXT, source TEXT)`);
+    const ins = s1.db.prepare("INSERT INTO manual_projects (id, name, due_day, status, created, updated, done_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    ins.run("proj:a", "기한 먼 것", "2026-11-30", "open", "2026-10-01T00:00:00Z", "2026-10-01T00:00:00Z", null);
+    ins.run("proj:b", "기한 없음 옛것", null, "open", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00Z", null);
+    ins.run("proj:c", "기한 가까운 것", "2026-10-20", "open", "2026-10-03T00:00:00Z", "2026-10-03T00:00:00Z", null);
+    ins.run("proj:d", "기한 없음 새것", null, "open", "2026-10-04T00:00:00Z", "2026-10-04T00:00:00Z", null);
+    ins.run("proj:e", "끝난 것", null, "done", "2026-10-05T00:00:00Z", "2026-10-06T00:00:00Z", "2026-10-06T00:00:00Z");
+    s1.db.close();
+    const s2 = new Store(file);
+    const pj = new ManualProjects(s2);
+    assert.deepEqual(pj.list().map((p) => p.name), ["기한 가까운 것", "기한 먼 것", "기한 없음 새것", "기한 없음 옛것", "끝난 것"], "보이던 순서 그대로");
+    const ord = Object.fromEntries((s2.db.prepare("SELECT id, sort_order AS o FROM manual_projects").all() as any[]).map((r) => [r.id, r.o]));
+    assert.deepEqual(ord, { "proj:c": 0, "proj:a": 1, "proj:d": 2, "proj:b": 3, "proj:e": null });
+    pj.add({ name: "새로 만듦" });
+    assert.equal(pj.list()[0].name, "새로 만듦");
+    s2.db.close();
+    const s3 = new Store(file); // 또 열어도 다시 채우지 않는다
+    assert.deepEqual(new ManualProjects(s3).list().map((p) => p.name).slice(0, 3), ["새로 만듦", "기한 가까운 것", "기한 먼 것"]);
+    s3.db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("API: POST /projects/manual/order: 저장하면 목록·대시보드·AI 맥락도 그 순서, 빠진 id·모르는 id·중복·끝난 것 400, 헤더 없으면 403, GET 405", async () => {
+  const s = setup();
+  const bus = new Bus();
+  await bus.listen(0, {
+    approve: async () => "", hold: async () => "", briefing: async () => "",
+    dashboard: () => s.agent.dashboard(), todoDone: () => true, chat: () => "c", chatHistory: () => [],
+    todoAdd: (t) => s.agent.addTodo(t), todoEdit: (id, p) => s.agent.editTodo(id, p),
+    manualProjects: s.agent.manualProjectsApi(), projectExists: (id) => s.agent.projectExists(id),
+  });
+  const base = `http://127.0.0.1:${(bus.server!.address() as any).port}`;
+  const H = { "x-cy-agent": "1", "content-type": "application/json" };
+  const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = H) =>
+    fetch(base + path, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  try {
+    const mk = async (name: string) => (await (await call("POST", "/projects/manual", { name })).json()).project.id as string;
+    const a = await mk("가을 행사"), b = await mk("분기 보고서"), c = await mk("이사");
+    const done = await mk("끝난 일");
+    await call("PATCH", `/projects/manual/${encodeURIComponent(done)}`, { status: "done" });
+    const names = async () => (await (await call("GET", "/projects/manual")).json()).projects.map((p: any) => p.name);
+    assert.deepEqual(await names(), ["이사", "분기 보고서", "가을 행사", "끝난 일"]);
+    assert.equal((await call("POST", "/projects/manual/order", { ids: [a, b, c] }, { "content-type": "application/json" })).status, 403);
+    assert.equal((await call("POST", "/projects/manual/order", { ids: [a, b] })).status, 400, "빠진 id");
+    assert.equal((await call("POST", "/projects/manual/order", { ids: [a, b, c, "proj:none"] })).status, 400, "모르는 id");
+    assert.equal((await call("POST", "/projects/manual/order", { ids: [a, b, a, c] })).status, 400, "중복");
+    assert.equal((await call("POST", "/projects/manual/order", { ids: [a, b, c, done] })).status, 400, "끝난 것");
+    assert.equal((await call("POST", "/projects/manual/order", { todoIds: [a, b, c] })).status, 400, "모르는 키");
+    assert.equal((await call("GET", "/projects/manual/order")).status, 405);
+    const r = await call("POST", "/projects/manual/order", { ids: [b, a, c] });
+    assert.equal(r.status, 200);
+    assert.deepEqual((await r.json()).projects.map((p: any) => p.name), ["분기 보고서", "가을 행사", "이사", "끝난 일"]);
+    assert.deepEqual(await names(), ["분기 보고서", "가을 행사", "이사", "끝난 일"]);
+    const dash = await s.agent.dashboard();
+    assert.deepEqual(dash.manualProjects.map((p) => p.name), ["분기 보고서", "가을 행사", "이사", "끝난 일"]);
+    const ctx = dashboardSummary(dash);
+    const at = (n: string) => ctx.indexOf(` ${n} · 할 일`);
+    assert.ok(at("분기 보고서") > 0 && at("분기 보고서") < at("가을 행사") && at("가을 행사") < at("이사"), ctx);
+    assert.ok(!ctx.includes("끝난 일"));
+    // 다시 열면 진행 중 맨 위
+    await call("PATCH", `/projects/manual/${encodeURIComponent(done)}`, { status: "open" });
+    assert.deepEqual(await names(), ["끝난 일", "분기 보고서", "가을 행사", "이사"]);
+    // 프로젝트 안 할 일 순서(/projects/manual/:id/order)는 그대로 따로
+    assert.equal((await call("POST", `/projects/manual/${encodeURIComponent(a)}/order`, { todoIds: ["x"] })).status, 400);
   } finally { bus.close(); }
 });

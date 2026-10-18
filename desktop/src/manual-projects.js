@@ -103,6 +103,26 @@ export function sanitizeOrderIds(v) {
   return new Set(v).size === v.length ? v.slice() : null;
 }
 
+// ---- 카드끼리 순서(카드 머리 ⋮⋮ 끌기·화살표 키·↑↓) ----
+// 끌기 시작 문턱(CSS px). 누르고 이만큼 움직여야 끌기로 친다(클릭·터치패드 떨림과 구분, 고DPI 에서도 CSS px 라 같다)
+export const CARD_DRAG_START_PX = 5;
+export const pastDragStart = (dx, dy, px = CARD_DRAG_START_PX) => Math.hypot(Number(dx) || 0, Number(dy) || 0) >= px;
+// 카드 그리드(여러 열이어도)에서 끄는 카드가 들어갈 자리(끄는 카드를 뺀 목록 기준).
+// rects = [{ id, left, top, width, height }] 화면 순서. 한 열이면 세로 가운데로, 여러 열이면 읽는 순서(위 줄 → 같은 줄 왼쪽)로 센다:
+// 포인터보다 위 줄에 있거나(아래 끝이 포인터 위), 같은 줄인데 가로 가운데가 포인터 왼쪽이면 앞 카드
+export function gridSlot(rects, dragId, x, y) {
+  const others = arr(rects).filter((r) => r && r.id !== dragId);
+  if (!others.length) return 0;
+  const oneColumn = arr(rects).every((r) => Math.abs(r.left - arr(rects)[0].left) < 2);
+  if (oneColumn) return others.filter((r) => r.top + r.height / 2 < y).length;
+  return others.filter((r) => y > r.top + r.height || (y >= r.top && x > r.left + r.width / 2)).length;
+}
+// 메인(IPC)에서 한 번 더 보는 프로젝트 순서 본문: 프로젝트 id 모양만, 겹치면 거절
+export function sanitizeProjectOrderIds(v) {
+  const ids = sanitizeOrderIds(v);
+  return ids && ids.every((x) => okProjectId(x)) ? ids : null;
+}
+
 // ---- 만들기·고치기 창 ----
 export const emptyDraft = () => ({ name: '', note: '', start: '', due: '', source: null });
 // 고르던 일정 → 칸(데몬이 채워 준 draft 그대로, 모양만 다듬음)

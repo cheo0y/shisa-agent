@@ -14,7 +14,7 @@ import { isSafeLink } from './src/bubbles.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
 import { normalizeSection } from './src/dashboard.js';
 import { sanitizeTodoPatch } from './src/todos.js';
-import { sanitizeProjectBody, sanitizeOrderIds, okProjectId } from './src/manual-projects.js';
+import { sanitizeProjectBody, sanitizeOrderIds, sanitizeProjectOrderIds, okProjectId } from './src/manual-projects.js';
 import { okRuleId, sanitizeRulePatch } from './src/todo-rules.js';
 import { clickTarget, pickRun, okRunId, okModelId, cleanMessage } from './src/session.js';
 import { okClientId, okMsgId } from './src/session-inbox.js';
@@ -1749,6 +1749,12 @@ function setupIPC() {
     const ids = sanitizeOrderIds(todoIds);
     if (!fromOurs(e) || !okProjectId(id) || !ids) return denied();
     return post(`/projects/manual/${encodeURIComponent(id)}/order`, { todoIds: ids });
+  });
+  // 프로젝트끼리 순서(카드 ⋮⋮ 끌기): 진행 중 프로젝트 id 를 원하는 순서로 모두
+  ipcMain.handle('projects-order', (e, ids) => {
+    const list = sanitizeProjectOrderIds(ids);
+    if (!fromOurs(e) || !list) return denied();
+    return post('/projects/manual/order', { ids: list });
   });
   ipcMain.handle('project-delete', (e, id) => {
     if (!fromOurs(e) || !okProjectId(id)) return denied();

@@ -44,7 +44,7 @@ import { addAgentWorktree, agentBranch, finishAgentWorktree, isolationSource, wo
 import { runBackgroundAgent } from "./chat.ts";
 import { inlineContext } from "./ctx-tools.ts";
 import { AttachmentStore, type Attachment } from "./attachments.ts";
-import { ManualProjects, applyProjectOps, parseNewProject, parseOrderBody, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
+import { ManualProjects, applyProjectOps, parseNewProject, parseOrderBody, parseProjectOrderBody, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
 import { Guidelines, applyGuidelineOp, guidelinesApi, setGuidelineStore, type GuidelineCtx, type GuidelinesApi } from "./guidelines.ts";
 import { WAIT_SETUP, modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
 
@@ -1132,7 +1132,17 @@ ${meetingsContext(this.store)}`,
   manualProjectsApi() {
     const missing = { status: 404, body: { error: "no such project" } };
     return {
-      handle: (method: string, id: string | undefined, body: unknown, sub?: "order"): { status: number; body: unknown } => {
+      handle: (method: string, id: string | undefined, body: unknown, sub?: "order" | "projects-order"): { status: number; body: unknown } => {
+        // 프로젝트끼리 순서: { ids }. 진행 중 프로젝트 모두, 모르는 id·끝난 것·빠진 것·중복은 400
+        if (sub === "projects-order") {
+          if (method !== "POST") return { status: 405, body: { error: "method not allowed" } };
+          const ids = parseProjectOrderBody(body);
+          if (!ids.ok) return { status: 400, body: { error: ids.error } };
+          const r = this.projects.reorderProjects(ids.value);
+          if (!r.ok) return { status: 400, body: { error: r.error } };
+          this.changed();
+          return { status: 200, body: { projects: this.projects.views() } };
+        }
         // 프로젝트 안 할 일 순서: { todoIds }. 그 프로젝트의 열린 할 일 모두, 남의 id·빠진 id 는 400
         if (sub === "order") {
           if (method !== "POST" || !id) return { status: 405, body: { error: "method not allowed" } };

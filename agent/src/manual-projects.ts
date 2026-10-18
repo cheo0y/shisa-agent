@@ -2,6 +2,8 @@
 // 코드 작업(Claude Code·Codex 세션·git 레포)에서 저절로 모은 프로젝트(dashboard.ts projects)와 따로, cy.db 의 manual_projects 테이블에 둔다.
 // 할 일은 todos.project_id 로 묶는다(할 일 하나에 프로젝트 하나, 없으면 안 묶임). 프로젝트를 지우면 할 일은 남기고 묶음만 푼다.
 // 프로젝트 안 순서는 todos.project_order(작을수록 위). 넣으면 맨 아래, 카드에서 끌어 바꾸면 POST /projects/manual/:id/order 로 다시 매긴다.
+// 프로젝트끼리 순서는 manual_projects.sort_order(작을수록 위, 진행 중인 것만 의미). 새로 만들거나 다시 열면 진행 중 맨 위,
+// 카드 머리 ⋮⋮ 를 끌어 바꾸면 POST /projects/manual/order 로 0..n 다시 매긴다. 끝난 건 끝낸 순서(최근 것 위)로 따로 모인다.
 import { randomUUID } from "node:crypto";
 import { localDate } from "./calendar.ts";
 import type { CalEvent } from "./calendar-sync.ts";
@@ -104,10 +106,31 @@ export function parseOrderBody(body: unknown): Result<string[]> {
   return { ok: true, value: ids };
 }
 
+// POST /projects/manual/order 본문 { ids: [...] }. 모양만 본다(진행 중 프로젝트를 빠짐없이 담았는지는 reorderProjects 가)
+export function parseProjectOrderBody(body: unknown): Result<string[]> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return fail("json object required");
+  const b = body as Record<string, unknown>;
+  for (const k of Object.keys(b)) if (k !== "ids") return fail(`unknown field: ${k}`);
+  if (!Array.isArray(b.ids) || !b.ids.length) return fail("ids must be a non-empty array");
+  if (b.ids.some((x) => typeof x !== "string" || !x)) return fail("ids must be strings");
+  const ids = b.ids as string[];
+  const dup = ids.find((x, i) => ids.indexOf(x) !== i);
+  if (dup) return fail(`duplicate project id: ${dup}`);
+  return { ok: true, value: ids };
+}
+
 // ---- 저장소 ----
+// 예전에 보이던 진행 중 순서: 기한 가까운 것(없는 건 뒤) → 최근에 만든 것. sort_order 가 없던 DB 를 이 순서로 0부터 채운다
+const LEGACY_OPEN_ORDER = "due_day IS NULL, due_day, created DESC";
 export function ensureProjectTable(store: Store) {
   store.db.exec(`CREATE TABLE IF NOT EXISTS manual_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, note TEXT, start_day TEXT, due_day TEXT,
-    status TEXT NOT NULL DEFAULT 'open', created TEXT NOT NULL, updated TEXT NOT NULL, done_at TEXT, source TEXT)`);
+    status TEXT NOT NULL DEFAULT 'open', created TEXT NOT NULL, updated TEXT NOT NULL, done_at TEXT, source TEXT, sort_order INTEGER)`);
+  const cols = new Set((store.db.prepare("PRAGMA table_info(manual_projects)").all() as any[]).map((c) => String(c.name)));
+  if (cols.has("sort_order")) return;
+  store.db.exec("ALTER TABLE manual_projects ADD COLUMN sort_order INTEGER");
+  const ids = (store.db.prepare(`SELECT id FROM manual_projects WHERE status = 'open' ORDER BY ${LEGACY_OPEN_ORDER}`).all() as any[]).map((r) => String(r.id));
+  const st = store.db.prepare("UPDATE manual_projects SET sort_order = ? WHERE id = ?");
+  ids.forEach((id, i) => st.run(i, id));
 }
 function row(r: any): ManualProject {
   let source: ProjectSource | undefined;
@@ -129,10 +152,32 @@ export class ManualProjects {
     const r = this.store.db.prepare("SELECT * FROM manual_projects WHERE id = ?").get(id);
     return r ? row(r) : undefined;
   }
-  // 진행 중 먼저, 그 안에서 기한 가까운 것(없는 건 뒤) → 최근에 만든 것. 끝난 건 최근에 끝낸 것부터
+  // 진행 중 먼저, 그 안은 사용자가 정한 순서(sort_order, 없으면 예전 규칙: 기한 가까운 것 → 최근에 만든 것). 끝난 건 최근에 끝낸 것부터
   list(): ManualProject[] {
     return (this.store.db.prepare(`SELECT * FROM manual_projects ORDER BY status = 'done', CASE WHEN status = 'done' THEN coalesce(done_at, updated) END DESC,
-      due_day IS NULL, due_day, created DESC`).all() as any[]).map(row);
+      sort_order IS NULL, sort_order, ${LEGACY_OPEN_ORDER}`).all() as any[]).map(row);
+  }
+  // 진행 중 맨 위 자리(지금 가장 작은 순서 - 1). 음수도 괜찮다(다음 순서 바꾸기에서 0..n 으로 다시 매긴다)
+  private topOrder(): number {
+    const r = this.store.db.prepare("SELECT min(sort_order) AS m FROM manual_projects WHERE status = 'open'").get() as any;
+    return r?.m === null || r?.m === undefined ? 0 : Number(r.m) - 1;
+  }
+  // 프로젝트끼리 순서 바꾸기: ids 는 진행 중 프로젝트를 빠짐없이 원하는 순서로. 모르는 id·끝난 프로젝트 → bad, 빠진 진행 중 → missing
+  reorderProjects(ids: string[]): { ok: true; projects: ManualProject[] } | { ok: false; error: string } {
+    const all = this.list();
+    const open = new Set(all.filter((p) => p.status === "open").map((p) => p.id));
+    const known = new Set(all.map((p) => p.id));
+    const stranger = ids.find((x) => !known.has(x));
+    if (stranger) return { ok: false, error: `no such project: ${stranger}` };
+    const closed = ids.find((x) => !open.has(x));
+    if (closed) return { ok: false, error: `not an open project: ${closed}` };
+    const given = new Set(ids);
+    const left = [...open].find((x) => !given.has(x));
+    if (left) return { ok: false, error: `missing project: ${left}` };
+    const st = this.store.db.prepare("UPDATE manual_projects SET sort_order = ? WHERE id = ?");
+    this.store.db.exec("BEGIN");
+    try { ids.forEach((id, i) => st.run(i, id)); this.store.db.exec("COMMIT"); } catch (e) { this.store.db.exec("ROLLBACK"); throw e; }
+    return { ok: true, projects: this.list() };
   }
   // 묶인 할 일 수(휴지통 빼고)·남은 수
   counts(): Map<string, { todos: number; openTodos: number }> {
@@ -174,18 +219,22 @@ export class ManualProjects {
   add(p: NewProject): ManualProject {
     const id = `proj:${randomUUID()}`;
     const at = this.now().toISOString();
-    this.store.db.prepare("INSERT INTO manual_projects (id, name, note, start_day, due_day, status, created, updated, source) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)")
-      .run(id, p.name, p.note ?? null, p.start ?? null, p.due ?? null, at, at, p.source ? JSON.stringify(p.source) : null);
+    // 새 프로젝트는 진행 중 맨 위
+    this.store.db.prepare("INSERT INTO manual_projects (id, name, note, start_day, due_day, status, created, updated, source, sort_order) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)")
+      .run(id, p.name, p.note ?? null, p.start ?? null, p.due ?? null, at, at, p.source ? JSON.stringify(p.source) : null, this.topOrder());
     return this.get(id)!;
   }
   edit(id: string, patch: ProjectPatch): ManualProject | undefined {
     const cur = this.get(id);
     if (!cur) return undefined;
-    const sets: string[] = [], vals: (string | null)[] = [];
+    const sets: string[] = [], vals: (string | number | null)[] = [];
     const col = { name: "name", note: "note", start: "start_day", due: "due_day" } as const;
     for (const k of Object.keys(col) as (keyof typeof col)[]) if (patch[k] !== undefined) { sets.push(`${col[k]} = ?`); vals.push(patch[k] ?? null); }
     const at = this.now().toISOString();
-    if (patch.status && patch.status !== cur.status) { sets.push("status = ?", "done_at = ?"); vals.push(patch.status, patch.status === "done" ? at : null); }
+    if (patch.status && patch.status !== cur.status) {
+      sets.push("status = ?", "done_at = ?"); vals.push(patch.status, patch.status === "done" ? at : null);
+      if (patch.status === "open") { sets.push("sort_order = ?"); vals.push(this.topOrder()); } // 다시 열면 진행 중 맨 위
+    }
     if (!sets.length) return cur;
     sets.push("updated = ?"); vals.push(at);
     this.store.db.prepare(`UPDATE manual_projects SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);
@@ -326,7 +375,7 @@ export function applyProjectOps(projects: ManualProjects, ops: unknown[]): { app
   return { applied, errors, added };
 }
 
-// 맥락 줄(대시보드 요약·projects 도구). 진행 중인 것만, 할 일 수·기한. todos(열린 할 일)를 주면 프로젝트마다 그 안 순서대로 아래에 단다
+// 맥락 줄(대시보드 요약·projects 도구). 진행 중인 것만, 사용자가 카드에서 정한 순서(list 순서) 그대로, 할 일 수·기한. todos(열린 할 일)를 주면 프로젝트마다 그 안 순서대로 아래에 단다
 export type ContextTodo = { id: string; title: string; projectId?: string; projectOrder?: number };
 export function manualProjectsContext(list: ManualProjectView[], todos: ContextTodo[] = []): string[] {
   const open = list.filter((p) => p.status === "open");
@@ -334,7 +383,7 @@ export function manualProjectsContext(list: ManualProjectView[], todos: ContextT
   const of = (pid: string) => todos.filter((t) => t.projectId === pid)
     .map((t, i) => ({ t, i })).sort((a, b) => (a.t.projectOrder ?? Infinity) - (b.t.projectOrder ?? Infinity) || a.i - b.i).map((x) => x.t);
   return [
-    "### 내가 만든 프로젝트 (진행 중 — project_ops·todo_ops 의 project 에 쓸 id. 할 일은 사용자가 정한 순서)",
+    "### 내가 만든 프로젝트 (진행 중, 사용자가 정한 순서 — project_ops·todo_ops 의 project 에 쓸 id. 할 일도 사용자가 정한 순서)",
     ...open.flatMap((p) => [
       `- id=${p.id} ${p.name}${p.due ? ` — 기한 ${p.due}` : ""}${p.start ? `, 시작 ${p.start}` : ""} · 할 일 ${p.openTodos}/${p.todos} 남음${p.source ? ` · 📅 일정에서${p.source.calendar ? `(${p.source.calendar})` : ""}` : ""}${p.note ? ` · 메모: ${p.note.replace(/\s+/g, " ").slice(0, 120)}` : ""}`,
       ...of(p.id).map((t, i) => `  ${i + 1}. ${t.title} (id=${t.id})`),
