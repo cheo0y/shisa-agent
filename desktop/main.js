@@ -35,7 +35,7 @@ import { okPickModel, okPickProvider, chatPickBody } from './src/chat-pick.js';
 import { KEY_PROVIDERS, normalizeSisa, publicView, withKey, withCli, withGsk, withSkip, withoutProvider, activeProvider, withModels, withVoice, connectedProviders, daemonBrainPatch, withDaemonBrain, settingsBrainBody } from './src/sisa-store.js';
 import { personaFor } from './src/persona.js';
 import { okCharacter, characterName, appName } from './src/character.js';
-import { applyCharacters } from './src/character-registry.js';
+import { applyCharacters, staticCharacters } from './src/character-registry.js';
 import { normStatus, brainView, sameView } from './src/brain-state.js';
 import { isAskId } from './src/quick-ask.js';
 import { isFocusCmd, DAY_RE, doingTodos } from './src/focus.js';
@@ -84,6 +84,11 @@ const userData = path.join(app.getPath('appData'), 'cy-agent-desktop');
 function configCharacter() {
   try { return JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8').replace(/^\uFEFF/, ''))?.character; } catch { return null; } // BOM: 메모장으로 저장한 파일
 }
+// 언어(데몬 config.json language): 켤 때 그 언어 기본 캐릭터 이름으로 앱 이름을 짓는다(데몬 목록이 오면 그걸로 다시)
+function configLanguage() {
+  try { return JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8').replace(/^\uFEFF/, ''))?.language; } catch { return null; }
+}
+{ const st = staticCharacters(configLanguage()); if (st) applyCharacters(st); }
 let wantChar = configCharacter(); // 데몬이 고른 id 그대로(사용자 캐릭터는 목록을 받기 전엔 모른다 — 받으면 다시 맞춘다)
 let charId = okCharacter(wantChar);
 const who = () => characterName(charId);

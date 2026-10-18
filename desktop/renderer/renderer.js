@@ -13,6 +13,7 @@ import { normFocus, focusBubble, doingBubble, focusSend } from '../src/focus.js'
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
+import { ui, setLanguage } from '../src/lang.js';
 import { BubbleExpiry } from '../src/bubble-expiry.js';
 import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
 import { createPressTracker, missedClick, missedPress, staleHold } from '../src/press.js';
@@ -33,6 +34,7 @@ const savedCharacter = () => { try { return localStorage.getItem(CHAR_KEY); } ca
 // 사용자 캐릭터·고친 대사(데몬 GET /characters → 메인 → 'characters'). 지난번 목록을 먼저 써서 켤 때 시사가 잠깐 보이지 않게
 const CHARS_KEY = 'cy-characters';
 try { const c = JSON.parse(localStorage.getItem(CHARS_KEY) ?? 'null'); if (c) applyCharacters(c); } catch { /* 없거나 깨짐 → 기본값 */ }
+applyUiLang(); // 지난번 언어로 입력창·단추 글(목록 안 language)
 let wantChar = savedCharacter(); // 데몬이 고른 id 그대로(목록을 받기 전엔 모를 수 있다)
 let charA = characterAssets(wantChar);
 const probe = (url) => new Promise((ok) => {
@@ -197,7 +199,7 @@ function setCharacter(id, force = false) {
   const cid = okCharacter(id);
   const next = characterAssets(cid);
   setWho(cid); // 이름만 바뀌었을 수도
-  document.getElementById('ask-input')?.setAttribute('aria-label', `${who()}에게 물어보기`);
+  document.getElementById('ask-input')?.setAttribute('aria-label', ui('ask_label', who()));
   try { localStorage.setItem(CHAR_KEY, typeof id === 'string' ? id : cid); } catch { /* 못 적어도 그림은 바뀐다 */ }
   if (!redrawCharacter({ cur: charA, next, force, fellBack: stillIdx > 0 })) return;
   charA = next;
@@ -412,8 +414,8 @@ function fillEl(item, b) {
     meta.classList.add('quick-bar');
     for (const c of chipsOf(b.quick)) meta.append(button(c.label, c.connect ? 'chip connect' : 'chip', () => quickChip(c.id)));
   } else if (b.kind === 'proposal' && b.proposalId && !b.decided) {
-    const ok = button('승인', 'primary', () => decide(b, 'approve'));
-    const hold = button('보류', '', () => decide(b, 'hold'));
+    const ok = button(ui('approve'), 'primary', () => decide(b, 'approve'));
+    const hold = button(ui('hold'), '', () => decide(b, 'hold'));
     meta.append(ok, hold);
     if (b.pending) { ok.disabled = true; hold.disabled = true; }
   }
@@ -429,12 +431,12 @@ function fillEl(item, b) {
   bub?.querySelector(':scope > button.close')?.remove();
   if (b.closable && bub) {
     const x = button('✕', 'close', () => dismiss(b.id));
-    x.setAttribute('aria-label', '닫기');
-    x.title = '닫기';
+    x.setAttribute('aria-label', ui('close'));
+    x.title = ui('close');
     bub.append(x);
   }
-  if (b.open && !carryButtons(b).length) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
-  else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
+  if (b.open && !carryButtons(b).length) meta.append(button(b.openLabel ?? ui('open_panel'), 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
+  else if (b.panelSection) meta.append(button(ui('open_panel'), 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
   if (!(b.actions === 'merge' && !b.decided)) closeMergeAsk(b.id, false);
   // 넓은 목록 말풍선이 10줄을 넘으면 흐리게 자르고, 열 곳이 없으면 "패널에서 보기"(개요)
@@ -443,7 +445,7 @@ function fillEl(item, b) {
     const over = d.scrollHeight > d.clientHeight + 2;
     bubble.classList.toggle('overflow', over);
     if (over && !b.open && !b.panelSection && !meta.querySelector('.more')) {
-      const more = button('패널에서 보기', 'link more', () => { cy.openPanel('overview'); dismiss(b.id); });
+      const more = button(ui('open_panel'), 'link more', () => { cy.openPanel('overview'); dismiss(b.id); });
       meta.append(more);
       recheckHit();
     }
@@ -697,8 +699,19 @@ function setMood(m) {
   if (!isBusy(chat)) applyMood(daemonMood);
 }
 // 사용자 캐릭터·고친 대사: 받으면 넣고(다음에 켤 때 먼저 쓰게 남겨 둔다) 지금 캐릭터를 다시 그린다
+// 캐릭터 창에 늘 보이는 화면 글(입력창·단추)을 지금 언어(lang.js)로
+function applyUiLang() {
+  const set = (id, attrs) => { const e = document.getElementById(id); if (e) for (const [k, v] of Object.entries(attrs)) k === 'text' ? (e.textContent = v) : e.setAttribute(k, v); };
+  set('ask-input', { placeholder: ui('ask_placeholder'), 'aria-label': ui('ask_label', who()) });
+  set('ask-attach', { title: ui('ask_attach'), 'aria-label': ui('ask_attach_label') });
+  set('ask-more', { title: ui('ask_more'), 'aria-label': ui('ask_more_label') });
+  set('focus-stop', { text: ui('focus_stop') });
+  set('doing-label', { text: ui('doing') });
+  set('caption-stop', { title: ui('stop') });
+}
 function takeCharacters(data) {
   if (!data || !applyCharacters(data)) return;
+  applyUiLang();
   try { localStorage.setItem(CHARS_KEY, JSON.stringify(data)); } catch { /* 못 남겨도 지금은 바뀐다 */ }
   setCharacter(wantChar, true);
 }
@@ -706,6 +719,7 @@ cy.getCharacters?.().then(takeCharacters).catch(() => {});
 cy.onCharacters?.(takeCharacters);
 cy.onState((p) => { if (typeof p?.character === 'string') setCharacter(p.character); setMood(p?.mood); dispatchActivity({ type: 'state', activity: p?.activity, runs: p?.runs, danceId: p?.danceId, danceClip: p?.danceClip, danceVariant: p?.danceVariant }); }); // danceClip: 일정 알림·춤·응원·점심 중 어느 칸 · danceVariant: 그 칸의 몇 번째 영상(데몬이 고른다)
 
+cy.onState((p) => { if (typeof p?.language === 'string' && setLanguage(p.language)) applyUiLang(); }); // 언어(데몬 state.language) — 대사는 곧 오는 'characters' 로
 cy.onState(catchUp); // 데몬 상태가 올 때마다(타이머가 늦게 깨도) 지난 말풍선을 치운다
 
 cy.onConnection(({ connected }) => {

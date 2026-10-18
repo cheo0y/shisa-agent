@@ -9,6 +9,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SRC = path.join(ROOT, '..', 'assets', 'characters', 'lines.json');
 export const OUT = path.join(ROOT, 'src', 'character-lines.js');
+// 다른 언어 대사(lines.<언어>.json — 시사까지 들어 있다) → character-lines.<언어>.js
+export const LANG_SRC = { ja: path.join(ROOT, '..', 'assets', 'characters', 'lines.ja.json') };
+export const LANG_OUT = { ja: path.join(ROOT, 'src', 'character-lines.ja.js') };
 export const CLIPS_SRC = path.join(ROOT, '..', 'assets', 'characters', 'clips.json');
 export const CLIPS_OUT = path.join(ROOT, 'src', 'character-clips.js');
 
@@ -16,6 +19,11 @@ export function render(json) {
   const data = JSON.parse(json);
   delete data._help;
   return `// 자동으로 만든 파일 — 고치지 마세요. 원본은 assets/characters/lines.json(node scripts/sync-character-lines.mjs)\nexport const CHARACTER_LINES = ${JSON.stringify(data, null, 2)};\n`;
+}
+export function renderLang(lang, json) {
+  const data = JSON.parse(json);
+  delete data._help;
+  return `// 자동으로 만든 파일 — 고치지 마세요. 원본은 assets/characters/lines.${lang}.json(node scripts/sync-character-lines.mjs)\nexport const CHARACTER_LINES_${lang.toUpperCase()} = ${JSON.stringify(data, null, 2)};\n`;
 }
 export function renderClips(json) {
   const data = JSON.parse(json);
@@ -25,7 +33,8 @@ export function renderClips(json) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let bad = false;
-  for (const [src, out, fn] of [[SRC, OUT, render], [CLIPS_SRC, CLIPS_OUT, renderClips]]) {
+  const langs = Object.keys(LANG_SRC).map((l) => [LANG_SRC[l], LANG_OUT[l], (j) => renderLang(l, j)]);
+  for (const [src, out, fn] of [[SRC, OUT, render], ...langs, [CLIPS_SRC, CLIPS_OUT, renderClips]]) {
     const want = fn(fs.readFileSync(src, 'utf8'));
     const have = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
     if (want === have) continue;

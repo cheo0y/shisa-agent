@@ -6,6 +6,7 @@
 
 import { CHARACTER_LINES } from './character-lines.js';
 import { CHARACTER_CLIPS } from './character-clips.js';
+import { ui } from './lang.js';
 
 export const CHAR_DIR = 'cy-asset://app/character';
 // 정지 그림 대체 순서: 눈 뜬 그림 → 예전 개인 그림 → 번들 그림 → 번들 svg
@@ -72,7 +73,8 @@ export const localSay = (id) => LOCAL_SAY[okCharacter(id)] ?? SHISA_SAY_LOCAL;
 
 // 화면에 쓰는 이름: 「하치와레」·「하치와레 비서」(앱 이름·메뉴·창 제목)
 export const characterName = (id) => CHARACTERS[okCharacter(id)].name;
-export const appName = (id) => `${characterName(id)} 비서`;
+// 언어마다(lang.js): 「하치와레 비서」·「ハチワレ秘書」
+export const appName = (id) => ui('app_name', characterName(id));
 export const okCharacter = (id) => (typeof id === 'string' && Object.hasOwn(CHARACTERS, id) ? id : DEFAULT_CHARACTER);
 
 // ---- 사용자 캐릭터 그림·영상 ----

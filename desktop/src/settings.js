@@ -2,6 +2,7 @@
 // 데몬 GET/PUT /settings, GET /connections, POST /connections/check (docs/contract.md "설정 창").
 
 import { okCharacterId, MEDIA_SLOTS } from './character.js';
+import { isLang } from './lang.js';
 
 export const CHECK_IDS = ['net', 'claude', 'services', 'gh', 'local'];
 export const okCheckId = (id) => typeof id === 'string' && CHECK_IDS.includes(id);
@@ -31,7 +32,12 @@ export function autoMergeNext(list, slug, add) {
 export function sanitizeSettingsPatch(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const out = {};
-  for (const k of Object.keys(p)) if (k !== 'models' && k !== 'brainModels' && k !== 'briefing' && k !== 'phrases' && k !== 'autoMerge' && k !== 'todayReminder' && k !== 'readSessions' && k !== 'calendarAlert' && k !== 'lunchAlert' && !WORK_KEYS.includes(k) && k !== 'weather' && k !== 'character') return null;
+  for (const k of Object.keys(p)) if (k !== 'models' && k !== 'brainModels' && k !== 'briefing' && k !== 'phrases' && k !== 'autoMerge' && k !== 'todayReminder' && k !== 'readSessions' && k !== 'calendarAlert' && k !== 'lunchAlert' && !WORK_KEYS.includes(k) && k !== 'weather' && k !== 'character' && k !== 'language') return null;
+  // 언어(src/lang.js · 데몬 lang.ts)
+  if (p.language !== undefined) {
+    if (!isLang(p.language)) return null;
+    out.language = p.language;
+  }
   // 캐릭터(src/character.js 의 id)
   if (p.character !== undefined) {
     if (!okCharacterId(p.character)) return null; // 기본 여덟 또는 사용자 캐릭터 모양(있는지는 데몬이)

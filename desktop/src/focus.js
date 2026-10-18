@@ -1,3 +1,4 @@
+import { ui } from './lang.js';
 // 집중하기(포커스 타이머) — 순수 로직. 캐릭터 말풍선·패널(할 일 하단 「오늘 집중」·집중 기록)·테스트가 같이 쓴다.
 // 데몬 GET /focus · SSE focus 모양(docs/contract.md 「집중하기」):
 // { active: null | { id, startedAt, paused, baseMs, since, seconds }, day, today, now }
@@ -84,11 +85,11 @@ export function focusBubble(f, now = Date.now()) {
   const sec = elapsedSec(a, now);
   const t = a.todo ? [...a.todo.title] : null; // 할 일로 집중하면 그 제목(길면 줄여서)
   return {
-    label: a.paused ? '잠깐 쉬는 중' : t ? (t.length > 12 ? `${t.slice(0, 11).join('')}…` : t.join('')) : '집중 중',
+    label: a.paused ? ui('focus_paused') : t ? (t.length > 12 ? `${t.slice(0, 11).join('')}…` : t.join('')) : ui('focus_on'),
     time: a.goalSec ? `${fmtClock(sec)} / ${fmtClock(a.goalSec)}` : fmtClock(sec),
-    ...(a.todo ? { title: `집중 중: ${a.todo.title}` } : {}),
+    ...(a.todo ? { title: ui('focus_todo', a.todo.title) } : {}),
     paused: a.paused,
-    toggle: a.paused ? { cmd: 'resume', label: '다시 시작' } : { cmd: 'pause', label: '일시정지' },
+    toggle: a.paused ? { cmd: 'resume', label: ui('focus_resume') } : { cmd: 'pause', label: ui('focus_pause') },
   };
 }
 
@@ -104,7 +105,7 @@ export function doingBubble(list, focus) {
   if (focus?.active) return null;
   const xs = doingTodos(list);
   if (!xs.length) return null;
-  return { label: '진행 중', title: xs[0].title, more: xs.length - 1, text: `${xs[0].title}${xs.length > 1 ? ` 외 ${xs.length - 1}개` : ''}`, id: xs[0].id };
+  return { label: ui('doing'), title: xs[0].title, more: xs.length - 1, text: `${xs[0].title}${xs.length > 1 ? ui('doing_more', xs.length - 1) : ''}`, id: xs[0].id };
 }
 
 // ---- 잔디 단계(GitHub 기여 그래프처럼): 0 = 빈 칸, 1~4 = 오래 집중할수록 진하게 ----

@@ -270,6 +270,29 @@ function renderAppPrefs() {
   hint.textContent = login.hint || '';
   hint.hidden = !login.hint;
 }
+// 언어(데몬 settings.language · languages): 고르면 PUT /settings { language } — 캐릭터 이름·대사·AI 답 언어가 바로 바뀐다(데몬이 SSE characters·state 로 창마다 알린다)
+function renderLang() {
+  const box = $('app-lang');
+  if (!box) return;
+  box.replaceChildren();
+  if (!settings) return;
+  const list = Array.isArray(settings.languages) && settings.languages.length ? settings.languages : [{ id: 'ko', label: '한국어' }];
+  for (const l of list) {
+    const lab = el('label', 'toggle');
+    const rb = el('input');
+    rb.type = 'radio';
+    rb.name = 'app-lang';
+    rb.value = l.id;
+    rb.checked = (settings.language ?? 'ko') === l.id;
+    rb.addEventListener('change', async () => {
+      if (!rb.checked) return;
+      if (await save({ language: l.id })) { renderPhrases(); renderCharacter(); }
+      renderLang();
+    });
+    lab.append(rb, document.createTextNode(l.label));
+    box.append(lab);
+  }
+}
 async function loadAppPrefs() {
   const r = await cy.getAppPrefs?.().catch(() => null);
   if (r?.ok) { appPrefs = r; renderAppPrefs(); }
@@ -1254,7 +1277,7 @@ async function load() {
   if (k && typeof k === 'object' && typeof k.claude === 'boolean') caps = { claude: k.claude, codex: k.codex === true };
   if (!s?.ok || !c?.ok) banner(`${who()}에 연결되지 않았어요. ${who()}가 켜져 있는지 확인해 주세요.`);
   else banner(null);
-  if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); loadCharacters(); }
+  if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); renderLang(); loadCharacters(); }
   if (c?.ok) {
     await loadCalendars();
     rows = Array.isArray(c.data?.rows) ? c.data.rows : [];

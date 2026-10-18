@@ -5,21 +5,24 @@
 // 「집중 시작할래?」(focus_start)·「집중 그만할래?」(focus_stop)는 지금 집중 중인지에 따라 둘 중 하나만 보인다. 누르면 데몬이 바로 시작·멈춤(agent focus-ops.ts).
 
 import { localSay } from './character.js';
+import { ui } from './lang.js';
 
 export const QUICK_ID = 'local-quick'; // 칩 말풍선 id(하나만)
 export const QUICK_TTL = 30000;
 export const ANSWER_TTL = 12000;
 
+// label 은 지금 언어(lang.js)로 읽는 글(그릴 때마다)
+const chip = (id, extra = {}) => ({ id, get label() { return ui(`chip_${id}`); }, ...extra });
 export const QUICK_CHIPS = [
-  { id: 'today', label: '오늘 할 일 얼마나 했어요?' },
-  { id: 'next_todo', label: '지금 할 일 뭐 있어요?' },
-  { id: 'next_event', label: '다음 일정은요?' },
-  { id: 'weather', label: '오늘 날씨?' }, // 설정 「날씨」에서 고른 지역(없으면 고르라는 안내)
-  { id: 'focus_start', label: '집중 시작할래?' },
-  { id: 'focus_stop', label: '집중 그만할래?' },
-  { id: 'cheer', label: '응원해 줘' },
-  { id: 'dance', label: '춤춰 줘' },
-  { id: 'connect', label: 'AI 연결하기', connect: true },
+  chip('today'),
+  chip('next_todo'),
+  chip('next_event'),
+  chip('weather'), // 설정 「날씨」에서 고른 지역(없으면 고르라는 안내)
+  chip('focus_start'),
+  chip('focus_stop'),
+  chip('cheer'),
+  chip('dance'),
+  chip('connect', { connect: true }),
 ];
 const CHIP_IDS = QUICK_CHIPS.map((c) => c.id);
 export const ASK_IDS = QUICK_CHIPS.filter((c) => !c.connect).map((c) => c.id); // 데몬에 묻는 것
@@ -71,14 +74,14 @@ export function answerBubble(id, r) {
   const bid = `local-ask-${isAskId(id) ? id : 'x'}`;
   const a = r?.ok ? r.data?.answer : null;
   if (!a || typeof a.text !== 'string' || !a.text.trim()) {
-    return { id: bid, kind: 'info', ttlMs: 8000, text: '지금은 답을 못 가져왔어요. 잠시 뒤에 다시 눌러 주세요' };
+    return { id: bid, kind: 'info', ttlMs: 8000, text: ui('answer_fail') };
   }
   const b = { id: bid, kind: a.kind === 'done' ? 'done' : 'info', ttlMs: ANSWER_TTL, text: a.text.trim().slice(0, 300) };
   if (typeof a.detail === 'string' && a.detail.trim()) b.detail = a.detail.trim();
   const o = a.open;
   if (o && OPEN_OK[o.section]) {
     b.open = { section: o.section, ...(typeof o.id === 'string' && o.id ? { id: o.id } : {}) };
-    b.openLabel = o.section === 'setup' ? '연결하러 가기' : o.section === 'today' ? '오늘 할 일 보기' : '할 일 보기';
+    b.openLabel = ui(o.section === 'setup' ? 'open_setup' : o.section === 'today' ? 'open_today' : 'open_todos');
   }
   return b;
 }
