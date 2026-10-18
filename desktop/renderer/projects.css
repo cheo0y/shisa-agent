@@ -6,40 +6,57 @@ button.mp-new { padding: 5px 12px; font-size: 12.5px; font-weight: 600; }
 .mp-auto-title { margin-top: 28px; }
 .mp-sub { margin: 18px 0 6px; font-size: 12px; font-weight: 650; color: var(--faint); }
 
-.mp-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.mp-empty .muted { color: var(--muted); }
-button.mp-empty-btn { margin-top: 6px; }
+.mp-empty { padding: 0; }
 
+/* 카드: 머리(이름 · ✓ · ⋯) → 기한 배지·날짜·📅 칩 → 진행 막대 → 메모(두 줄) → 할 일 → ＋ 할 일 */
+.mp { position: relative; gap: 10px; padding: 14px 16px 12px; box-shadow: var(--card-shadow); transition: box-shadow 0.15s ease, border-color 0.15s ease; }
+.mp:hover { box-shadow: var(--card-shadow-hover); border-color: color-mix(in srgb, var(--fg) 12%, transparent); }
 .mp.busy { opacity: 0.65; }
+.mp.is-done { background: transparent; }
 .mp.is-done .name { color: var(--muted); }
-.mp .head { flex-wrap: wrap; row-gap: 4px; }
-.mp .chip.mp-cal, .mp-from .chip.mp-cal { background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
-.mp .mp-due { color: var(--fg); font-weight: 600; }
-.mp .mp-due.soon { color: var(--p2, #b35400); }
-.mp .mp-due.over { color: var(--err); }
+.mp .head { display: flex; align-items: center; gap: 2px; min-height: 30px; margin: -4px -6px -4px 0; }
+.mp .head .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.mp .head .icon-btn { color: var(--faint); }
+.mp .head .icon-btn:hover:not(:disabled), .mp .head .icon-btn:focus-visible { color: var(--fg); }
+.mp .head button.mp-done:hover:not(:disabled) { color: var(--ok-fg); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.mp .head button.mp-done.on { color: var(--ok-fg); }
+.mp-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; color: var(--muted); margin-top: -2px; }
+.mp-meta .mp-date { white-space: nowrap; }
+.mp .chip.mp-cal, .mp-from .chip.mp-cal { background: var(--accent-soft); color: var(--accent); white-space: nowrap; font-size: 11px; padding: 1px 7px; }
 .mp-note {
-  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.5; color: var(--muted);
-  max-height: 7.5em; overflow: auto;
+  overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line;
 }
-.mp-todos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.mp-todos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .mp-todos li { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
 .mp-todos li .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.mp-check, button.mp-unlink { padding: 0 6px; line-height: 20px; font-size: 13px; flex: none; }
-button.mp-check:hover:not(:disabled) { color: var(--ok); }
-.mp-todos li button.mp-unlink { opacity: 0; }
-.mp-todos li:hover button.mp-unlink, .mp-todos li button.mp-unlink:focus-visible { opacity: 1; }
+button.mp-check { width: 22px; height: 22px; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+button.mp-check .ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--faint); transition: border-color 0.12s, background 0.12s; }
+button.mp-check:hover:not(:disabled) { background: none; }
+button.mp-check:hover:not(:disabled) .ring, button.mp-check:focus-visible .ring { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 22%, transparent); }
 
-.mp-add { display: flex; gap: 6px; flex-wrap: wrap; }
-.mp-add input, .mp-add select, .mp-in {
+/* ＋ 할 일: 평소엔 한 줄 단추, 누르면 그 자리에 입력칸 + 기존 할 일 찾기 */
+button.mp-add-open {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; margin: -2px -8px -2px -8px;
+  font-size: 12.5px; color: var(--muted); border-radius: var(--r-s);
+}
+button.mp-add-open:hover:not(:disabled) { color: var(--accent); background: var(--accent-soft); }
+button.mp-add-open .plus { font-size: 13px; line-height: 1; }
+.mp-add { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mp-add input, .mp-in {
   padding: 5px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); outline: none; min-width: 0;
 }
-.mp-add input:focus, .mp-add select:focus, .mp-in:focus { border-color: var(--accent); }
-.mp-add input { flex: 1 1 140px; }
-.mp-add select { flex: 1 1 100%; color: var(--muted); font-size: 12.5px; }
-.mp-actions { display: flex; align-items: center; gap: 4px; margin: 0 -6px -4px; }
-.mp-actions button { padding: 3px 8px; font-size: 12px; }
-.mp-actions button.mp-del:hover:not(:disabled) { color: var(--del-fg); }
+.mp-add input { flex: 1 1 140px; height: 30px; border-color: var(--accent); }
+.mp-add-hint { flex: none; color: var(--faint); font-size: 11px; white-space: nowrap; }
+.mp-add input:focus, .mp-in:focus { border-color: var(--accent); }
+.mp-add .mp-pick { color: var(--muted); }
+.mp-empty-line { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; color: var(--muted); font-size: 12.5px; }
+.mp-empty-line .dot { color: var(--faint); }
+.mp-empty-line button.mp-add-open { margin: 0 -8px 0 -4px; }
+.mp-empty-line .mp-add { flex: 1 1 100%; }
+.mp-actions { display: flex; align-items: center; gap: 4px; }
 .mp-actions.confirm { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--del-bg); color: var(--del-fg); font-size: 12.5px; gap: 6px; flex-wrap: wrap; }
+.mp-actions.confirm button { padding: 3px 10px; font-size: 12px; }
 
 /* ＋ 만들기 창 */
 .mp-scrim {
@@ -92,19 +109,21 @@ button.mp-ev .sub:empty { display: none; }
 }
 .todo .chip.mp-chip { max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
 
-/* 카드 안 할 일 줄: ⋮⋮ 끌기·↑↓ 순서, ✎·두 번 눌러 이름 바꾸기 */
-.mp-todos li.mp-row { border-radius: 7px; padding: 1px 2px; margin: 0 -2px; }
-button.mp-grip, button.mp-rename, button.mp-up, button.mp-down {
-  padding: 0 4px; line-height: 20px; font-size: 12px; flex: none; color: var(--faint);
+/* 카드 안 할 일 줄: 손잡이(줄 왼쪽 여백에 떠 있음)·✎·↑↓·✕ 는 마우스를 올리거나 키보드로 갔을 때만 */
+.mp-todos li.mp-row { position: relative; min-height: 28px; border-radius: var(--r-s); padding: 1px 4px 1px 2px; margin: 0 -4px 0 -2px; }
+.mp-todos li.mp-row:not(.editing):hover { background: var(--code); }
+button.mp-grip {
+  position: absolute; left: -14px; top: 50%; width: 14px; height: 24px; margin-top: -12px; padding: 0;
+  color: var(--faint); background: none; opacity: 0; cursor: grab; touch-action: none; user-select: none;
 }
-button.mp-grip { cursor: grab; letter-spacing: -2px; padding-right: 6px; touch-action: none; user-select: none; }
-button.mp-grip:hover:not(:disabled), button.mp-rename:hover:not(:disabled), button.mp-up:hover:not(:disabled), button.mp-down:hover:not(:disabled) { color: var(--fg); }
-button.mp-up:disabled, button.mp-down:disabled { opacity: 0.35; }
+.mp-todos li:hover button.mp-grip, button.mp-grip:focus-visible { opacity: 1; }
+button.mp-grip:hover:not(:disabled), button.mp-grip:focus-visible { color: var(--fg); background: none; }
 .mp-todos li .mp-tools { display: flex; align-items: center; gap: 0; flex: none; }
-.mp-todos li .mp-tools button { opacity: 0; }
+.mp-todos li .mp-tools button { opacity: 0; color: var(--faint); }
+.mp-todos li .mp-tools button:hover:not(:disabled) { color: var(--fg); }
+.mp-todos li .mp-tools button.mp-unlink:hover:not(:disabled) { color: var(--del-fg); }
 .mp-todos li:hover .mp-tools button, .mp-todos li:focus-within .mp-tools button { opacity: 1; }
-.mp-todos li:hover .mp-tools button.mp-up:disabled, .mp-todos li:hover .mp-tools button.mp-down:disabled,
-.mp-todos li:focus-within .mp-tools button.mp-up:disabled, .mp-todos li:focus-within .mp-tools button.mp-down:disabled { opacity: 0.35; }
+.mp-todos li:hover .mp-tools button:disabled, .mp-todos li:focus-within .mp-tools button:disabled { opacity: 0.3; }
 .mp-todos li .t { cursor: default; }
 .mp-todos.is-dragging, .mp-todos.is-dragging * { cursor: grabbing; user-select: none; }
 .mp-todos li.mp-dragging { outline: 1.5px dashed var(--accent); outline-offset: -1px; background: var(--accent-soft); }
@@ -120,23 +139,22 @@ input.mp-edit {
   border: 1px solid var(--accent); background: var(--surface); color: var(--fg); outline: none;
 }
 .mp-edit-hint { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
-@media (max-width: 420px) {
-  .mp-edit-hint { display: none; }
+@media (max-width: 640px) {
+  .mp-edit-hint, .mp-add-hint { display: none; }
 }
 
-/* 카드끼리 순서: 카드 머리 ⋮⋮ 끌기(포인터 이벤트)·화살표 키·카드 아래 ↑↓.
+/* 카드끼리 순서: 카드 왼쪽 여백의 손잡이(마우스를 올리거나 키보드로 갔을 때만 보임) 끌기(포인터 이벤트)·화살표 키·⋯ 메뉴 위로·아래로.
    윈도우 무테 창에서 drag 영역(-webkit-app-region: drag)이 포인터를 먹지 않게 카드·손잡이는 no-drag */
-.mp-list { position: relative; } /* 카드 offsetLeft·Top 기준(끄는 중 자리 재기) */
+.mp-list { position: relative; align-items: start; gap: 14px; } /* 카드 offsetLeft·Top 기준(끄는 중 자리 재기). 카드는 제 높이(빈 카드는 낮게) */
 .mp, button.mp-card-grip { -webkit-app-region: no-drag; }
 button.mp-card-grip {
-  flex: none; align-self: center; margin: -2px 0 -2px -6px; padding: 2px 5px; font-size: 13px; line-height: 18px;
-  letter-spacing: -2px; color: var(--faint); cursor: grab; touch-action: none; user-select: none;
+  position: absolute; left: 1px; top: 15px; width: 14px; height: 28px; padding: 0; background: none;
+  color: var(--faint); opacity: 0; cursor: grab; touch-action: none; user-select: none;
 }
-button.mp-card-grip:hover:not(:disabled), button.mp-card-grip:focus-visible { color: var(--fg); }
-button.mp-card-up, button.mp-card-down { padding: 3px 7px; color: var(--faint); }
-button.mp-card-up:hover:not(:disabled), button.mp-card-down:hover:not(:disabled) { color: var(--fg); }
-button.mp-card-up:disabled, button.mp-card-down:disabled { opacity: 0.35; }
+.mp:hover button.mp-card-grip, button.mp-card-grip:focus-visible { opacity: 1; }
+button.mp-card-grip:hover:not(:disabled), button.mp-card-grip:focus-visible { color: var(--fg); background: none; }
 .mp-list.is-sorting, .mp-list.is-sorting * { cursor: grabbing; user-select: none; }
+.mp-list.is-sorting .mp:hover { box-shadow: var(--card-shadow); }
 .mp.mp-card-dragging { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--accent-soft); box-shadow: none; }
 .mp.mp-card-dragging > * { opacity: 0.3; }
 .mp-drag-ghost.mp-card-ghost { max-width: min(260px, 70vw); padding: 6px 12px; font-weight: 650; border-radius: 9px; }

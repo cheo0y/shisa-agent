@@ -104,10 +104,19 @@ async function mount(d, cy, projects = PROJECTS) {
   const openList = () => d.find(sec, (e) => e.tag === 'div' && e.cls?.includes('mp-open'));
   const names = () => openList().kids.map((a) => d.find(a, (e) => e.cls?.includes('name')).props.text);
   const grip = (n) => d.find(sec, (e) => e.cls?.includes('mp-card-grip') && String(e.props['aria-label']).startsWith(`프로젝트 순서 바꾸기: ${n} (`));
-  return { sec, state, draw, names, grip, openList };
+  // ⋯ 메뉴 열기 → 항목(글자로 찾기). 닫기는 같은 단추를 다시 누른다
+  const menu = (n) => d.label(sec, `프로젝트 메뉴: ${n}`);
+  const item = (n, label) => {
+    menu(n).props.onclick();
+    const box = d.body.at(-1);
+    assert.equal(box.props.role, 'menu', `${n} 메뉴가 열린다`);
+    return d.find(box, (e) => e.props.role === 'menuitem' && d.text(e).includes(label));
+  };
+  const closeMenu = (n) => menu(n).props.onclick();
+  return { sec, state, draw, names, grip, openList, menu, item, closeMenu };
 }
 
-test('화면: 진행 중 카드에만 ⋮⋮(nodrag)·↑↓, 끝난 카드엔 없음, 맨 위 ↑·맨 아래 ↓ 못 누름', async () => {
+test('화면: 진행 중 카드에만 손잡이(nodrag)·⋯ 메뉴의 위로·아래로, 끝난 카드엔 없음, 맨 위 위로·맨 아래 아래로 못 누름', async () => {
   const d = fakeDom();
   const m = await mount(d, {});
   assert.deepEqual(m.names(), ['A', 'B', 'C', 'D']);
@@ -117,15 +126,23 @@ test('화면: 진행 중 카드에만 ⋮⋮(nodrag)·↑↓, 끝난 카드엔 �
   assert.ok(g.cls.includes('nodrag'), '손잡이는 창 끌기 영역이 아니다');
   assert.ok(d.findAll(m.sec, (e) => e.tag === 'article').every((a) => a.cls.includes('nodrag')), '카드도 nodrag');
   assert.equal(d.findAll(m.sec, (e) => e.cls?.includes('mp-card-grip')).length, 4, '끝난 카드엔 손잡이 없음');
-  assert.equal(d.label(m.sec, '프로젝트 위로: 끝난 Z'), undefined);
-  assert.ok(d.label(m.sec, '프로젝트 위로: A').disabled);
-  assert.ok(d.label(m.sec, '프로젝트 아래로: D').disabled);
-  assert.ok(!d.label(m.sec, '프로젝트 아래로: A').disabled);
-  // 진행 중이 하나뿐이면 손잡이·↑↓ 없음
+  assert.equal(m.item('끝난 Z', '위로 옮기기'), undefined, '끝난 카드 메뉴엔 위로·아래로 없음');
+  m.closeMenu('끝난 Z');
+  assert.ok(m.item('끝난 Z', '다시 진행'), '끝난 카드는 다시 진행');
+  m.closeMenu('끝난 Z');
+  assert.ok(m.item('A', '위로 옮기기').disabled);
+  m.closeMenu('A');
+  assert.ok(m.item('D', '아래로 옮기기').disabled);
+  m.closeMenu('D');
+  assert.ok(!m.item('A', '아래로 옮기기').disabled);
+  m.closeMenu('A');
+  assert.equal(d.body.length, 0, '닫으면 메뉴가 사라진다');
+  // 진행 중이 하나뿐이면 손잡이·위로·아래로 없음
   const d2 = fakeDom();
   const m2 = await mount(d2, {}, [PROJECTS[0], PROJECTS[4]]);
   assert.equal(d2.find(m2.sec, (e) => e.cls?.includes('mp-card-grip')), undefined);
-  assert.equal(d2.find(m2.sec, (e) => e.cls?.includes('mp-card-up')), undefined);
+  assert.equal(m2.item('A', '위로 옮기기'), undefined);
+  m2.closeMenu('A');
 });
 
 test('화면: ⋮⋮ 끌기: 문턱 넘어야 시작(누르기만 하면 아무 일 없음), 포인터 잡기, 두 열 그리드에서 놓을 자리 점선·다른 카드 비켜 주기, 놓으면 저장', async () => {
@@ -215,7 +232,7 @@ test('화면: 끌기 취소: Esc·pointercancel·창 포커스 잃음·창 밖·
   d.listeners.get('keydown')(key('Escape'));
 });
 
-test('화면: 손잡이 화살표 키(↑← 앞으로, ↓→ 뒤로)·카드 아래 ↑↓, 저장 중엔 잠금, 실패하면 되돌리고 알림', async () => {
+test('화면: 손잡이 화살표 키(↑← 앞으로, ↓→ 뒤로)·⋯ 메뉴 위로·아래로, 저장 중엔 잠금, 실패하면 되돌리고 알림', async () => {
   const d = fakeDom();
   const calls = [];
   let reply = { ok: true, status: 200, data: {} };
@@ -239,21 +256,24 @@ test('화면: 손잡이 화살표 키(↑← 앞으로, ↓→ 뒤로)·카드 �
   m.grip('B').props.onkeydown(key('Enter'));
   await flush();
   assert.equal(calls.length, 0, '맨 위에서 ↑·조합 중·다른 키는 그대로');
-  // 카드 아래 ↓ 버튼, 저장 중엔 순서 단추 잠금
+  // ⋯ 메뉴 아래로 옮기기(고르면 메뉴는 닫힌다), 저장 중엔 순서 바꾸기 잠금
   reply = 'wait';
-  d.label(m.sec, '프로젝트 아래로: C').props.onclick();
+  m.item('C', '아래로 옮기기').props.onclick();
+  assert.equal(d.body.length, 0, '고르면 메뉴가 닫힌다');
   assert.deepEqual(m.names(), ['B', 'A', 'D', 'C']);
-  assert.ok(m.grip('B').disabled && d.label(m.sec, '프로젝트 아래로: B').disabled, '저장 중엔 잠금');
+  assert.ok(m.grip('B').disabled, '저장 중엔 손잡이 잠금');
+  assert.ok(m.item('B', '아래로 옮기기').disabled, '저장 중엔 메뉴 위로·아래로도 잠금');
+  m.closeMenu('B');
   m.grip('B').props.onkeydown(key('ArrowDown'));
   assert.equal(calls.length, 1, '저장 중 키는 무시');
   release({ ok: true, status: 200, data: {} });
   await flush(); await flush();
   assert.deepEqual(calls.pop(), ['proj:b', 'proj:a', 'proj:d', 'proj:c']);
   assert.ok(!m.grip('B').disabled);
-  assert.equal(d.focused(), d.label(m.sec, '프로젝트 아래로: C').disabled ? m.grip('C') : d.label(m.sec, '프로젝트 아래로: C'), '맨 아래로 가 ↓ 를 못 누르면 손잡이로');
+  assert.equal(d.focused(), m.menu('C'), '메뉴로 옮긴 카드는 그 카드 ⋯ 단추에 포커스');
   // 실패하면 되돌린다
   reply = { ok: false, status: 400, data: { error: 'missing project: proj:x' } };
-  d.label(m.sec, '프로젝트 위로: A').props.onclick();
+  m.item('A', '위로 옮기기').props.onclick();
   assert.deepEqual(m.names(), ['A', 'B', 'D', 'C']);
   await flush(); await flush();
   assert.deepEqual(m.names(), ['B', 'A', 'D', 'C']);
@@ -292,6 +312,7 @@ test('연결·윈도우: 프리로드 projectsOrder·메인 projects-order(POST 
   for (const ev of ['pointermove', 'pointerup', 'pointercancel', 'lostpointercapture', "'blur'"]) assert.ok(view.includes(ev), ev);
   const css = readFileSync(new URL('../renderer/projects.css', import.meta.url), 'utf8');
   assert.match(css, /\.mp, button\.mp-card-grip \{ -webkit-app-region: no-drag; \}/);
+  assert.match(css, /\.mp:hover button\.mp-card-grip, button\.mp-card-grip:focus-visible \{ opacity: 1; \}/, '손잡이는 마우스를 올리거나 키보드로 갔을 때만');
   assert.match(css, /button\.mp-card-grip \{[^}]*touch-action: none/);
   for (const sel of ['.mp.mp-card-dragging', '.mp-card-ghost', '.mp-list.is-sorting']) assert.ok(css.includes(sel), sel);
   const tail = css.slice(css.indexOf('/* 카드끼리 순서'));

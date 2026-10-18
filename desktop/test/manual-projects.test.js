@@ -169,7 +169,7 @@ test('화면: 빈 탭 → ＋ → 새로 만들기 → 저장, ＋ → 일정에
   assert.equal(d.body.length, 0);
 });
 
-test('화면: 카드 — 📅 표시·기한·할 일 수·묶인 할 일, 할 일 추가·기존 할 일 넣기·빼기·끝내기, 지우기는 확인 한 번', async () => {
+test('화면: 카드 — 위계(이름 → 기한 배지·날짜·📅 칩 → 진행 막대 → 메모 → 할 일), ＋ 할 일·기존 할 일 메뉴·빼기·끝내기, ⋯ 메뉴(고치기·지우기 확인 한 번)', async () => {
   const { createProjectsView } = await import('../renderer/projects-view.js');
   const d = fakeDom();
   const calls = [];
@@ -184,52 +184,95 @@ test('화면: 카드 — 📅 표시·기한·할 일 수·묶인 할 일, 할 �
   const view = createProjectsView({ h: d.h, cy, fill: d.fill, onChanged: () => {}, openSettings: () => {} });
   const raw = {
     manualProjects: [{ id: 'proj:a', name: '가을 행사', note: '장소 섭외', due: '2026-10-30', status: 'open', todos: 2, openTodos: 1, source: { kind: 'calendar', eventId: 'e1', calendar: '회사' } }],
-    todos: [{ id: 't1', title: '현수막', priority: 2, projectId: 'proj:a' }, { id: 't2', title: '견적 회신', priority: 1 }],
+    todos: [{ id: 't1', title: '현수막', priority: 2, projectId: 'proj:a' }, { id: 't2', title: '견적 회신', priority: 1 }, { id: 't3', title: '포스터 인쇄', priority: 2 }],
   };
   const vm = shapeDashboard(raw, NOW);
   const sec = { kids: [], props: {} };
   const draw = () => d.fill(sec, view.section(vm, draw));
   draw();
+  const card = d.find(sec, (e) => e.tag === 'article');
+  const order = card.kids.filter((k) => typeof k === 'object' && !k.cls.includes('mp-card-grip')).map((k) => k.cls.find((c) => ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-add-open'].includes(c)));
+  assert.deepEqual(order, ['head', 'mp-meta', 'ui-progress', 'mp-note', 'mp-todos', 'mp-add-open'], '정보 위계 순서');
   const t = d.text(sec);
-  for (const want of ['가을 행사', '📅 일정에서 · 회사', '10월 30일(금)까지 · D-13', '할 일 1개 남음 · 모두 2개', '장소 섭외', '현수막']) assert.ok(t.includes(want), want);
+  for (const want of ['가을 행사', 'D-13', '10월 30일(금)까지', '📅 일정에서 · 회사', '1개 남음 · 모두 2개', '장소 섭외', '현수막']) assert.ok(t.includes(want), want);
+  const badge = d.find(sec, (e) => e.cls?.includes('mp-due'));
+  assert.ok(badge.cls.includes('ui-badge') && !badge.cls.includes('warn') && !badge.cls.includes('err'), 'D-13 은 보통 배지');
+  assert.equal(d.find(sec, (e) => e.props.role === 'progressbar').props['aria-valuenow'], '1');
   assert.ok(!t.includes('아직 만든 프로젝트가 없어요'));
+  assert.ok(!t.includes('고치기') && !t.includes('지우기'), '고치기·지우기 글자 단추는 카드에 늘 있지 않다(⋯ 메뉴)');
+  assert.equal(d.find(sec, (e) => e.tag === 'input'), undefined, '입력칸은 기본으로 숨김');
+  assert.equal(d.find(sec, (e) => e.tag === 'select'), undefined, '기존 할 일 드롭다운도 늘 있지 않다');
 
-  // 할 일 추가(Enter)
-  const input = d.find(sec, (e) => e.tag === 'input' && e.props['aria-label'] === '할 일 추가: 가을 행사');
+  // ＋ 할 일 → 그 자리에 입력칸 → Enter 로 추가하고 칸은 남아 계속 입력 → Esc 로 닫힘
+  d.find(sec, (e) => e.props['aria-label'] === '할 일 추가: 가을 행사').props.onclick();
+  let input = d.find(sec, (e) => e.tag === 'input' && e.props['aria-label'] === '새 할 일: 가을 행사');
+  assert.ok(input, '누르면 입력칸');
+  assert.match(d.text(sec), /Enter 추가 · Esc 닫기/);
   input.value = '  포스터   만들기 ';
-  input.props.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {}, target: input });
+  input.props.onkeydown({ key: 'Enter', isComposing: false, preventDefault() {}, stopPropagation() {}, target: input });
   await flush();
   assert.deepEqual(calls.pop(), ['add', { title: '포스터 만들기', priority: 2, projectId: 'proj:a' }]);
-  // 기존 할 일 넣기(이 프로젝트에 없는 것만 고를 수 있다)
-  const sel = d.find(sec, (e) => e.tag === 'select');
-  assert.deepEqual(sel.kids.slice(1).map((o) => o.props.value), ['t2']);
-  sel.props.onchange({ target: { value: 't2' } });
+  input = d.find(sec, (e) => e.tag === 'input' && e.props['aria-label'] === '새 할 일: 가을 행사');
+  assert.ok(input && input.value === '', '추가한 뒤에도 칸이 남고 비어 있다');
+  input.props.onkeydown({ key: 'Enter', isComposing: true, preventDefault() {}, stopPropagation() {}, target: { value: '조합 중' } });
+  await flush();
+  assert.equal(calls.length, 0, '한글 조합 중 Enter 는 무시');
+  let stopped = 0;
+  input.props.onkeydown({ key: 'Escape', isComposing: false, preventDefault() {}, stopPropagation() { stopped++; }, target: input });
+  assert.equal(stopped, 1, 'Esc 는 패널 닫기보다 먼저 칸만 닫는다');
+  assert.equal(d.find(sec, (e) => e.tag === 'input'), undefined, 'Esc 로 닫힘');
+
+  // 기존 할 일 넣기: 입력칸 옆 작은 메뉴(찾기 칸 + 이 프로젝트에 없는 것만)
+  d.find(sec, (e) => e.props['aria-label'] === '할 일 추가: 가을 행사').props.onclick();
+  d.find(sec, (e) => e.props['aria-label'] === '기존 할 일 넣기: 가을 행사').props.onclick();
+  let menu = d.body.at(-1);
+  assert.equal(menu.props.role, 'menu');
+  const search = d.find(menu, (e) => e.tag === 'input' && e.props.type === 'search');
+  assert.ok(search, '찾기 칸');
+  const items = () => d.find(menu, (e) => e.cls?.includes('ui-menu-list')).kids.filter((k) => k.props.role === 'menuitem').map((k) => d.text(k).trim());
+  assert.deepEqual(items(), ['견적 회신', '포스터 인쇄']);
+  search.props.oninput({ target: { value: '포스터' } });
+  assert.deepEqual(items(), ['포스터 인쇄'], '찾는 글로 거른다');
+  search.props.oninput({ target: { value: '없는 것' } });
+  assert.match(d.text(menu), /찾는 게 없어요/);
+  search.props.oninput({ target: { value: '' } });
+  d.find(menu, (e) => e.props.role === 'menuitem' && d.text(e).includes('견적 회신')).props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['edit', 't2', { projectId: 'proj:a' }]);
-  // 빼기·끝내기
+  assert.ok(!d.body.includes(menu), '고르면 메뉴가 닫힌다');
+  d.find(sec, (e) => e.tag === 'input').props.onkeydown({ key: 'Escape', isComposing: false, preventDefault() {}, stopPropagation() {} });
+
+  // 빼기·끝내기(할 일 줄)
   d.find(sec, (e) => e.props['aria-label'] === '프로젝트에서 빼기: 현수막').props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['edit', 't1', { projectId: null }]);
   d.find(sec, (e) => e.props['aria-label'] === '끝내기: 현수막').props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['done', 't1']);
-  // 프로젝트 끝내기
-  d.button(sec, '끝내기').props.onclick();
+  // 프로젝트 끝내기: 머리의 ✓ 아이콘 단추
+  d.find(sec, (e) => e.props['aria-label'] === '프로젝트 끝내기: 가을 행사').props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['pedit', 'proj:a', { status: 'done' }]);
-  // 지우기: 한 번 누르면 확인, 취소하면 그대로, 다시 눌러 확인하면 지운다
-  d.button(sec, '지우기').props.onclick();
+  // ⋯ 메뉴: 고치기·끝내기·지우기(지우기는 확인 한 번, 취소하면 그대로)
+  const openMenu = () => { d.find(sec, (e) => e.props['aria-label'] === '프로젝트 메뉴: 가을 행사').props.onclick(); return d.body.at(-1); };
+  const pick = (label) => d.find(openMenu(), (e) => e.props.role === 'menuitem' && d.text(e).includes(label));
+  menu = openMenu();
+  assert.deepEqual(menu.kids.at(-1).kids.map((k) => (k.props.role === 'separator' ? '—' : d.text(k).trim())), ['✎ 고치기', '✓ 끝내기', '—', '지우기'], '하나뿐인 카드는 위로·아래로 없음');
+  assert.ok(d.find(menu, (e) => d.text(e).trim() === '지우기' && e.cls?.includes('danger')), '지우기는 위험 색');
+  d.find(sec, (e) => e.props['aria-label'] === '프로젝트 메뉴: 가을 행사').props.onclick(); // 다시 누르면 닫힘
+  assert.ok(!d.body.includes(menu));
+  pick('지우기').props.onclick();
   assert.match(d.text(sec), /지울까요\? 묶인 할 일 2개는 남아요/);
   assert.equal(calls.length, 0);
   d.button(sec, '취소').props.onclick();
   assert.ok(!d.text(sec).includes('지울까요'));
-  d.button(sec, '지우기').props.onclick();
+  pick('지우기').props.onclick();
   d.find(sec, (e) => e.tag === 'button' && e.cls.includes('danger')).props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['pdel', 'proj:a']);
   assert.match(d.text(sec), /「가을 행사」 프로젝트를 지웠어요/);
   // 고치기 → 칸에 지금 값 → 메모 지우고 저장하면 바뀐 것만
-  d.button(sec, '고치기').props.onclick();
+  pick('고치기').props.onclick();
   const f = d.body.at(-1);
   assert.match(d.text(f), /프로젝트 고치기/);
   assert.equal(d.find(f, (e) => e.props['aria-label'] === '이름').value, '가을 행사');
@@ -237,6 +280,49 @@ test('화면: 카드 — 📅 표시·기한·할 일 수·묶인 할 일, 할 �
   d.button(f, '저장').props.onclick();
   await flush();
   assert.deepEqual(calls.pop(), ['pedit', 'proj:a', { note: null }]);
+});
+
+test('화면: 빈 프로젝트는 낮은 카드(「아직 할 일이 없어요 · ＋ 할 일」), 기한 지남은 빨강·3일 안은 주황 배지, 끝난 카드는 다시 진행', async () => {
+  const { createProjectsView } = await import('../renderer/projects-view.js');
+  const d = fakeDom();
+  const calls = [];
+  const cy = { todoAdd: async (b) => { calls.push(b); return { ok: true }; }, projectEdit: async (id, p) => { calls.push([id, p]); return { ok: true }; } };
+  const view = createProjectsView({ h: d.h, cy, fill: d.fill, onChanged: () => {}, openSettings: () => {} });
+  const vm = shapeDashboard({ manualProjects: [
+    { id: 'proj:e', name: '빈 것', status: 'open', todos: 0, openTodos: 0 },
+    { id: 'proj:o', name: '늦은 것', due: '2026-10-14', status: 'open', todos: 1, openTodos: 1 },
+    { id: 'proj:s', name: '곧', due: '2026-10-20', start: '2026-10-10', status: 'open', todos: 2, openTodos: 0 },
+    { id: 'proj:d', name: '끝난 것', status: 'done', todos: 0, openTodos: 0 },
+  ], todos: [] }, NOW);
+  const sec = { kids: [], props: {} };
+  const draw = () => d.fill(sec, view.section(vm, draw));
+  draw();
+  const card = (id) => d.find(sec, (e) => e.tag === 'article' && e.props.dataset?.id === id);
+  const empty = card('proj:e');
+  assert.ok(empty.cls.includes('is-empty'), '빈 카드 표시(낮게)');
+  assert.equal(d.find(empty, (e) => e.cls?.includes('ui-progress')), undefined, '빈 카드엔 진행 막대 없음');
+  assert.match(d.text(empty), /아직 할 일이 없어요/);
+  d.find(empty, (e) => e.props['aria-label'] === '할 일 추가: 빈 것').props.onclick();
+  const input = d.find(card('proj:e'), (e) => e.tag === 'input');
+  assert.equal(input.props['aria-label'], '새 할 일: 빈 것', '빈 카드도 그 자리에 입력칸');
+  const over = d.find(card('proj:o'), (e) => e.cls?.includes('mp-due'));
+  assert.deepEqual([over.props.text, over.cls.includes('err')], ['3일 지남', true]);
+  const soon = d.find(card('proj:s'), (e) => e.cls?.includes('mp-due'));
+  assert.deepEqual([soon.props.text, soon.cls.includes('warn')], ['D-3', true]);
+  assert.match(d.text(card('proj:s')), /10월 10일\(토\) ~ 10월 20일\(화\)/, '시작·기한이 다 있으면 기간 한 줄');
+  assert.match(d.text(card('proj:s')), /다 끝냈어요 · 2개/);
+  assert.ok(d.find(card('proj:s'), (e) => e.cls?.includes('ui-progress')).cls.includes('full'));
+  const done = card('proj:d');
+  assert.equal(d.find(done, (e) => e.props['aria-label'] === '할 일 추가: 끝난 것'), undefined, '끝난 카드엔 ＋ 할 일 없음');
+  d.find(done, (e) => e.props['aria-label'] === '다시 진행: 끝난 것').props.onclick();
+  await flush();
+  assert.deepEqual(calls.pop(), ['proj:d', { status: 'open' }]);
+  // 빈 탭: 빈 상태 + ＋ 새 프로젝트
+  const sec2 = { kids: [], props: {} };
+  d.fill(sec2, view.section({ manualProjects: [], todoGroups: [] }, () => {}));
+  const e2 = d.find(sec2, (e) => e.cls?.includes('ui-empty'));
+  assert.match(d.text(e2), /아직 만든 프로젝트가 없어요/);
+  assert.ok(d.button(e2, '＋ 새 프로젝트'));
 });
 
 test('패널 연결: 프로젝트 탭이 위에 직접 만든 것, 아래 「코드 작업에서 모은 것」, 할 일 줄에 📁 칩, IPC 와 프리로드', () => {

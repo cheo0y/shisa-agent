@@ -1,13 +1,17 @@
 // 프로젝트 탭 위쪽: 직접 만든 프로젝트 카드와 ＋ 만들기 창(새로 만들기 · 일정에서 가져오기).
-// 카드: 기한·할 일 수·메모·묶인 열린 할 일(체크로 끝내기, ✕로 빼기)·할 일 추가·기존 할 일 넣기, [고치기][끝내기][지우기(확인 한 번)].
-// 할 일 줄: 두 번 누르거나 ✎ 로 그 자리 이름 바꾸기(할 일 탭과 같은 POST /todos/:id), ⋮⋮ 를 끌거나 ↑↓(손잡이에서 ↑↓ 키)로 순서 바꾸기.
-// 카드끼리: 진행 중 카드 머리 ⋮⋮ 를 끌거나(몇 px 움직여야 시작, 놓을 자리는 점선, 다른 카드는 비켜 준다) 손잡이에서 화살표 키, 카드 아래 ↑↓ 로
+// 카드 위계: 머리(이름 · ✓ 끝내기 아이콘 · ⋯ 메뉴) → 기한 배지(D-n, 3일 안 주황·지나면 빨강)·날짜·📅 출처 칩 → 진행 막대 → 메모(두 줄)
+// → 묶인 열린 할 일(체크로 끝내기, ✕로 빼기) → 「＋ 할 일」 한 줄. ⋯ 메뉴: 고치기·위로·아래로·끝내기·지우기(확인 한 번).
+// ＋ 할 일: 누르면 그 자리에 입력칸(Enter 로 추가하고 계속 입력, Esc·바깥 누르기로 닫힘), 옆에 「기존 할 일」 찾기 메뉴. 빈 프로젝트는 낮은 카드.
+// 할 일 줄: 두 번 누르거나 ✎ 로 그 자리 이름 바꾸기(할 일 탭과 같은 POST /todos/:id), 손잡이를 끌거나 ↑↓(손잡이에서 ↑↓ 키)로 순서 바꾸기.
+// 손잡이·줄 도구는 마우스를 올리거나 키보드로 갔을 때만 보인다(projects.css).
+// 카드끼리: 진행 중 카드 왼쪽 손잡이를 끌거나(몇 px 움직여야 시작, 놓을 자리는 점선, 다른 카드는 비켜 준다) 손잡이에서 화살표 키, ⋯ 메뉴 위로·아래로
 // 순서 바꾸기(POST /projects/manual/order). 끌기는 포인터 이벤트 + setPointerCapture 만 쓴다(HTML5 drag-and-drop 은 Electron 윈도우에서
 // 커서·투명창 문제가 있어 안 쓴다). 맥·윈도우 같은 코드. Esc·창 밖·포커스 잃음·pointercancel 이면 원래 순서로 취소.
 // 데이터는 GET /dashboard 의 manualProjects(src/manual-projects.js 가 다듬은 vm.manualProjects)이고, 바꾼 뒤엔 onChanged 로 다시 읽는다.
 import { who } from './who.js';
-import { todoCountText, emptyDraft, draftFromPick, draftOf, createBody, editBody, eventWhen, shapePick, applyOrder, moveId, stepId, dropSlot, sameOrder, gridSlot, pastDragStart } from '../src/manual-projects.js';
+import { progressText, dateRangeText, emptyDraft, draftFromPick, draftOf, createBody, editBody, eventWhen, shapePick, applyOrder, moveId, stepId, dropSlot, sameOrder, gridSlot, pastDragStart } from '../src/manual-projects.js';
 import { editKey, editPatch } from '../src/todo-edit.js';
+import { createUi } from './ui-kit.js';
 
 export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   let vm = null;
@@ -15,6 +19,9 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
   const busy = new Set(); // 응답 기다리는 프로젝트 id
   let confirmDel = null; // 지우기 확인 중인 프로젝트 id
   const addDrafts = new Map(); // 프로젝트 id → 할 일 추가 칸 글
+  let adding = null; // ＋ 할 일 칸을 연 프로젝트 id(한 번에 하나)
+  let addBox = null; // 그 칸(바깥 누르기 판단)
+  const ui = createUi({ h, fill });
   let modal = null; // { step: 'choose'|'events'|'form', mode: 'new'|'edit', id?, draft, error, saving, pick? }
   let root = null; // 만들기 창 겉(body 끝에 붙인다)
   let redrawCards = () => {};
@@ -77,14 +84,15 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       h('div.mp-head', null,
         h('h2.mp-title', { text: '내가 만든 프로젝트' }),
         h('span.spacer'),
-        h('button.primary.mp-new', { type: 'button', title: '프로젝트 만들기 — 빈 칸에서 시작하거나 일정에서 가져와요', 'aria-label': '프로젝트 만들기', onclick: openCreate }, '＋ 새 프로젝트')),
+        h('button.primary.mp-new', { type: 'button', title: '프로젝트 만들기: 빈 칸에서 시작하거나 일정에서 가져와요', 'aria-label': '프로젝트 만들기', onclick: openCreate }, '＋ 새 프로젝트')),
     ];
     if (msg) kids.push(h(`div.result.${msg.ok ? 'ok' : 'err'}`, { role: 'status', text: msg.text }));
     if (!list.length) {
-      kids.push(h('div.card.empty.mp-empty', null,
-        h('div', { text: '아직 만든 프로젝트가 없어요.' }),
-        h('div.muted.small', { text: '＋를 눌러 직접 적거나, 캘린더 일정에서 가져와 시작해 보세요.' }),
-        h('button.mp-empty-btn', { type: 'button', onclick: openCreate }, '＋ 새 프로젝트')));
+      kids.push(h('div.card.mp-empty', null, ui.emptyState({
+        icon: '🗂', text: '아직 만든 프로젝트가 없어요',
+        sub: '직접 적거나 캘린더 일정에서 가져와 시작해 보세요.',
+        action: h('button.mp-empty-btn', { type: 'button', onclick: openCreate }, '＋ 새 프로젝트'),
+      })));
     } else {
       const open = openCards(list), done = list.filter((p) => p.done);
       if (open.length) kids.push(h(`div.projects.mp-list.mp-open${cardDrag?.started ? '.is-sorting' : ''}`, null, open.map((p, i) => card(p, i, open.length))));
@@ -213,11 +221,12 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       if (el?.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length);
       return;
     }
-    if (!refocus || busy.has(refocus.pid) || (orderBusy && refocus.kind.startsWith('card-'))) return;
+    if (!refocus || (busy.has(refocus.pid) && refocus.kind !== 'add') || (orderBusy && refocus.kind.startsWith('card-'))) return;
     const { tid, kind } = refocus;
     refocus = null;
-    const el = (kind.startsWith('card-') ? [kind, 'card-grip'] : [kind, 'grip', 'rename']).map((k) => rowEls.get(`${k}:${tid}`)?.el).find((x) => x && !x.disabled);
+    const el = (kind.startsWith('card-') ? [kind, 'card-menu', 'card-grip'] : kind.startsWith('add') ? [kind, 'add', 'add-open'] : [kind, 'grip', 'rename']).map((k) => rowEls.get(`${k}:${tid}`)?.el).find((x) => x && !x.disabled);
     el?.focus?.();
+    if (kind === 'add' && el?.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length);
   }
   function startRename(p, t) {
     if (busy.has(p.id) || drag) return;
@@ -319,6 +328,7 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
       return h('li.mp-row.editing', { dataset: { tid: t.id } }, keep('edit', input),
         h('span.mp-edit-hint.muted.small', { text: 'Enter 저장 · Esc 취소' }));
     }
+    // 손잡이(⋮⋮)는 줄 왼쪽 여백에 떠 있고 마우스를 올리거나 키보드로 갔을 때만 보인다. 도구(✎ ↑ ↓ ✕)도 같다
     return h(`li.mp-row${dragging ? '.mp-dragging' : ''}`, { dataset: { tid: t.id } },
       n > 1 ? keep('grip', h('button.ghost.mp-grip', {
         type: 'button', title: '끌어서 순서 바꾸기 · ↑↓ 키로도 옮겨요', 'aria-label': `순서 바꾸기: ${t.title} (${i + 1}/${n}번째)`, disabled: wait,
@@ -328,16 +338,78 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
           e.preventDefault();
           step(p, t, e.key === 'ArrowUp' ? -1 : 1, 'grip');
         },
-      }, '⋮⋮')) : null,
-      h('button.ghost.mp-check', { type: 'button', title: '끝냈어요', 'aria-label': `끝내기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), '끝내기 실패') }, '○'),
+      }, h('span.grip-dots', { 'aria-hidden': 'true' }))) : null,
+      h('button.ghost.mp-check', { type: 'button', title: '끝냈어요', 'aria-label': `끝내기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoDone(t.id), '끝내기 실패') }, h('span.ring', { 'aria-hidden': 'true' })),
       h('span.t', { text: t.title, title: `${t.title} · 두 번 눌러 이름 바꾸기`, ondblclick: () => startRename(p, t) }),
       h('span.mp-tools', null,
-        keep('rename', h('button.ghost.mp-rename', { type: 'button', title: '이름 바꾸기', 'aria-label': `이름 바꾸기: ${t.title}`, disabled: wait, onclick: () => startRename(p, t) }, '✎')),
-        n > 1 ? keep('up', h('button.ghost.mp-up', { type: 'button', title: '위로', 'aria-label': `위로: ${t.title}`, disabled: wait || i === 0, onclick: () => step(p, t, -1, 'up') }, '↑')) : null,
-        n > 1 ? keep('down', h('button.ghost.mp-down', { type: 'button', title: '아래로', 'aria-label': `아래로: ${t.title}`, disabled: wait || i === n - 1, onclick: () => step(p, t, 1, 'down') }, '↓')) : null,
-        h('button.ghost.mp-unlink', { type: 'button', title: '이 프로젝트에서 빼기(할 일은 남아요)', 'aria-label': `프로젝트에서 빼기: ${t.title}`, disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), '빼기 실패') }, '✕')));
+        keep('rename', ui.iconBtn('mp-rename', { label: `이름 바꾸기: ${t.title}`, title: '이름 바꾸기', icon: '✎', size: 's', disabled: wait, onclick: () => startRename(p, t) })),
+        n > 1 ? keep('up', ui.iconBtn('mp-up', { label: `위로: ${t.title}`, title: '위로', icon: '↑', size: 's', disabled: wait || i === 0, onclick: () => step(p, t, -1, 'up') })) : null,
+        n > 1 ? keep('down', ui.iconBtn('mp-down', { label: `아래로: ${t.title}`, title: '아래로', icon: '↓', size: 's', disabled: wait || i === n - 1, onclick: () => step(p, t, 1, 'down') })) : null,
+        ui.iconBtn('mp-unlink', { label: `프로젝트에서 빼기: ${t.title}`, title: '이 프로젝트에서 빼기(할 일은 남아요)', icon: '✕', size: 's', disabled: wait, onclick: () => act(p.id, () => cy.todoEdit(t.id, { projectId: null }), '빼기 실패') })));
   }
 
+  // ---- ＋ 할 일: 누르면 그 자리에 입력칸(Enter 추가·계속 입력, Esc·바깥 누르기로 닫힘), 옆에 「기존 할 일」 찾기 메뉴 ----
+  function openAdd(p) {
+    if (busy.has(p.id) && adding === p.id) return;
+    adding = p.id;
+    refocus = { pid: p.id, tid: p.id, kind: 'add' };
+    document.addEventListener?.('pointerdown', onAddOutside, true);
+    redrawCards();
+  }
+  function closeAdd(focusBack = true) {
+    const pid = adding;
+    if (!pid) return;
+    adding = null;
+    addBox = null;
+    document.removeEventListener?.('pointerdown', onAddOutside, true);
+    if (focusBack) refocus = { pid, tid: pid, kind: 'add-open' };
+    redrawCards();
+  }
+  function onAddOutside(e) {
+    const t = e?.target;
+    if (!adding || (addBox && addBox.contains?.(t)) || t?.closest?.('.ui-menu')) return;
+    closeAdd(false);
+  }
+  function addRow(p, wait, others) {
+    if (adding !== p.id) {
+      return keepAdd(p, 'add-open', h('button.ghost.mp-add-open', { type: 'button', 'aria-label': `할 일 추가: ${p.name}`, title: '이 프로젝트에 할 일 추가', onclick: () => openAdd(p) },
+        h('span.plus', { 'aria-hidden': 'true', text: '＋' }), h('span', { text: '할 일' })));
+    }
+    const add = (input) => {
+      const title = String(input.value ?? '').replace(/\s+/g, ' ').trim();
+      if (!title) return;
+      addDrafts.delete(p.id);
+      input.value = '';
+      refocus = { pid: p.id, tid: p.id, kind: 'add' };
+      act(p.id, () => cy.todoAdd({ title, priority: 2, projectId: p.id }), '할 일 추가 실패');
+    };
+    const input = keepAdd(p, 'add', h('input.mp-add-input', {
+      type: 'text', placeholder: '할 일 적고 Enter', 'aria-label': `새 할 일: ${p.name}`, value: addDrafts.get(p.id) ?? '',
+      oninput: (e) => addDrafts.set(p.id, e.target.value),
+      onkeydown: (e) => {
+        if (e.isComposing) return;
+        if (e.key === 'Enter') { e.preventDefault(); add(e.target ?? input); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAdd(); } // 패널 닫기보다 먼저
+      },
+    }));
+    input.value = addDrafts.get(p.id) ?? '';
+    const pick = others.length
+      ? ui.menuButton('mp-pick', {
+        label: `기존 할 일 넣기: ${p.name}`, title: '다른 할 일을 이 프로젝트로 가져와요', text: '기존 할 일', size: 's', disabled: wait,
+        search: '할 일 찾기', empty: '넣을 할 일이 없어요',
+        items: () => others.map((t) => {
+          const at = t.projectId ? (vm.manualProjects ?? []).find((x) => x.id === t.projectId) : null; // 다른 프로젝트에 있으면 옮긴다
+          return { label: t.title, hint: at ? `${at.name}에서 옮기기` : '', onSelect: () => { refocus = { pid: p.id, tid: p.id, kind: 'add' }; act(p.id, () => cy.todoEdit(t.id, { projectId: p.id }), '넣기 실패'); } };
+        }),
+      })
+      : null;
+    addBox = h('div.mp-add', null, input, pick, h('span.mp-add-hint', { text: 'Enter 추가 · Esc 닫기' }));
+    return addBox;
+  }
+  const keepAdd = (p, kind, el) => { rowEls.set(`${kind}:${p.id}`, { el, pid: p.id }); return el; };
+
+  // ---- 카드 ----
+  // 위계: 머리(이름 · ✓ 끝내기 · ⋯) → 기한 배지·날짜·📅 칩 → 진행 막대 → 메모(두 줄) → 할 일 → ＋ 할 일
   function card(p, i = 0, n = 0) {
     const wait = busy.has(p.id);
     const sortable = !p.done && n > 1;
@@ -351,61 +423,56 @@ export function createProjectsView({ h, cy, fill, onChanged, openSettings }) {
     };
     const confirming = confirmDel === p.id;
     const others = (vm.todoGroups ?? []).flatMap((g) => g.items).filter((t) => t.projectId !== p.id && !t.pending);
-    const draft = addDrafts.get(p.id) ?? '';
-    const addTodo = (input) => {
-      const title = input.value.replace(/\s+/g, ' ').trim();
-      if (!title) return;
-      addDrafts.delete(p.id);
-      act(p.id, () => cy.todoAdd({ title, priority: 2, projectId: p.id }), '할 일 추가 실패');
-    };
-    const input = h('input.mp-add-input', {
-      type: 'text', placeholder: '이 프로젝트에 할 일 추가', 'aria-label': `할 일 추가: ${p.name}`, value: draft, disabled: wait,
-      oninput: (e) => addDrafts.set(p.id, e.target.value),
-      onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addTodo(e.target); } },
-    });
     const linked = linkedOf(p);
-    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, linked.map((t, i) => todoRow(p, t, i, linked.length, wait)));
+    const ul = h(`ul.mp-todos${drag?.pid === p.id ? '.is-dragging' : ''}`, { 'aria-label': `${p.name}의 할 일` }, linked.map((t, j) => todoRow(p, t, j, linked.length, wait)));
     if (drag?.pid === p.id) drag.ul = ul;
-    const el = h(`article.card.proj.mp.nodrag${p.done ? '.is-done' : ''}${wait ? '.busy' : ''}${cardDrag?.started && cardDrag.pid === p.id ? '.mp-card-dragging' : ''}`, { dataset: { id: p.id } },
+    const toggleDone = () => act(p.id, () => cy.projectEdit(p.id, { status: p.done ? 'open' : 'done' }), p.done ? '다시 열기 실패' : '끝내기 실패');
+    const menu = keepCard('card-menu', ui.menuButton('mp-menu', {
+      label: `프로젝트 메뉴: ${p.name}`, title: '더 보기', disabled: wait,
+      items: () => [
+        { label: '고치기', icon: '✎', onSelect: () => openEdit(p) },
+        ...(sortable ? [
+          { label: '위로 옮기기', icon: '↑', disabled: orderBusy || i === 0, onSelect: () => stepCard(p, -1, 'card-menu') },
+          { label: '아래로 옮기기', icon: '↓', disabled: orderBusy || i === n - 1, onSelect: () => stepCard(p, 1, 'card-menu') },
+        ] : []),
+        { label: p.done ? '다시 진행' : '끝내기', icon: p.done ? '↺' : '✓', onSelect: toggleDone },
+        'sep',
+        { label: '지우기', danger: true, onSelect: () => { confirmDel = p.id; refocus = { pid: p.id, tid: p.id, kind: 'card-del' }; redrawCards(); } },
+      ],
+    }));
+    const due = p.dueBadge;
+    const meta = [
+      due ? h(`span.ui-badge.mp-due${p.dueTone === 'over' ? '.err' : p.dueTone === 'soon' ? '.warn' : ''}`, { text: due.badge, title: p.dueText }) : null,
+      dateRangeText(p) ? h('span.mp-date', { text: dateRangeText(p), title: p.dueText || undefined }) : null,
+      p.fromCalendar ? h('span.chip.mp-cal', { text: `📅 일정에서${p.fromCalendar.calendar ? ` · ${p.fromCalendar.calendar}` : ''}`, title: p.fromCalendar.title ? `가져온 일정: ${p.fromCalendar.title}` : '일정에서 가져왔어요' }) : null,
+      p.done ? h('span.ui-badge.ok', { text: '끝남' }) : null,
+    ].filter(Boolean);
+    const empty = !p.todos && !linked.length;
+    const el = h(`article.card.proj.mp.nodrag${p.done ? '.is-done' : ''}${wait ? '.busy' : ''}${empty ? '.is-empty' : ''}${cardDrag?.started && cardDrag.pid === p.id ? '.mp-card-dragging' : ''}`, { dataset: { id: p.id } },
+      sortable ? keepCard('card-grip', h('button.ghost.mp-card-grip.nodrag', {
+        type: 'button', title: '끌어서 프로젝트 순서 바꾸기 · 화살표 키로도 옮겨요', 'aria-label': `프로젝트 순서 바꾸기: ${p.name} (${i + 1}/${n}번째)`, disabled: orderBusy,
+        onpointerdown: (e) => cardPointerDown(p, e), onkeydown: cardKey,
+      }, h('span.grip-dots', { 'aria-hidden': 'true' }))) : null,
       h('div.head', null,
-        sortable ? keepCard('card-grip', h('button.ghost.mp-card-grip.nodrag', {
-          type: 'button', title: '끌어서 프로젝트 순서 바꾸기 · 화살표 키로도 옮겨요', 'aria-label': `프로젝트 순서 바꾸기: ${p.name} (${i + 1}/${n}번째)`, disabled: orderBusy,
-          onpointerdown: (e) => cardPointerDown(p, e), onkeydown: cardKey,
-        }, '⋮⋮')) : null,
         h('span.name', { text: p.name, title: p.name }),
-        p.fromCalendar ? h('span.chip.mp-cal', { text: `📅 일정에서${p.fromCalendar.calendar ? ` · ${p.fromCalendar.calendar}` : ''}`, title: p.fromCalendar.title ? `가져온 일정: ${p.fromCalendar.title}` : '일정에서 가져왔어요' }) : null,
-        p.done ? h('span.chip.ok', { text: '끝남' }) : null),
-      h('div.meta', null,
-        p.dueText ? h(`span.mp-due${p.dueTone ? `.${p.dueTone}` : ''}`, { text: p.dueText }) : null,
-        p.startText ? h('span', { text: `시작 ${p.startText}` }) : null,
-        h('span', { text: todoCountText(p) })),
-      p.note ? h('div.mp-note', { text: p.note }) : null,
+        keepCard('card-done', ui.iconBtn(`mp-done${p.done ? '.on' : ''}`, {
+          label: `${p.done ? '다시 진행' : '프로젝트 끝내기'}: ${p.name}`, title: p.done ? '다시 진행' : '프로젝트 끝내기', icon: p.done ? '↺' : '✓', disabled: wait, onclick: toggleDone,
+        })),
+        menu),
+      meta.length ? h('div.meta.mp-meta', null, meta) : null,
+      p.todos ? ui.progress(p.todos - p.openTodos, p.todos, progressText(p)) : null,
+      p.note ? h('div.mp-note', { text: p.note, title: p.note }) : null,
       linked.length ? ul : null,
-      p.done ? null : h('div.mp-add', null,
-        input,
-        h('button', { type: 'button', disabled: wait, onclick: () => addTodo(input) }, '추가'),
-        others.length
-          ? h('select.mp-pick', {
-            'aria-label': `기존 할 일 넣기: ${p.name}`, disabled: wait,
-            onchange: (e) => { const id = e.target.value; if (id) act(p.id, () => cy.todoEdit(id, { projectId: p.id }), '넣기 실패'); },
-          }, h('option', { value: '', text: '기존 할 일 넣기…' }), others.map((t) => {
-            const at = t.projectId ? (vm.manualProjects ?? []).find((x) => x.id === t.projectId) : null; // 다른 프로젝트에 있으면 옮긴다
-            return h('option', { value: t.id, text: at ? `${t.title} (${at.name}에서 옮기기)` : t.title });
-          }))
-          : null),
+      p.done ? null : empty && adding !== p.id
+        ? h('div.mp-empty-line', null, h('span', { text: '아직 할 일이 없어요' }), h('span.dot', { text: '·', 'aria-hidden': 'true' }), addRow(p, wait, others))
+        : addRow(p, wait, others),
       confirming
         ? h('div.mp-actions.confirm', { role: 'alert' },
           h('span', { text: p.todos ? `지울까요? 묶인 할 일 ${p.todos}개는 남아요.` : '이 프로젝트를 지울까요?' }),
           h('span.spacer'),
-          h('button.danger', { type: 'button', disabled: wait, onclick: () => { confirmDel = null; act(p.id, () => cy.projectDelete(p.id), '지우기 실패', `「${p.name}」 프로젝트를 지웠어요`); } }, '지우기'),
-          h('button.ghost', { type: 'button', onclick: () => { confirmDel = null; redrawCards(); } }, '취소'))
-        : h('div.mp-actions', null,
-          h('button.ghost', { type: 'button', disabled: wait, onclick: () => openEdit(p) }, '고치기'),
-          h('button.ghost', { type: 'button', disabled: wait, onclick: () => act(p.id, () => cy.projectEdit(p.id, { status: p.done ? 'open' : 'done' }), p.done ? '다시 열기 실패' : '끝내기 실패') }, p.done ? '다시 진행' : '끝내기'),
-          h('span.spacer'),
-          sortable ? keepCard('card-up', h('button.ghost.mp-card-up', { type: 'button', title: '위로 옮기기', 'aria-label': `프로젝트 위로: ${p.name}`, disabled: orderBusy || i === 0, onclick: () => stepCard(p, -1, 'card-up') }, '↑')) : null,
-          sortable ? keepCard('card-down', h('button.ghost.mp-card-down', { type: 'button', title: '아래로 옮기기', 'aria-label': `프로젝트 아래로: ${p.name}`, disabled: orderBusy || i === n - 1, onclick: () => stepCard(p, 1, 'card-down') }, '↓')) : null,
-          h('button.ghost.mp-del', { type: 'button', disabled: wait, onclick: () => { confirmDel = p.id; redrawCards(); } }, '지우기')));
+          keepCard('card-del', h('button.danger', { type: 'button', disabled: wait, onclick: () => { confirmDel = null; act(p.id, () => cy.projectDelete(p.id), '지우기 실패', `「${p.name}」 프로젝트를 지웠어요`); } }, '지우기')),
+          h('button.ghost', { type: 'button', onclick: () => { confirmDel = null; refocus = { pid: p.id, tid: p.id, kind: 'card-menu' }; redrawCards(); } }, '취소'))
+        : null);
     if (!p.done) cardEls.set(p.id, el);
     return el;
   }

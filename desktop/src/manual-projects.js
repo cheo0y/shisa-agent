@@ -31,7 +31,27 @@ export function dueText(due, now = Date.now()) {
 export function dueTone(due, now = Date.now()) {
   if (!DAY_RE.test(str(due))) return '';
   const left = Math.round((dayMs(due) - dayMs(localDay(now))) / 864e5);
-  return left < 0 ? 'over' : left <= 2 ? 'soon' : '';
+  return left < 0 ? 'over' : left <= 3 ? 'soon' : '';
+}
+// 카드 머리 기한: 짧은 배지(「D-13」·「오늘」·「내일」·「3일 지남」)와 날짜 글(「10월 30일(금)까지」·지난 건 「10월 14일(수)」)
+export function dueParts(due, now = Date.now()) {
+  if (!DAY_RE.test(str(due))) return null;
+  const left = Math.round((dayMs(due) - dayMs(localDay(now))) / 864e5);
+  const badge = left === 0 ? '오늘' : left === 1 ? '내일' : left < 0 ? `${-left}일 지남` : `D-${left}`;
+  return { badge, day: dayLabel(due, now), date: left < 0 ? dayLabel(due, now) : `${dayLabel(due, now)}까지`, tone: dueTone(due, now) };
+}
+// 카드 날짜 한 줄: 시작·기한이 다 있으면 「10월 11일(일) ~ 10월 20일(화)」(같은 날이면 하루), 기한만 「…까지」, 시작만 「…부터」
+export function dateRangeText(p) {
+  const due = p?.dueBadge;
+  if (p?.startText && due) return p.start === p.due ? due.day : `${p.startText} ~ ${due.day}`;
+  if (due) return due.date;
+  if (p?.startText) return `${p.startText}부터`;
+  return '';
+}
+// 진행 글: 「3개 남음 · 모두 5개」 · 「다 끝냈어요 · 5개」
+export function progressText(p) {
+  if (!p.todos) return '';
+  return p.openTodos ? `${p.openTodos}개 남음 · 모두 ${p.todos}개` : `다 끝냈어요 · ${p.todos}개`;
 }
 
 // 프로젝트 안 순서(projectOrder 작은 것 위, 없는 건 뒤). 같으면 받은 순서 그대로
@@ -54,6 +74,7 @@ export function shapeManualProjects(list, todos = [], now = Date.now()) {
         done,
         dueText: done ? '' : dueText(p.due, now),
         dueTone: done ? '' : dueTone(p.due, now),
+        dueBadge: done ? null : dueParts(p.due, now),
         startText: dayLabel(p.start, now),
         todos: Number.isInteger(p.todos) && p.todos >= 0 ? p.todos : 0,
         openTodos: Number.isInteger(p.openTodos) && p.openTodos >= 0 ? p.openTodos : 0,
