@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CAL_COLORS, CalendarView, calendarColors, okCalColor, parseRange, viewEvent } from "./calendar-view.ts";
-import { addCalendar, calendarList } from "./calendar-connect.ts";
+import { addCalendar, calendarCardRows, calendarList } from "./calendar-connect.ts";
 import { calendarEntries, type Conn } from "./connectors.ts";
 import type { CalEvent } from "./calendar-sync.ts";
 import { Bus } from "./bus.ts";
@@ -143,6 +143,11 @@ test("색 저장값은 캘린더를 더하거나 목록을 읽어도 남는다",
     const saved = JSON.parse(readFileSync(h.path, "utf8")).connectors.calendar.calendars;
     assert.deepEqual(saved.map((c: any) => [c.name, c.color]), [["회사", "purple"], ["개인", undefined]]);
     assert.deepEqual(calendarList(h.path, { phase: "ok" }).calendars.map((c) => c.color), ["purple", undefined]);
+    // 개요 연결 카드 줄: 캘린더마다 색(캘린더 탭과 같은 계산) · 켜짐 · 결과
+    const rows = calendarCardRows(h.path, { phase: "ok", calendars: [{ id: "1111111111111111", name: "회사", phase: "ok", meetings: 3 }] });
+    assert.equal(rows[0].color, "purple");
+    assert.ok(rows[1].color && rows[1].color !== "purple");
+    assert.deepEqual(rows.map((r) => [r.name, r.enabled, r.phase, r.meetings]), [["회사", true, "ok", 3], ["개인", true, "pending", undefined]]);
   } finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 

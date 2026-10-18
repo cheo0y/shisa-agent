@@ -11,7 +11,7 @@ import { readConfigObject } from "./mail-connect.ts";
 import { writeFileAtomic } from "./fs-atomic.ts";
 import { addLogSecret } from "./log.ts";
 import type { CalendarState } from "./calendar-state.ts";
-import { okCalColor, type CalColor } from "./calendar-view.ts";
+import { calendarColors, okCalColor, type CalColor } from "./calendar-view.ts";
 
 export type CalendarAddResult =
   | { ok: true; id: string; name: string; events: number; calendars: number }
@@ -98,4 +98,11 @@ export function calendarList(path: string, state: CalendarState): { phase: strin
       return { id: c.id, name, enabled: c.enabled, phase, ...(c.color ? { color: c.color } : {}), ...(phase === "ok" && p?.meetings !== undefined ? { meetings: p.meetings } : {}), ...(phase === "failed" && p?.reason ? { reason: p.reason } : {}) };
     }),
   };
+}
+
+// 패널 개요 연결 카드의 캘린더 줄(GET /dashboard connectors 의 calendar.calendars): 캘린더마다 id·별칭·켜짐·결과 + 색(캘린더 탭과 같은 색)
+export function calendarCardRows(path: string, state: CalendarState): { id: string; name: string; enabled: boolean; phase: string; meetings?: number; reason?: string; color: CalColor }[] {
+  const list = calendarList(path, state).calendars;
+  const colors = calendarColors(list.map((c) => ({ id: c.id, color: c.color })));
+  return list.map((c) => ({ ...c, color: colors.get(c.id)! }));
 }

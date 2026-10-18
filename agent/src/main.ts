@@ -32,7 +32,7 @@ import { CalendarSync, alertDetail, alertVars, probeIcs } from "./calendar-sync.
 import { withCalendarSync } from "./calendar-state.ts";
 import { MailSync, withMailSync } from "./mail-sync.ts";
 import { connectMail, removeMailAccount } from "./mail-connect.ts";
-import { addCalendar, calendarList as calendarListOf } from "./calendar-connect.ts";
+import { addCalendar, calendarCardRows, calendarList as calendarListOf } from "./calendar-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { CalendarView } from "./calendar-view.ts";
 import { withRun, asRoutine } from "./runs.ts";
@@ -250,7 +250,9 @@ await bus.listen(cfg.port, {
   dashboard: async () => ({
     ...(await agent.dashboard()),
     meetings: calendar.enabled ? calendar.upcoming().map(({ webLink: _w, ...m }) => m) : [],
-    connectors: withMailSync(withCalendarSync(withMcpBrain(cfg, connectorStatus(conns)), calendar.state()), mailSync.state()), // MCP 연결은 Claude Code 뇌일 때만 읽는다. 캘린더는 실제로 가져왔는지도
+    connectors: withMailSync(withCalendarSync(withMcpBrain(cfg, connectorStatus(conns)), calendar.state()), mailSync.state()) // MCP 연결은 Claude Code 뇌일 때만 읽는다. 캘린더는 실제로 가져왔는지도
+      // ICS 캘린더는 캘린더마다 줄(색·켜짐·결과): 개요 연결 카드가 그 자리에서 켜고 끈다
+      .map((c) => (c.cap === "calendar" && c.mode === "api" ? { ...c, calendars: calendarCardRows(join(HOME_DIR, "config.json"), calendar.state()) } : c)),
   }),
   todoDone: (id) => agent.todoDone(id),
   todayCarry: (decision) => {
