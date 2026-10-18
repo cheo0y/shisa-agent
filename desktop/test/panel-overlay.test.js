@@ -56,7 +56,7 @@ test('배선: 기본 켜짐(state.panelOverlay !== false), 패널 보임·숨김
   assert.match(r, /dispatchChat\(\{ type: 'sending', clientId \}\)/);
   assert.match(r, /cy\.chatSend\(text, ids, clientId\)/);
   assert.match(read('preload.cjs'), /chatSend: \(text, attachments, clientId\) =>/);
-  assert.match(read('renderer/settings.js'), /캐릭터 위에 2초 머물면 입력창이 열려요/);
+  assert.match(read('renderer/settings.js'), /캐릭터 위에 마우스를 2초 두면 입력창이 열려요/);
   assert.doesNotMatch(read('renderer/settings.js'), /\u2014.*2초/);
 });
 
@@ -121,7 +121,7 @@ function clock() {
     },
   };
 }
-const OK = { panelOverlay: true, panelOpen: true, armed: true, pressing: false, dragging: false, touring: false, askOpen: false, ready: true };
+const OK = { panelOverlay: true, panelOpen: false, armed: true, pressing: false, dragging: false, touring: false, askOpen: false, ready: true };
 function hover(over = {}) {
   const c = clock();
   const st = { ...OK, ...over };
@@ -175,7 +175,7 @@ test('호버 입력창: 누르기·끌기·둘러보기 중엔 안 뜨고, 재�
 });
 
 test('호버 입력창: 설정을 끄거나 패널이 닫혀 있으면 안 뜬다 · AI 없음·닫은 뒤 안 벗어남도', () => {
-  for (const over of [{ panelOverlay: false }, { panelOpen: false }, { ready: false }, { armed: false }, { askOpen: true }]) {
+  for (const over of [{ panelOverlay: false }, { ready: false }, { armed: false }, { askOpen: true }]) {
     const a = hover(over);
     a.h.move(true);
     a.c.tick(3000);
