@@ -191,11 +191,13 @@ const FRAGS = {
     inMins: (m: number, hm: string) => `${m}분 뒤(${hm})`, today: (hm: string) => `오늘 ${hm}`, tomorrow: (hm: string) => `내일 ${hm}`, date: (m: number, d: number, hm: string) => `${m}월 ${d}일 ${hm}`,
   },
   ja: {
-    prio: { 1: "今日かならず", 2: "今週", 3: "ゆっくり", 4: "いつか" } as Record<number, string>, p1: "## 優先度 1", p3: "## 優先度 3", more: (n: number) => ` ほか${n}件`, others: (n: number) => `ほかに${n}件`, untitled: "タイトルなし",
+    prio: { 1: "今日中", 2: "今週", 3: "いつか", 4: "そのうち" } as Record<number, string>, p1: "## 優先度 1", p3: "## 優先度 3", more: (n: number) => ` ほか${n}件`, others: (n: number) => `ほかに${n}件`, untitled: "タイトルなし",
     inMins: (m: number, hm: string) => `${m}分後(${hm})`, today: (hm: string) => `今日 ${hm}`, tomorrow: (hm: string) => `明日 ${hm}`, date: (m: number, d: number, hm: string) => `${m}月${d}日 ${hm}`,
   },
 };
 const frag = () => FRAGS[language()] ?? FRAGS.ko;
+// 지금 언어의 우선순위 이름(말풍선 할 일 목록 등)
+export const prioLabel = (p: number): string | undefined => frag().prio[p];
 const fill = (s: string, v: Record<string, string | number>) => s.replace(/\{(\w+)\}/g, (all, k: string) => (k in v ? String(v[k]) : all));
 const quote = (t: string) => `'${cleanTitle(t).slice(0, 30)}'`;
 

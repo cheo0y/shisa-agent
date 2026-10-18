@@ -61,6 +61,7 @@ import { applyFocusOps, chipFocusTodo, focusAsk, isFocusAsk, setFocusPeek } from
 import { brainAuthFailed, brainCreditNeeded, onBrainAuthChange } from "./providers.ts";
 import { briefingHours } from "./calendar.ts";
 import { performance } from "node:perf_hooks";
+import { t } from "./i18n.ts";
 
 installFileLog();
 // 새 설치면 config.json 에 "onboarded": false 를 남긴다: 설치 마법사를 마칠 때까지 아무것도 읽지 않고 모델도 부르지 않는다(onboarding.ts)
@@ -108,7 +109,7 @@ focus.onStop = (sec) => { if (sec > 0) bus.bubble({ id: "focus:done", text: focu
 focus.startTimer();
 setFocusPeek(() => focus.view()); // 채팅 프롬프트의 「집중하기」 줄
 // 일정 알림(설정 calendarAlert, 기본 10분 전): 오늘·내일 일정(커넥터 calendar: ICS·MCP, 읽기 전용). 30분마다·깨어날 때 다시 가져온다
-const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind: "calendar", title: "캘린더 동기화", model: cfg.models.light }, fn) });
+const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind: "calendar", title: t("say.run_calendar_sync"), model: cfg.models.light }, fn) });
 calendar.onChange = () => bus.dashboardChanged();
 // 캘린더 탭: 보는 기간을 ICS 에서 직접 읽는다(받은 글은 몇 분 들고 있다). MCP 는 동기화해 둔 회의만
 const calendarView = new CalendarView({ conn: () => cfg.connectors.calendar, configPath: join(HOME_DIR, "config.json"), state: () => calendar.state(), meetings: (from, to) => calendar.between(from, to) });
@@ -549,7 +550,7 @@ const slackTick = asRoutine(safe("slack-ingest", async () => {
   if (!slackIngester.transport) return; // slack 연결 안 됨(off·mcp) — 브리핑·채팅이 MCP로 실시간 조회
   // 진행 보고: 20초 안에 끝나는 평소 사이클은 조용히, 오래 걸리면 시작·결과만
   const prog = reactions.progress("slack-ingest", phrase("slack_prog"), { quietMs: 20e3 });
-  const c = await slackIngester.run().catch((e) => { prog.fail("슬랙 훑다가 막혔어요"); throw e; });
+  const c = await slackIngester.run().catch((e) => { prog.fail(t("say.slack_fail")); throw e; });
   prog.done(c.messages ? phrase("slack_done", { n: c.messages }) : undefined);
   console.log("[slack-ingest]", JSON.stringify(c)); // 건수·비용만
   await safe("todo-auto", () => runAfterSlackIngest(agent, cfg, store))(); // 끝난 할 일 자동 완료(모델은 15분에 한 번)
@@ -622,7 +623,7 @@ const kgHourly = asRoutine(safe("kg-hourly", async () => {
   if (kgBusy || !modelWorkAllowed(cfg)) return;
   kgBusy = true;
   try {
-    await withRun({ kind: "kg", title: "지식그래프 갱신" }, async () => {
+    await withRun({ kind: "kg", title: t("say.run_kg") }, async () => {
       const inc = await kgBackfill.incremental({ budgetUsd: 1 });
       const ref = await refineIncremental(cfg, store, { budgetUsd: 0.5 });
       console.log("[kg-hourly]", JSON.stringify({ chunks: inc.chunks, extractUsd: inc.costUsd, refineUsd: ref.costUsd, stopped: ref.stopped }));
@@ -641,7 +642,7 @@ const healthTick = asRoutine(safe("mcp-health", async () => {
   mcpState = g;
   console.log("[mcp-health]", JSON.stringify(h.servers));
   if (g !== "ok") {
-    bus.bubble({ id: "mcp-health", text: healthNote(h) ?? "MCP 서버에 연결이 안 돼요. 잠시 뒤에 다시 볼게요", kind: "error", ttlMs: 30e3 });
+    bus.bubble({ id: "mcp-health", text: healthNote(h) ?? t("say.mcp_down"), kind: "error", ttlMs: 30e3 });
   } else if (prev !== "ok") {
     bus.bubble({ id: "mcp-health", text: phrase("mcp_back"), kind: "info", ttlMs: 10e3 });
     slackTick();

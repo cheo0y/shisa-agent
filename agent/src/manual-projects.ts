@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { localDate } from "./calendar.ts";
 import type { CalEvent } from "./calendar-sync.ts";
 import type { Store, Todo } from "./store.ts";
+import { t as tr } from "./i18n.ts";
 
 export type ManualProjectStatus = "open" | "done";
 // 일정에서 가져온 프로젝트의 원본: 일정 id·캘린더 이름·일정 시각(카드에 「📅 일정에서」)
@@ -287,16 +288,16 @@ export type PickEvent = {
 
 // 일정 하나 → 만들기 칸: 제목 → 이름, 설명·장소·참석자 → 메모, 날짜 → 시작·기한(종일 일정의 끝은 다음 날 0시라 하루 뺀다)
 export function draftFromEvent(e: Pick<CalEvent, "id" | "subject" | "start" | "end" | "allDay" | "location" | "description" | "attendeeNames" | "calendar" | "joinUrl">): NewProject {
-  const name = (e.subject || "").replace(/\s+/g, " ").trim() || "(제목 없음)";
+  const name = (e.subject || "").replace(/\s+/g, " ").trim() || tr("say.mp_untitled");
   const startDay = localDate(new Date(e.start));
   const endMs = Date.parse(e.end) - (e.allDay ? 1 : 0);
   const dueDay = localDate(new Date(Math.max(Date.parse(e.start), Number.isFinite(endMs) ? endMs : Date.parse(e.start))));
   const lines: string[] = [];
   const desc = (e.description ?? "").replace(/\r\n?/g, "\n").trim();
   if (desc) lines.push(desc);
-  if (e.location) lines.push(`장소: ${e.location}`);
-  if (e.joinUrl) lines.push(`회의 링크: ${e.joinUrl}`);
-  if (e.attendeeNames?.length) lines.push(`참석자: ${e.attendeeNames.join(", ")}`);
+  if (e.location) lines.push(tr("say.mp_where", { v: e.location }));
+  if (e.joinUrl) lines.push(tr("say.mp_join", { v: e.joinUrl }));
+  if (e.attendeeNames?.length) lines.push(tr("say.mp_attendees", { v: e.attendeeNames.join(", ") }));
   return {
     name, ...(lines.length ? { note: lines.join("\n") } : {}), start: startDay, due: dueDay,
     source: { kind: "calendar", eventId: e.id, ...(e.calendar ? { calendar: e.calendar } : {}), title: name, start: e.start, end: e.end },
@@ -354,23 +355,23 @@ export function applyProjectOps(projects: ManualProjects, ops: unknown[]): { app
     for (const k of ["note", "due", "start"] as const) if (op[k] === null || (typeof op[k] === "string" && op[k] !== "")) fields[k] = op[k];
     if (op.op === "add") {
       const p = parseNewProject({ name: op.name ?? "", ...fields });
-      if (!p.ok) { errors.push(`프로젝트를 만들지 못했어요: ${p.error}`); continue; }
+      if (!p.ok) { errors.push(tr("say.mp_add_fail", { why: p.error })); continue; }
       const made = projects.add(p.value);
       added.push(made);
-      applied.push(`프로젝트 만들기: ${made.name}`);
+      applied.push(tr("say.mp_added", { name: made.name }));
       continue;
     }
-    if (op.op !== "edit" && op.op !== "done" && op.op !== "reopen") { errors.push("프로젝트 op 를 몰라서 건너뛰었어요"); continue; }
+    if (op.op !== "edit" && op.op !== "done" && op.op !== "reopen") { errors.push(tr("say.mp_bad_op")); continue; }
     const cur = (op.id && projects.get(op.id)) || projects.find(op.id || op.name || "");
-    if (!cur) { errors.push(`「${op.id || op.name || "?"}」 프로젝트를 못 찾아서 건너뛰었어요`); continue; }
+    if (!cur) { errors.push(tr("say.mp_missing", { ref: op.id || op.name || "?" })); continue; }
     const patch: Record<string, unknown> = { ...fields };
     if (op.op === "edit" && op.name && op.id && op.name.trim() !== cur.name) patch.name = op.name;
     if (op.op === "done") patch.status = "done";
     if (op.op === "reopen") patch.status = "open";
     const p = parseProjectPatch(patch);
-    if (!p.ok) { errors.push(`「${cur.name}」 프로젝트는 그대로예요: ${p.error}`); continue; }
+    if (!p.ok) { errors.push(tr("say.mp_unchanged", { name: cur.name, why: p.error })); continue; }
     const after = projects.edit(cur.id, p.value)!;
-    applied.push(op.op === "done" ? `프로젝트 끝냄: ${after.name}` : op.op === "reopen" ? `프로젝트 다시 진행: ${after.name}` : `프로젝트 고침: ${after.name}`);
+    applied.push(tr(op.op === "done" ? "say.mp_done" : op.op === "reopen" ? "say.mp_reopen" : "say.mp_edited", { name: after.name }));
   }
   return { applied, errors, added };
 }

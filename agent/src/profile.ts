@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { HOME_DIR, type Config } from "./config.ts";
 import type { Store, Node } from "./store.ts";
 import { character } from "./characters.ts";
+import { t } from "./i18n.ts";
 
 export const CATEGORIES = ["preference", "person", "project", "routine", "style", "priority"] as const;
 export type FactCategory = (typeof CATEGORIES)[number];
@@ -167,8 +168,8 @@ export type RememberResult = { ok: true; fact: Fact; created: boolean } | { ok: 
 export function rememberFact(store: Store, input: { text: string; category?: string; evidence?: string[] }, now = new Date()): RememberResult {
   const stripped = extractRememberedFact(input.text);
   const text = (stripped ?? input.text).replace(/\s+/g, " ").trim(); // 사용자가 맡긴 글은 자르지 않는다
-  if (text.length < 4) return { ok: false, error: "기억할 내용이 너무 짧아요" };
-  if (looksLikeInstruction(text)) return { ok: false, error: "지시는 기억으로 남기지 않아요" };
+  if (text.length < 4) return { ok: false, error: t("say.mem_too_short") };
+  if (looksLikeInstruction(text)) return { ok: false, error: t("say.mem_instruction") };
   const cat = CATEGORIES.includes(input.category as FactCategory) ? (input.category as FactCategory) : guessCategory(text);
   const nowIso = now.toISOString();
   const id = factId(text);
@@ -210,17 +211,17 @@ export function applyMemoryOps(store: Store, ops: MemoryOp[], now = new Date()):
     if (op.op === "remember") {
       const r = rememberFact(store, { text: op.text, category: op.category, evidence: ["user:remember"] }, now);
       if (!r.ok) { errors.push(r.error); continue; }
-      applied.push(`기억: ${r.fact.text}`);
+      applied.push(t("say.mem_remembered", { text: r.fact.text }));
       continue;
     }
     if (op.op === "forget") {
       const id = (typeof op.id === "string" && op.id.startsWith("fact:") ? op.id : "") || (op.text ? factId(op.text) : "");
-      if (!id) { errors.push("잊을 기억을 못 찾았어요"); continue; }
-      if (!forgetFact(store, id, now)) { errors.push("그 기억은 이미 없거나 없어요"); continue; }
-      applied.push("잊어버렸어요");
+      if (!id) { errors.push(t("say.mem_forget_missing")); continue; }
+      if (!forgetFact(store, id, now)) { errors.push(t("say.mem_forget_gone")); continue; }
+      applied.push(t("say.mem_forgot"));
       continue;
     }
-    errors.push("모르는 기억 동작이에요");
+    errors.push(t("say.mem_unknown_op"));
   }
   return { applied, errors };
 }
@@ -464,7 +465,7 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
   const cwd = join(HOME_DIR, "profile"); // HOME_DIR 아래 → 세션 수집에서 빠진다
   mkdirSync(cwd, { recursive: true });
   if (usesCodex(cfg)) {
-    return withRun({ kind: "profile", title: "프로필 학습", model: "codex", cwd }, async (run) => {
+    return withRun({ kind: "profile", title: t("say.run_profile"), model: "codex", cwd }, async (run) => {
       run.log({ type: "user", text: prompt });
       const { out } = await codexStructured<LearnOutput>({ system: LEARN_SYSTEM, prompt, schema: LEARN_SCHEMA, timeoutMs: 180_000 }, codex);
       return out;
@@ -484,7 +485,7 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
       outputFormat: { type: "json_schema", schema: LEARN_SCHEMA as unknown as Record<string, unknown> },
     },
   });
-  return withRun({ kind: "profile", title: "프로필 학습", model: cfg.models.general, cwd }, async (run) => {
+  return withRun({ kind: "profile", title: t("say.run_profile"), model: cfg.models.general, cwd }, async (run) => {
     run.log({ type: "user", text: prompt });
     for await (const m of trackQuery(run, it as AsyncIterable<any>)) {
       if (m.type === "result") {

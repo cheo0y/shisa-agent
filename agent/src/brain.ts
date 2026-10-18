@@ -43,7 +43,8 @@ import { SUBAGENT_SDK_OPTIONS, SUBAGENT_TOOLS, subagentEnv } from "./subagents.t
 import { weatherPeekLine } from "./weather.ts";
 import { contextHeader, ctxMcpServer, CTX_GUIDE, CTX_SERVER, fmtNow, fmtTime, todoLine, userLine, type CtxDeps } from "./ctx-tools.ts";
 import { WorktreeIsolation } from "./agent-worktrees.ts";
-import { DENIED_STEP, LOCK_WAIT_MS, getBroker, waitStep, withRunOrigin, type PermissionBroker, type PermOrigin, type PermWait } from "./permissions.ts";
+import { deniedStep, LOCK_WAIT_MS, getBroker, waitStep, withRunOrigin, type PermissionBroker, type PermOrigin, type PermWait } from "./permissions.ts";
+import { t, t as tr } from "./i18n.ts"; // tr: 지역 변수 t(도구 설정)가 가리는 곳
 
 export type Thought = {
   bubble: string; // 캐릭터 말풍선 한마디
@@ -295,7 +296,7 @@ function wantsBriefingShape(schema: unknown): boolean {
 export async function think(
   cfg: Config, store: Store, task: string, onStep?: (s: string) => void, opts: { todoOps?: boolean; run?: AskRun; interactive?: AskOpts["interactive"]; context?: "tools" | "inline"; ctx?: CtxDeps; onResult?: AskOpts["onResult"]; deps?: ProviderDeps } = {},
 ): Promise<Thought> {
-  const run = opts.run ?? (task.startsWith(BRIEFING_HEAD) ? { kind: "briefing", title: "정기 브리핑" } : { kind: "other", title: task.split("\n")[0].slice(0, 80) });
+  const run = opts.run ?? (task.startsWith(BRIEFING_HEAD) ? { kind: "briefing", title: t("say.run_briefing") } : { kind: "other", title: task.split("\n")[0].slice(0, 80) });
   const tools = opts.context === "tools";
   if (task.startsWith(BRIEFING_HEAD)) task = excludeBriefingSources(task, briefingExcludeOf(cfg)); // 설정 창에서 뺀 출처는 브리핑에서 빼기(연결 상태로 만든 과제 글 위에)
   // 사용자가 정한 행동 지침(guidelines.ts): 브리핑은 briefing, 사용자가 직접 말한 요청(Slack DM)은 chat 범위. 그 밖의 정기 작업엔 없음
@@ -330,7 +331,7 @@ export async function ask<T>(
   cfg: Config, prompt: string, schema: unknown, onStep?: (s: string) => void, opts: AskOpts & { run?: AskRun } = {},
 ): Promise<T> {
   // 세션 창 기록(읽기 전용 run)
-  const spec = opts.run ?? { kind: "other" as RunKind, title: opts.interactive ? "질문" : "질문(읽기 전용)" };
+  const spec = opts.run ?? { kind: "other" as RunKind, title: opts.interactive ? tr("say.run_question") : tr("say.run_question_ro") };
   const provider = cfg.brain?.provider ?? "claude-code";
   if (provider !== "claude-code") return askOther<T>(provider, cfg, prompt, schema, onStep, opts, spec);
   // Claude Code 에 다른 뇌 모델 이름(예전 설정의 gemini-… 등)이 가지 않게: 맞지 않으면 그 역할의 Claude 모델
@@ -503,7 +504,7 @@ async function askRun<T>(
   const abort = opts.abort;
   if (abort) {
     stoppable(run, abort);
-    if (abort.signal.aborted) throw new Error("멈췄어요");
+    if (abort.signal.aborted) throw new Error(tr("say.chat_stopped"));
   }
   const canUseTool = abort && t.canUseTool ? withAbort(t.canUseTool, abort.signal) : t.canUseTool;
   t.isolation?.setLog((ev) => run.log(ev), run.id);
@@ -550,7 +551,7 @@ async function askRun<T>(
         }
       }
       if (m.type === "result") {
-        if (m.subtype === "error_max_turns") throw new Error("턴 한도에 닿아 멈췄어요(error_max_turns)"); // 세션 창이 주황 + [이어서 하기]로
+        if (m.subtype === "error_max_turns") throw new Error(tr("say.max_turns_err")); // 세션 창이 주황 + [이어서 하기]로
         if (m.subtype !== "success") throw new Error(`brain 실패: ${m.subtype}`);
         if (schema === null) return m.result as T;
         const out = (m as any).structured_output;
@@ -586,7 +587,7 @@ export function permWaitSteps(via: PermOrigin["via"], onStep?: (s: string) => vo
     onWait: (w) => {
       waiting = Math.max(0, waiting + (w.phase === "wait" ? 1 : -1));
       if (w.phase === "wait") onStep?.(waitStep(via));
-      else if (!waiting) onStep?.(w.phase === "allowed" ? stepName(w.toolName, w.input) : DENIED_STEP);
+      else if (!waiting) onStep?.(w.phase === "allowed" ? stepName(w.toolName, w.input) : deniedStep());
     },
     tool: (s) => { if (!waiting) onStep?.(s); },
   };

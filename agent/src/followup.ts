@@ -11,6 +11,7 @@ import { findRepos } from "./git.ts";
 import { testsFromLog, type Reactions } from "./reactions.ts";
 import { phrase } from "./phrases.ts";
 import type { Bubble } from "./bus.ts";
+import { t as tr } from "./i18n.ts";
 
 export type ContinueResult =
   | { ok: true; mode: "fix"; runId: string }
@@ -73,9 +74,9 @@ export class FollowUps {
   private continueFix(run: Run, events: Parameters<typeof summarizeRun>[1], text: string, model?: string): ContinueResult {
     const prop = run.ref ? this.p.store.proposal(run.ref) : undefined;
     const repo = run.repo ?? prop?.repo;
-    if (!repo) return { ok: false, status: 409, error: "이 작업의 레포를 몰라서 이어서 할 수 없어요" };
+    if (!repo) return { ok: false, status: 409, error: tr("say.fu_no_repo") };
     const branch = run.branch ?? (prop ? fixBranch(prop) : undefined);
-    if (!branch) return { ok: false, status: 409, error: "이 작업의 브랜치를 몰라서 이어서 할 수 없어요" };
+    if (!branch) return { ok: false, status: 409, error: tr("say.fu_no_branch") };
     const prUrl = run.prUrl ?? (prop?.result?.startsWith("https://") ? prop.result : undefined);
     const prepare = this.p.prepare ?? realPrepare;
     const c = prepare(this.p.cfg, {
@@ -95,20 +96,20 @@ export class FollowUps {
     try {
       const r: FixResult = await c.start((s) => { steps.push(s); prog?.onStep(s); });
       if (r.ok) {
-        await this.p.slackPost?.(`✅ 이어서 한 작업 푸시 (\`${r.branch}\`)${r.prUrl ? ` — ${r.prUrl}` : ""}\n${r.summary}`, prop?.slackTs).catch(() => {});
+        await this.p.slackPost?.(tr("say.fu_pushed", { branch: r.branch ?? "", pr: r.prUrl ? ` — ${r.prUrl}` : "", summary: r.summary }), prop?.slackTs).catch(() => {});
         if (prog) {
           prog.progress.done(r.prUrl ? phrase("followup_pr") : phrase("fix_pushed", { branch: r.branch ?? "" }));
           // 머지는 늘 사용자 승인 — 이어서 한 작업마다 따로 묻는다(id = 새 run)
           if (r.prUrl) this.p.reactions()!.offerMerge({ id, title, prUrl: r.prUrl, summary: r.summary, branch: r.branch, tests: testsFromLog(r.log ?? steps) });
         } else this.p.bubble({ text: phrase("followup_done", { title }), kind: "done", ttlMs: 20e3, link: r.prUrl });
       } else {
-        await this.p.slackPost?.(`⚠️ 이어서 한 작업 실패: ${r.summary}`, prop?.slackTs).catch(() => {});
-        if (prog) prog.progress.fail(`"${title}" 실패했어요. 작업 세션을 봐 주세요`);
-        else this.p.bubble({ text: `"${title}" 실패했어요. 작업 세션을 봐 주세요`, kind: "error" });
+        await this.p.slackPost?.(tr("say.fu_failed", { summary: r.summary }), prop?.slackTs).catch(() => {});
+        if (prog) prog.progress.fail(tr("say.fu_failed_bubble", { title }));
+        else this.p.bubble({ text: tr("say.fu_failed_bubble", { title }), kind: "error" });
       }
     } catch (e: any) {
       prog?.progress.done();
-      this.p.bubble({ text: `"${title}" 하다가 오류가 났어요: ${String(e?.message ?? e).slice(0, 60)}`, kind: "error" });
+      this.p.bubble({ text: tr("say.fu_error_bubble", { title, why: String(e?.message ?? e).slice(0, 60) }), kind: "error" });
     } finally {
       this.p.changed();
       this.p.mood("idle");
@@ -132,8 +133,8 @@ export class FollowUps {
     const runId = this.chats.get(ev.chatId);
     if (!runId) return;
     if (ev.status === "done") this.p.runs.logEvent(runId, { type: "assistant", text: ev.text ?? "", followUp: true });
-    else if (ev.status === "error") this.p.runs.logEvent(runId, { type: "error", text: ev.text ?? "대화하다 막혔어요", followUp: true });
-    else if (ev.status === "stopped") this.p.runs.logEvent(runId, { type: "system", text: "답을 멈췄어요", followUp: true });
+    else if (ev.status === "error") this.p.runs.logEvent(runId, { type: "error", text: ev.text ?? tr("say.fu_chat_fail"), followUp: true });
+    else if (ev.status === "stopped") this.p.runs.logEvent(runId, { type: "system", text: tr("say.chat_stopped_line"), followUp: true });
     else return;
     this.chats.delete(ev.chatId);
   }
@@ -145,7 +146,7 @@ export class FollowUps {
     const first = t.split("\n")[0].trim();
     const title = first.length > 60 ? `${first.slice(0, 57)}…` : first;
     const p = await this.p.propose({ repo, title, plan: t });
-    if (!p) return { ok: false, status: 400, error: "허용된 레포가 아니에요(repoRoots 안의 git 레포만)" };
+    if (!p) return { ok: false, status: 400, error: tr("say.fu_bad_repo") };
     return { ok: true, proposal: { id: p.id, title: p.title, repo: p.repo, status: p.status } };
   }
 

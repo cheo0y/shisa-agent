@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { Store } from "./store.ts";
 import { phrase } from "./phrases.ts";
+import { t } from "./i18n.ts";
 
 export const FOCUS_CMDS = ["start", "pause", "resume", "stop"] as const;
 export type FocusCmd = (typeof FOCUS_CMDS)[number];
@@ -340,9 +341,9 @@ export class Focus {
 // 마무리 말: 「25분 집중했어요」
 export function focusDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
-  if (s < 60) return `${s}초`;
+  if (s < 60) return t("say.dur_s", { s });
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h ? (m ? `${h}시간 ${m}분` : `${h}시간`) : `${m}분`;
+  return h ? (m ? t("say.dur_hm", { h, m }) : t("say.dur_h", { h })) : t("say.dur_m", { m });
 }
 export function focusDoneText(sec: number): string {
   return phrase("focus_done", { duration: focusDuration(sec) });

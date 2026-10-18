@@ -10,6 +10,7 @@
 import { execFile } from "node:child_process";
 import type { ActionCard } from "./actions.ts";
 import { isAbsPath, msysToWin } from "./plat.ts";
+import { t } from "./i18n.ts";
 
 export const MERGE_TYPE = "pr_merge"; // pending_actions.type
 
@@ -77,7 +78,7 @@ export function parsePrView(raw: unknown): PrStatus {
   const j = (typeof raw === "string" ? JSON.parse(raw) : raw) as any;
   const url = String(j?.url ?? "");
   const m = url.match(PR_URL);
-  if (!m || !Number.isInteger(j?.number)) throw new Error("PR 정보가 이상해요");
+  if (!m || !Number.isInteger(j?.number)) throw new Error(t("say.pr_bad"));
   const state = ["OPEN", "MERGED", "CLOSED"].includes(j.state) ? j.state : "OPEN";
   const mergeable: Mergeable = j.mergeable === "MERGEABLE" || j.mergeable === "CONFLICTING" ? j.mergeable : "UNKNOWN";
   return {
@@ -91,7 +92,7 @@ export function parsePrView(raw: unknown): PrStatus {
 // 실제 조회: gh pr view(읽기). 셸 없이 고정 argv
 export const realPrStatus: PrLookup = (ref, cwd) => new Promise((ok, fail) => {
   const target = ref.url ?? (ref.number ? String(ref.number) : "");
-  if (!target) return fail(new Error("PR 번호가 없어요"));
+  if (!target) return fail(new Error(t("say.pr_no_number")));
   const args = ["pr", "view", target, "--json", PR_FIELDS, ...(!ref.url && ref.repo ? ["-R", ref.repo] : [])];
   execFile("gh", args, { timeout: 20e3, maxBuffer: 4 << 20, ...(cwd ? { cwd } : {}) }, (err, out, errOut) => {
     if (err) return fail(new Error(String(errOut || err.message).trim().split("\n")[0].slice(0, 200) || "gh pr view 실패"));
@@ -117,31 +118,31 @@ export const infoOf = (s: PrStatus): MergeInfo => ({ number: s.number, repo: s.r
 
 // ✓ 를 막는 이유(없으면 undefined). 실패한 검사는 필수 여부를 gh 가 알려 주지 않아 전부 막는다(더 안전한 쪽)
 export function mergeBlock(s: Pick<PrStatus, "checks" | "mergeable" | "draft"> & { state?: PrStatus["state"] }): string | undefined {
-  if (s.state === "MERGED") return "이미 머지된 PR이에요";
-  if (s.state === "CLOSED") return "닫힌 PR이에요";
-  if (s.checks.fail) return `검사 ${s.checks.fail}개 실패${s.checks.failing.length ? `(${s.checks.failing.slice(0, 3).join(", ")})` : ""} — 고친 뒤 다시 요청해 주세요`;
-  if (s.mergeable === "CONFLICTING") return "충돌이 있어요 — 충돌을 푼 뒤 다시 요청해 주세요";
-  if (s.draft) return "초안(draft) PR이에요 — Ready for review 로 바꾼 뒤 다시 요청해 주세요";
+  if (s.state === "MERGED") return t("say.pr_merged");
+  if (s.state === "CLOSED") return t("say.pr_closed");
+  if (s.checks.fail) return t("say.pr_checks_failed", { n: s.checks.fail, names: s.checks.failing.length ? `(${s.checks.failing.slice(0, 3).join(", ")})` : "" });
+  if (s.mergeable === "CONFLICTING") return t("say.pr_conflict");
+  if (s.draft) return t("say.pr_draft");
   return undefined;
 }
 
 export function checksLine(c: PrChecks): string {
   const total = c.pass + c.pending + c.fail;
-  if (!total) return "검사 없음";
-  if (c.fail) return `검사 ${c.fail}개 실패`;
-  if (c.pending) return `검사 ${c.pending}개 대기 중`;
-  return "검사 통과";
+  if (!total) return t("say.checks_none");
+  if (c.fail) return t("say.checks_fail", { n: c.fail });
+  if (c.pending) return t("say.checks_pending", { n: c.pending });
+  return t("say.checks_pass");
 }
 export function mergeableLine(m: Mergeable): string {
-  return m === "MERGEABLE" ? "충돌 없음" : m === "CONFLICTING" ? "충돌 있음" : "충돌 확인 중";
+  return m === "MERGEABLE" ? t("say.conflict_none") : m === "CONFLICTING" ? t("say.conflict_yes") : t("say.conflict_checking");
 }
-const REVIEW: Record<string, string> = { APPROVED: "승인됨", CHANGES_REQUESTED: "변경 요청", REVIEW_REQUIRED: "리뷰 필요" };
-export const reviewLine = (r: string) => REVIEW[r] ?? "리뷰 없음";
+const REVIEW: Record<string, string> = { APPROVED: "say.review_approved", CHANGES_REQUESTED: "say.review_changes", REVIEW_REQUIRED: "say.review_required" };
+export const reviewLine = (r: string) => t(REVIEW[r] ?? "say.review_none");
 
 // 캐릭터 말풍선 한 줄: "#268 머지할까요? 검사 통과·충돌 없음"
 export function mergeQuestion(i: Pick<MergeInfo, "number" | "checks" | "mergeable">, blocked?: string): string {
   const tail = `${checksLine(i.checks)}·${mergeableLine(i.mergeable)}`;
-  return blocked ? `#${i.number} 머지할 수 없어요 — ${tail}` : `#${i.number} 머지할까요? ${tail}`;
+  return blocked ? t("say.merge_q_blocked", { n: i.number, tail }) : t("say.merge_q", { n: i.number, tail });
 }
 
 // 말풍선 아래 줄들(레포 · base ← head, 제목, 리뷰, 막힌 이유)
@@ -149,7 +150,7 @@ export function mergeDetail(title: string, i: MergeInfo, blocked?: string): stri
   return [
     `${i.repo} · ${i.base} ← ${i.head}`,
     title ? `〈${title.length > 60 ? `${title.slice(0, 59)}…` : title}〉` : "",
-    `리뷰: ${reviewLine(i.review)}${i.checks.pending && !i.checks.fail ? " · 대기 중인 검사가 있으면 GitHub 규칙에 따라 머지가 거절될 수 있어요" : ""}`,
+    t("say.merge_review_line", { review: reviewLine(i.review), note: i.checks.pending && !i.checks.fail ? t("say.merge_pending_note") : "" }),
     blocked ? `✋ ${blocked}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -158,15 +159,15 @@ export function mergeDetail(title: string, i: MergeInfo, blocked?: string): stri
 export function mergeCard(title: string, url: string, i: MergeInfo, blocked?: string): ActionCard {
   const c = i.checks;
   return {
-    icon: "🔀", title: `#${i.number} ${title}`.slice(0, 200), verb: "머지",
-    question: blocked ? `**머지할 수 없어요** — ${blocked}` : `**#${i.number}** 을(를) 머지할까요?`,
-    notice: blocked ? "" : "✓ 를 누르면 squash 머지하고 브랜치를 지워요",
+    icon: "🔀", title: `#${i.number} ${title}`.slice(0, 200), verb: t("say.merge_verb"),
+    question: blocked ? t("say.merge_card_blocked", { why: blocked }) : t("say.merge_card_q", { n: i.number }),
+    notice: blocked ? "" : t("say.merge_card_notice"),
     fields: [
-      { label: "레포", value: i.repo },
-      { label: "대상", value: `${i.base} ← ${i.head}` },
-      { label: "검사", value: `${checksLine(c)} (통과 ${c.pass} · 대기 ${c.pending} · 실패 ${c.fail})${c.failing.length ? ` — ${c.failing.join(", ")}` : ""}` },
-      { label: "충돌", value: mergeableLine(i.mergeable) },
-      { label: "리뷰", value: reviewLine(i.review) },
+      { label: t("say.f_repo"), value: i.repo },
+      { label: t("say.f_target"), value: `${i.base} ← ${i.head}` },
+      { label: t("say.f_checks"), value: t("say.f_checks_value", { line: checksLine(c), pass: c.pass, pending: c.pending, fail: c.fail, names: c.failing.length ? t("say.f_checks_names", { names: c.failing.join(", ") }) : "" }) },
+      { label: t("say.f_conflict"), value: mergeableLine(i.mergeable) },
+      { label: t("say.f_review"), value: reviewLine(i.review) },
     ],
     merge: { ...i, title, url, ...(blocked ? { blocked } : {}) },
   };

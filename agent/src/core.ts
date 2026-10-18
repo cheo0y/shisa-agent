@@ -15,7 +15,7 @@ import { recordFeedback, rememberFact, extractRememberedFact, applyMemoryOps, li
 import { think as realThink, type Thought } from "./brain.ts";
 import { briefingMilestone, briefingTask, readySources, type SourceId } from "./briefing-sources.ts";
 import { runFix as realRunFix, mergePr as realMergePr, normalizeBase, resolveRepo, type FixResult } from "./fixer.ts";
-import { Chat, converse as realConverse, todoThreadFor, unfinishedLine, RESTART_WHY, type Converse, type RunCommand, type SendOpts, type Sent } from "./chat.ts";
+import { Chat, converse as realConverse, todoThreadFor, unfinishedLine, restartWhy, type Converse, type RunCommand, type SendOpts, type Sent } from "./chat.ts";
 import type { SlashCommands } from "./commands.ts";
 import type { Thread, ThreadKind, ChatPick } from "./store.ts";
 import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts";
@@ -47,6 +47,7 @@ import { AttachmentStore, type Attachment } from "./attachments.ts";
 import { ManualProjects, applyProjectOps, parseNewProject, parseOrderBody, parseProjectOrderBody, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
 import { Guidelines, applyGuidelineOp, guidelinesApi, setGuidelineStore, type GuidelineCtx, type GuidelinesApi } from "./guidelines.ts";
 import { WAIT_SETUP, modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
+import { t, t as tr } from "./i18n.ts"; // tr: 지역 변수 t(할 일·생각)가 가리는 곳
 
 export type Posted = { channel: string; ts: string; permalink?: string };
 // 팝오버 마지막 문답(GET /todos/:id/thread/last). ops·preview·rev·rule 은 아직 ✓ 할 수 있을 때만(outcome pending)
@@ -106,9 +107,9 @@ function throttle(fn: () => void, ms: number) {
 
 // ✓ 없이 머지한 결과 한 줄(그 대화에) — 카드로 머지했을 때의 「🎉 머지했어요 — #N 제목 (머지 커밋 …)」과 같은 모양 + 무엇으로 허락받았나
 export function mergedLine(st: { number: number; title: string; url: string; repo: string }, commitUrl: string | undefined, how: "text" | "auto"): string {
-  const tail = commitUrl ? `(머지 커밋 ${commitUrl})` : `(${st.url})`;
-  return how === "text" ? `🎉 머지했어요 — #${st.number} ${st.title} ${tail} · 말씀하신 대로 ✓ 없이 바로 머지했어요`
-    : `🤖 자동으로 머지했어요 — #${st.number} ${st.title} ${tail} · ${st.repo} 은(는) 자동 머지 레포라 ✓ 없이 머지했어요`;
+  const tail = commitUrl ? t("say.merged_commit_tail", { url: commitUrl }) : `(${st.url})`;
+  return how === "text" ? t("say.merged_text", { n: st.number, title: st.title, tail })
+    : t("say.merged_auto", { n: st.number, title: st.title, tail, repo: st.repo });
 }
 
 export const LOCAL_GREET_ID = "local-greet";
@@ -145,7 +146,7 @@ export class Agent {
     this.actions.onChange = (a) => this.onActionChange(a);
     // 머지 승인 카드의 ✓/✗ 는 캐릭터 말풍선·Slack 과 같은 머지 상태 기계(reactions.ts)로 — 먼저 누른 쪽이 이긴다
     this.actions.merge = {
-      decide: (id, d) => this.reactions ? this.reactions.decideMerge(id, d, "chat") : Promise.resolve({ ok: false, status: 409, error: "머지 승인을 쓸 수 없어요" }),
+      decide: (id, d) => this.reactions ? this.reactions.decideMerge(id, d, "chat") : Promise.resolve({ ok: false, status: 409, error: t("say.merge_unavailable") }),
     };
     // 대화형 에이전트의 도구 승인(permissions.ts): 규칙 표 + 대기열(Actions)
     this.permissionRules = new PermissionRules(store);
@@ -168,7 +169,7 @@ export class Agent {
       // isolation "worktree": 부른 대화의 레포(또는 지시에 나온 레포)에서 새 워크트리 — 끝나면 커밋해 남기거나 지운다(agent-worktrees.ts)
       isolate: async (job) => {
         const source = isolationSource(job.cwd ?? "", job.prompt, this.cfg.repoRoots);
-        if (!source) throw new Error("워크트리 격리는 git 레포 안에서만 돼요 — 지시에 대상 레포의 절대경로를 넣어 주세요");
+        if (!source) throw new Error(t("say.isolate_need_repo"));
         const w = await addAgentWorktree(source, { label: job.description, id: job.toolUseId, ...(this.deps.bgWorktreesDir ? { worktreesDir: this.deps.bgWorktreesDir } : {}) });
         return {
           path: w.wt, branch: w.branch,
@@ -326,7 +327,7 @@ export class Agent {
       this.bus.threads({ thread });
       return thread;
     }
-    const thread = this.store.createThread({ title: t.title?.trim() || "새 대화", kind: t.kind === "hover" ? "hover" : "chat" });
+    const thread = this.store.createThread({ title: t.title?.trim() || tr("say.chat_new_thread"), kind: t.kind === "hover" ? "hover" : "chat" });
     this.bus.threads({ thread });
     return thread;
   }
@@ -388,7 +389,7 @@ export class Agent {
     const turns = this.store.danglingTurns();
     for (const d of turns) {
       if (!this.store.thread(d.threadId)) continue;
-      const n = this.store.addChat("system", unfinishedLine(RESTART_WHY), undefined, undefined, d.threadId);
+      const n = this.store.addChat("system", unfinishedLine(restartWhy()), undefined, undefined, d.threadId);
       for (const a of this.actions.list({ threadId: d.threadId, limit: 50 })) if (a.msgN === undefined && a.created >= d.at) this.actions.attach(a.id, n);
       this.bus.threads({ thread: this.store.thread(d.threadId) });
     }
@@ -441,7 +442,7 @@ export class Agent {
           const why = mergeBlock(st);
           if (why) throw new Error(why);
           if ((want && st.headOid && st.headOid !== want) || (rec.pr.base && st.base !== rec.pr.base))
-            throw new Error("승인한 뒤 PR 에 새 커밋이 올라왔거나 대상 브랜치가 바뀌었어요 — 바뀐 내용을 보고 머지를 다시 요청해 주세요");
+            throw new Error(t("say.merge_head_changed"));
         }
         this.prs.delete(rec.id);
         return this.deps.mergePr(rec.prUrl, want);
@@ -501,7 +502,7 @@ export class Agent {
     const items = attentionSince(this.store, since, { limit: 50 }).filter((i) => i.at > since);
     if (!items.length) return 0;
     const newest = items.reduce((m, i) => (i.at > m ? i.at : m), since);
-    const t = await this.deps.think(this.cfg, this.store, slackTodoTask(formatAttention(items), items.map((i) => `slack:${i.channel}:${i.ts}`)), () => {}, { run: { kind: "briefing", title: "새 Slack → 할 일" } });
+    const t = await this.deps.think(this.cfg, this.store, slackTodoTask(formatAttention(items), items.map((i) => `slack:${i.channel}:${i.ts}`)), () => {}, { run: { kind: "briefing", title: tr("say.run_slack_todos") } });
     db.prepare("INSERT INTO slack_meta (key, value) VALUES ('quickTodoAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(newest);
     const notable = this.addTodos(t.todos).filter((x) => x.priority !== 4);
     this.changed();
@@ -546,7 +547,7 @@ export class Agent {
       if (!quiet) this.bus.bubble(this.reactions?.briefingBubble({ ...b }, { notable }) ?? b);
       this.reactions?.lots(open, "briefing");
     } catch (e: any) {
-      this.bus.bubble({ text: `브리핑하다 막혔어요: ${String(e?.message ?? e).slice(0, 60)}`, kind: "error" });
+      this.bus.bubble({ text: t("say.briefing_fail", { why: String(e?.message ?? e).slice(0, 60) }), kind: "error" });
     } finally {
       this.bus.setMood("idle");
     }
@@ -614,7 +615,7 @@ export class Agent {
     this.changed();
     const notable = added.filter((x) => x.priority !== 4); // 백로그(P4)로 들어간 건 '새 할 일' 말풍선에서 뺀다
     this.lastAdded = notable.length;
-    this.reactions?.newTodos(notable, explicit ? "Slack" : "브리핑");
+    this.reactions?.newTodos(notable, explicit ? "Slack" : tr("say.via_briefing"));
     for (const pr of t.proposals) await this.propose(pr, threadTs, explicit);
     return posted;
   }
@@ -630,13 +631,13 @@ export class Agent {
     const p = this.store.proposal(id)!;
     this.changed();
     if (start) {
-      const ack = `▶️ *채팅에서 시킨 작업* — 바로 시작해요${base ? ` (PR 대상 \`${base}\`)` : ""}. 머지는 끝나고 물어볼게요`;
-      const posted = await this.slack?.post(resolvedBlocks({ blocks: proposalBlocks(p, true) }, ack), `요청 작업: ${pr.title}`, threadTs);
+      const ack = t("say.slack_chat_task", { base: base ? t("say.slack_pr_base", { base }) : "" });
+      const posted = await this.slack?.post(resolvedBlocks({ blocks: proposalBlocks(p, true) }, ack), t("say.slack_requested", { title: pr.title }), threadTs);
       if (posted) this.store.setProposalSlack(id, posted.channel, posted.ts);
       await this.approve(id, true);
       return this.store.proposal(id);
     }
-    const posted = await this.slack?.post(proposalBlocks(p, explicit), `${explicit ? "요청 작업" : "UI 수정 제안"}: ${pr.title}`, threadTs);
+    const posted = await this.slack?.post(proposalBlocks(p, explicit), explicit ? t("say.slack_requested", { title: pr.title }) : t("say.slack_ui_fix", { title: pr.title }), threadTs);
     if (posted) this.store.setProposalSlack(id, posted.channel, posted.ts);
     this.bus.bubble({ id: `proposal:${id}`, text: phrase(explicit ? "proposal_ask" : "proposal_ask_fix", { title: pr.title }), kind: "proposal", proposalId: id, link: posted?.permalink });
     return p;
@@ -664,24 +665,24 @@ ${meetingsContext(this.store)}`,
 
   // auto: 채팅에서 시킨 작업이라 승인 없이 바로(학습 신호·Slack 승인 표시 없음)
   async approve(id: string, auto = false): Promise<string> {
-    if (!this.store.transition(id, ["pending", "held"], "approved")) return "이미 처리된 제안이에요";
+    if (!this.store.transition(id, ["pending", "held"], "approved")) return t("say.proposal_done_already");
     if (!auto) recordFeedback(this.store, { kind: "proposal_approved", ref: id });
     const p = this.store.proposal(id)!;
     this.changed();
-    if (!auto) await this.resolveSlack(p, "▶️ *승인됨* — 작업 들어갈게요");
+    if (!auto) await this.resolveSlack(p, t("say.slack_approved"));
     this.bus.bubble({ id: `proposal:${id}`, text: phrase("proposal_go", { title: p.title }), kind: "info", ttlMs: 8e3 });
     this.startFix(() => this.execute(p)); // 바로 시작 — 다른 수정 run 을 기다리지 않는다
-    return "승인";
+    return t("say.approved");
   }
 
   async hold(id: string): Promise<string> {
-    if (!this.store.transition(id, ["pending"], "held")) return "이미 처리된 제안이에요";
+    if (!this.store.transition(id, ["pending"], "held")) return t("say.proposal_done_already");
     recordFeedback(this.store, { kind: "proposal_held", ref: id });
     const p = this.store.proposal(id)!;
     this.changed();
-    await this.resolveSlack(p, "⏸️ *보류* — 나중에 다시 얘기해 주세요");
+    await this.resolveSlack(p, t("say.slack_held"));
     this.bus.clear(`proposal:${id}`);
-    return "보류";
+    return t("say.held");
   }
 
   private async execute(p: Proposal) {
@@ -689,16 +690,16 @@ ${meetingsContext(this.store)}`,
     this.changed();
     this.fixMood(true);
     const steps: string[] = [];
-    const trace = p.slackTs ? await this.slack?.post(traceBlocks(steps), "작업 내역", p.slackTs) : undefined;
-    const flush = throttle(() => { if (trace) this.slack?.update(trace.channel, trace.ts, traceBlocks(steps), "작업 내역").catch(() => {}); }, 3000);
+    const trace = p.slackTs ? await this.slack?.post(traceBlocks(steps), t("say.slack_trace"), p.slackTs) : undefined;
+    const flush = throttle(() => { if (trace) this.slack?.update(trace.channel, trace.ts, traceBlocks(steps), t("say.slack_trace")).catch(() => {}); }, 3000);
     const prog = this.reactions?.fixProgress(p.id, p.title); // 이정표 말풍선(워크트리 → 수정 중 → 테스트 → 푸시)
     try {
       const r = await this.deps.runFix(this.cfg, p, (s) => { steps.push(s); flush(); prog?.onStep(s); });
-      if (trace) await this.slack?.update(trace.channel, trace.ts, traceBlocks(steps, true, r.ok), "작업 내역");
+      if (trace) await this.slack?.update(trace.channel, trace.ts, traceBlocks(steps, true, r.ok), t("say.slack_trace"));
       if (r.ok) {
         this.store.transition(p.id, ["running"], "done", r.prUrl ?? r.branch);
         if (r.prUrl) this.prs.set(p.id, r.prUrl);
-        const done = await this.slack?.post(r.prUrl ? mergeBlocks(p.id, r.prUrl, r.summary) : [{ type: "markdown", text: `✅ 푸시 완료 (\`${r.branch}\`)\n${r.summary}` }], `완료: ${p.title}`, p.slackTs);
+        const done = await this.slack?.post(r.prUrl ? mergeBlocks(p.id, r.prUrl, r.summary) : [{ type: "markdown", text: t("say.slack_pushed", { branch: r.branch ?? "", summary: r.summary }) }], t("say.slack_done", { title: p.title }), p.slackTs);
         if (prog) {
           prog.progress.done(r.prUrl ? phrase("fix_pr") : phrase("fix_pushed", { branch: r.branch ?? "" }));
           // 머지는 사용자 승인: 오버레이 ✓/✗/추가질문 + Slack 머지 버튼, 먼저 답한 쪽.
@@ -716,19 +717,19 @@ ${meetingsContext(this.store)}`,
         this.store.transition(p.id, ["running"], "failed", r.summary);
         // 채팅에서 시킨 작업이면 그 대화에도 실패 이유(테스트 출력 끝 포함)
         if (p.threadId && this.store.thread(p.threadId)) {
-          this.store.addChat("assistant", `⚠️ "${p.title}" 작업이 실패했어요 — ${r.summary}`, undefined, undefined, p.threadId);
+          this.store.addChat("assistant", t("say.fix_failed_chat", { title: p.title, summary: r.summary }), undefined, undefined, p.threadId);
           this.bus.threads({ thread: this.store.thread(p.threadId) });
         }
-        await this.slack?.post([{ type: "markdown", text: `⚠️ ${r.summary}` }], `실패: ${p.title}`, p.slackTs);
-        if (prog) prog.progress.fail(`"${p.title}" 실패했어요. 슬랙을 봐 주세요`);
-        else this.bus.bubble({ text: `"${p.title}" 실패했어요. 슬랙을 봐 주세요`, kind: "error" });
+        await this.slack?.post([{ type: "markdown", text: `⚠️ ${r.summary}` }], t("say.slack_failed", { title: p.title }), p.slackTs);
+        if (prog) prog.progress.fail(t("say.fix_failed_bubble", { title: p.title }));
+        else this.bus.bubble({ text: t("say.fix_failed_bubble", { title: p.title }), kind: "error" });
       }
     } catch (e: any) {
       prog?.progress.done(); // 이정표 말풍선은 걷고 아래 오류 말풍선으로
       this.store.transition(p.id, ["running", "approved"], "failed", String(e?.message ?? e));
-      if (trace) await this.slack?.update(trace.channel, trace.ts, traceBlocks(steps, true, false), "작업 내역").catch(() => {});
-      await this.slack?.post([{ type: "markdown", text: `⚠️ 실행 오류: ${String(e?.message ?? e).slice(0, 1500)}` }], "실행 오류", p.slackTs).catch(() => {});
-      this.bus.bubble({ text: `"${p.title}" 하다가 오류가 났어요`, kind: "error" });
+      if (trace) await this.slack?.update(trace.channel, trace.ts, traceBlocks(steps, true, false), t("say.slack_trace")).catch(() => {});
+      await this.slack?.post([{ type: "markdown", text: t("say.slack_exec_error", { why: String(e?.message ?? e).slice(0, 1500) }) }], t("say.slack_exec_error_short"), p.slackTs).catch(() => {});
+      this.bus.bubble({ text: t("say.fix_error_bubble", { title: p.title }), kind: "error" });
     } finally {
       this.changed();
       this.fixMood(false);
@@ -772,18 +773,18 @@ ${meetingsContext(this.store)}`,
   // ctx.direct: 채팅 머지 요청 — 사용자가 말로 시켰거나(ask.userSaid) 자동 머지 레포면 ✓ 없이 바로(readyBlock 통과할 때만)
   async requestMerge(ask: MergeAsk, ctx: { via: ActionVia; threadId?: string; msgN?: number; id?: string; title?: string; direct?: boolean }): Promise<{ action?: PendingAction; error?: string; merged?: string }> {
     const label = askLabel(ask.pr, ask.repo);
-    if (!this.reactions) return { error: `${label} 머지 승인을 띄울 수 없어요(캐릭터 반응이 꺼져 있어요)` };
+    if (!this.reactions) return { error: t("say.rm_no_reactions", { label }) };
     const ref = parsePrRef(ask.pr, ask.repo);
-    if (!ref) return { error: `어느 PR 인지 알아보지 못했어요(${label}) — 링크나 owner/repo#번호로 말해 주세요` };
+    if (!ref) return { error: t("say.rm_unknown_pr", { label }) };
     const local = !ref.url && !ref.repo && ask.repo && isAbsPath(ask.repo) ? ask.repo : undefined;
     if (!ref.url && !ref.repo && !(local && insideRoots(local, this.cfg.repoRoots)))
-      return { error: `${label} 이(가) 어느 레포의 PR 인지 몰라요 — 링크나 owner/repo#번호로 말해 주세요` };
+      return { error: t("say.rm_unknown_repo", { label }) };
     let st;
-    try { st = await this.deps.prStatus(ref, local); } catch (e: any) { return { error: `${label} PR 을 읽지 못했어요: ${String(e?.message ?? e).slice(0, 160)}` }; }
-    if (st.state === "MERGED") return { error: `#${st.number} 은(는) 이미 머지된 PR이에요` };
-    if (st.state === "CLOSED") return { error: `#${st.number} 은(는) 닫힌 PR이라 머지할 수 없어요` };
+    try { st = await this.deps.prStatus(ref, local); } catch (e: any) { return { error: t("say.rm_read_fail", { label, why: String(e?.message ?? e).slice(0, 160) }) }; }
+    if (st.state === "MERGED") return { error: t("say.rm_merged", { n: st.number }) };
+    if (st.state === "CLOSED") return { error: t("say.rm_closed", { n: st.number }) };
     const open = this.reactions.findOpen(st.url);
-    if (open?.state === "merging") return { error: `#${st.number} 은(는) 지금 머지하는 중이에요` };
+    if (open?.state === "merging") return { error: t("say.rm_merging", { n: st.number }) };
     const id = ctx.id ?? open?.id ?? mergeIdFor(st);
     const info = infoOf(st), blocked = mergeBlock(st);
     const how = !ctx.direct ? undefined : ask.userSaid === true ? "text" as const : inAutoMerge(this.cfg.autoMerge, st.repo) ? "auto" as const : undefined;
@@ -800,19 +801,19 @@ ${meetingsContext(this.store)}`,
       id, title: ctx.title ?? st.title, prUrl: st.url, pr: info, branch: st.head,
       ...(blocked ? { blocked } : {}), ...(ctx.threadId ? { threadId: ctx.threadId } : {}),
     }, { reopen: true });
-    if (rec.state !== "asking") return { error: rec.state === "merged" ? `#${st.number} 은(는) 이미 머지했어요` : `#${st.number} 은(는) 지금 머지하는 중이에요` };
+    if (rec.state !== "asking") return { error: rec.state === "merged" ? t("say.rm_already", { n: st.number }) : t("say.rm_merging", { n: st.number }) };
     const action = this.actions.createMerge({ mergeId: id, card: mergeCard(st.title, st.url, info, blocked), via: ctx.via, ...(ctx.threadId ? { threadId: ctx.threadId } : {}), ...(ctx.msgN !== undefined ? { msgN: ctx.msgN } : {}) });
-    return { action, ...(fellBack ? { error: `#${st.number} 바로 머지하지 못했어요 — ${fellBack}. 머지 승인 카드를 띄웠어요` } : {}) };
+    return { action, ...(fellBack ? { error: t("say.rm_fell_back", { n: st.number, why: fellBack }) } : {}) };
   }
 
   // 수정 run 이 자동 머지 레포에 올린 PR: 검사가 끝날 때까지 기다렸다가 ✓ 없이 머지. 못 하면 ask(이유) — 예전 머지 승인
   private async autoMergeAfterFix(p: Proposal, r: FixResult, ask: (why?: string) => Promise<void>) {
     const url = r.prUrl!;
     const ref = parsePrRef(url)!;
-    this.say(p.threadId, `🔀 "${p.title}" PR을 올렸어요 — ${ref.repo} 은(는) 자동 머지 레포라 검사가 끝나면 ✓ 없이 머지할게요. ${url}`);
+    this.say(p.threadId, t("say.auto_pr_opened", { title: p.title, repo: ref.repo, url }));
     const s = await settlePr(this.deps.prStatus, ref, undefined, this.deps.autoMergePoll ?? { tries: 40, ms: 15e3 }, this.deps.sleep ?? ((ms) => new Promise((ok) => setTimeout(ok, ms))));
     let why = s.pr ? readyBlock(s.pr) : s.error;
-    if (!why && s.pr && !inAutoMerge(this.cfg.autoMerge, s.pr.repo)) why = "그 사이 자동 머지 레포에서 빠졌어요";
+    if (!why && s.pr && !inAutoMerge(this.cfg.autoMerge, s.pr.repo)) why = t("say.auto_removed_meanwhile");
     if (!why && s.pr && this.reactions) {
       const st = s.pr;
       const out = await this.reactions.mergeNow({ id: p.id, title: p.title, prUrl: st.url, pr: infoOf(st), branch: st.head, summary: r.summary, ...(p.threadId ? { threadId: p.threadId } : {}) }, "auto");
@@ -820,7 +821,7 @@ ${meetingsContext(this.store)}`,
       why = out.error;
     }
     console.warn(`[merge] 자동 머지 안 함 ${url}: ${why}`);
-    await ask(why ?? "알 수 없는 이유");
+    await ask(why ?? t("say.unknown_reason"));
   }
 
   // 자동 머지 작업(수정 run 뒤 — 검사를 기다린다). 테스트가 끝나길 기다릴 수 있게 모아 둔다
@@ -846,12 +847,12 @@ ${meetingsContext(this.store)}`,
       if (!slug && isAbsPath(raw) && insideRoots(raw, this.cfg.repoRoots)) {
         try { slug = normSlug(execFileSync("git", ["-C", raw, "remote", "get-url", "origin"], { encoding: "utf8", timeout: 5e3, stdio: ["ignore", "pipe", "ignore"] })); } catch {}
       }
-      if (!slug) { out.push(`⚠️ 자동 머지 레포를 ${o.op === "add" ? "넣지" : "빼지"} 못했어요 — 어느 레포인지 몰라요(${raw.slice(0, 80) || "빈 값"}). owner/name 으로 말해 주세요`); continue; }
+      if (!slug) { out.push(t(o.op === "add" ? "say.am_add_unknown" : "say.am_remove_unknown", { raw: raw.slice(0, 80) || t("say.empty_value") })); continue; }
       const r = this.deps.autoMergeOp ? this.deps.autoMergeOp(o.op, slug) : this.memAutoMerge(o.op, slug);
-      if (!r.ok) { out.push(`⚠️ 자동 머지 레포를 저장하지 못했어요: ${r.error}`); continue; }
+      if (!r.ok) { out.push(t("say.am_save_fail", { why: r.error })); continue; }
       out.push(o.op === "add"
-        ? `🤖 ${slug} — ${r.changed ? "이제부터" : "이미"} 자동 머지 레포예요: 이 레포 PR 은 검사가 통과하면 ✓ 없이 머지해요(설정 창 「자동 머지」에서 뺄 수 있어요)`
-        : `🔀 ${slug} — ${r.changed ? "이제부터 머지 전에 다시 물어볼게요" : "자동 머지 레포가 아니었어요(머지 전에 물어봐요)"}`);
+        ? t(r.changed ? "say.am_added" : "say.am_added_already", { slug })
+        : t(r.changed ? "say.am_removed" : "say.am_removed_not", { slug }));
     }
     if (out.length) this.changed();
     return out;
@@ -870,7 +871,7 @@ ${meetingsContext(this.store)}`,
     try {
       const r = await this.requestMerge({ pr: prUrl }, { via: "chat", threadId: p.threadId, id: p.id, title: p.title });
       if (!r.action || !p.threadId || !this.store.thread(p.threadId)) return;
-      const n = this.store.addChat("assistant", `"${p.title}" PR을 올렸어요 — ${why ? `자동 머지는 못 했어요(${why}). ` : ""}머지 승인 카드를 띄웠어요. ✓ 를 누르면 머지해요.`, undefined, undefined, p.threadId);
+      const n = this.store.addChat("assistant", t("say.fix_pr_card", { title: p.title, why: why ? t("say.fix_pr_card_why", { why }) : "" }), undefined, undefined, p.threadId);
       this.actions.attach(r.action.id, n);
       this.bus.threads({ thread: this.store.thread(p.threadId) });
     } catch (e: any) {
@@ -895,7 +896,7 @@ ${meetingsContext(this.store)}`,
       return r.message;
     }
     const url = this.prs.get(id) ?? this.store.proposal(id)?.result;
-    if (!url?.startsWith("https://")) return "머지할 PR을 못 찾았어요";
+    if (!url?.startsWith("https://")) return t("say.merge_no_pr");
     this.prs.delete(id);
     const out = await this.deps.mergePr(url);
     this.bus.bubble({ text: phrase("merge_done"), kind: "done", image: "merge_complete", ttlMs: 10e3, link: url });
@@ -965,9 +966,9 @@ ${meetingsContext(this.store)}`,
   // 채팅·DM 모델이 낸 규칙: 검증해서 바로 저장·적용하고 답에 덧붙일 한 줄
   ruleFromModel(raw: unknown): string {
     const p = parseRule(raw);
-    if (!p.ok) return `⚠️ 규칙은 저장하지 못했어요: ${p.error}`;
+    if (!p.ok) return t("say.rule_save_fail", { why: p.error });
     const r = this.addRule(p.value);
-    return `📏 규칙 저장: ${r.rule.text} — ${ruleSummary(r.rule)}${r.changed.length ? ` (지금 있는 ${r.changed.length}개도 바꿈)` : ""}${r.skipped.length ? ` · 직접 정한 ${r.skipped.length}개는 그대로` : ""}`;
+    return t("say.rule_saved", { text: r.rule.text, summary: ruleSummary(r.rule), changed: r.changed.length ? t("say.rule_saved_changed", { n: r.changed.length }) : "", skipped: r.skipped.length ? t("say.rule_saved_skipped", { n: r.skipped.length }) : "" });
   }
 
   // ---- 행동 지침(guidelines.ts) ----
@@ -1080,9 +1081,9 @@ ${meetingsContext(this.store)}`,
     const applied: string[] = [], errors: string[] = [], added: Todo[] = [], trashed: string[] = [];
     for (const op of ops.slice(0, 20)) {
       const p = opPatch(op);
-      if (!p.ok) { errors.push(`할 일 ${op.op} 건너뜀: ${p.error}`); continue; }
+      if (!p.ok) { errors.push(tr("say.op_skip", { op: op.op, why: p.error })); continue; }
       if (op.op === "add") {
-        if (!p.value.title) { errors.push("제목 없는 할 일은 추가하지 못했어요"); continue; }
+        if (!p.value.title) { errors.push(tr("say.op_no_title")); continue; }
         const ref = typeof op.source_ref === "string" ? op.source_ref.trim().slice(0, 300) : "";
         const origin = ref ? resolveOrigin(this.store, ref, { link: p.value.link ?? undefined, gitShow: this.deps.gitShow }) : undefined;
         const desc = typeof op.description === "string" ? op.description.trim().slice(0, 500) : "";
@@ -1091,28 +1092,28 @@ ${meetingsContext(this.store)}`,
         const t = this.addTodo({ title: p.value.title, priority: p.value.priority, link: p.value.link, note: p.value.note,
           ...(desc ? { description: desc } : {}), ...(ref ? { sourceRef: ref } : {}), ...(origin && origin.kind !== "other" ? { origin } : {}),
           ...(proj && "id" in proj && proj.id ? { projectId: proj.id } : {}) });
-        applied.push(`추가: ${t.title}${proj && "id" in proj && proj.id ? ` (프로젝트 ${proj.name})` : ""}`);
+        applied.push(tr("say.op_added", { title: t.title, project: proj && "id" in proj && proj.id ? tr("say.op_in_project", { name: proj.name }) : "" }));
         added.push(t);
         continue;
       }
       const cur = op.id ? this.store.getTodo(op.id) : undefined;
-      if (!cur) { errors.push(`id=${op.id ?? "(없음)"} 할 일을 못 찾아서 ${op.op}는 건너뛰었어요`); continue; }
+      if (!cur) { errors.push(tr("say.op_missing", { id: op.id ?? tr("say.none_paren"), op: op.op })); continue; }
       if (op.op === "delete") {
         this.deleteTodo(cur.id, typeof op.note === "string" ? op.note : undefined);
-        applied.push(`휴지통으로 옮겼어요: ${cur.title}`);
+        applied.push(tr("say.op_trashed", { title: cur.title }));
         trashed.push(cur.title);
       } else if (op.op === "done" || op.op === "reopen") {
         this.editTodo(cur.id, { status: op.op === "done" ? "done" : "open" });
-        applied.push(`${op.op === "done" ? "완료" : "다시 열기"}: ${cur.title}`);
+        applied.push(tr(op.op === "done" ? "say.op_done" : "say.op_reopen", { title: cur.title }));
       } else {
         const { status: _s, ...patch } = p.value;
         const proj = this.projectRef(op.project);
         if (proj && "error" in proj) { errors.push(proj.error); if (!Object.keys(patch).length) continue; }
         else if (proj) patch.projectId = proj.id;
-        if (!Object.keys(patch).length) { errors.push(`id=${cur.id} 수정할 내용이 없었어요`); continue; }
+        if (!Object.keys(patch).length) { errors.push(tr("say.op_nothing", { id: cur.id })); continue; }
         this.editTodo(cur.id, patch);
-        const moved = proj && !("error" in proj) ? (proj.id ? ` → 프로젝트 ${proj.name}` : " (프로젝트에서 뺌)") : "";
-        applied.push(`수정: ${patch.title ?? cur.title}${moved}`);
+        const moved = proj && !("error" in proj) ? (proj.id ? tr("say.op_moved", { name: proj.name }) : tr("say.op_unlinked")) : "";
+        applied.push(tr("say.op_edited", { title: patch.title ?? cur.title, moved }));
       }
     }
     return { applied, errors, added, trashed };
@@ -1123,7 +1124,7 @@ ${meetingsContext(this.store)}`,
     if (ref === undefined) return undefined;
     if (ref === null || ref === "") return { id: null };
     const p = typeof ref === "string" ? this.projects.find(ref) : undefined;
-    return p ? { id: p.id, name: p.name } : { error: `「${String(ref)}」 프로젝트를 못 찾아서 할 일을 묶지 못했어요` };
+    return p ? { id: p.id, name: p.name } : { error: t("say.op_project_missing", { ref: String(ref) }) };
   }
 
   // ---- 직접 만든 프로젝트(manual-projects.ts): 패널 GET/POST/PATCH/DELETE /projects/manual · 채팅 project_ops ----
@@ -1255,9 +1256,9 @@ ${meetingsContext(this.store)}`,
       const pr = r.rule ? parseRule(r.rule) : null; // 잘못된 규칙 제안은 조용히 버린다(할 일 변경은 그대로)
       if (pr && !pr.ok) console.warn("[todo-ask] 규칙 제안 버림:", pr.error);
       const rule = pr?.ok ? this.rulePreview(pr.value, { id, ops }) : null;
-      const reply = (r.reply ?? "").replace(/\s+\n/g, "\n").trim().slice(0, 400) || (ops.length || rule ? "이렇게 바꿀까요?" : "음, 잘 모르겠어요.");
-      const proposed = [ops.length ? opsSummary(ops) : "", rule ? `규칙 "${rule.proposal.text}"` : ""].filter(Boolean).join(" + ");
-      const { threadId, ns } = this.todoLog(cur, [["user", text], ["assistant", reply], ["system", proposed ? `제안: ${proposed}` : ""]]);
+      const reply = (r.reply ?? "").replace(/\s+\n/g, "\n").trim().slice(0, 400) || (ops.length || rule ? t("say.ask_change") : t("say.merge_ask_unknown"));
+      const proposed = [ops.length ? opsSummary(ops) : "", rule ? t("say.ask_rule", { text: rule.proposal.text }) : ""].filter(Boolean).join(" + ");
+      const { threadId, ns } = this.todoLog(cur, [["user", text], ["assistant", reply], ["system", proposed ? t("say.ask_proposed", { what: proposed }) : ""]]);
       // 회의 응답 제안: 팝오버에 확인 카드(실행은 사용자가)
       const acts = r.actions?.length ? await this.actions.propose(r.actions, { via: "todo", threadId, ...(ns[1] ? { msgN: ns[1] } : {}) }) : { created: [], errors: [] };
       if (acts.errors.length) this.todoLog(cur, acts.errors.map((e) => ["system", `⚠️ ${e}`] as ["system", string]));
@@ -1303,10 +1304,10 @@ ${meetingsContext(this.store)}`,
       }
       out.rule = x.rule;
       out.ruleChanged = x.changed.map((c) => c.id);
-      out.applied.push(`규칙: ${x.rule.text}${x.changed.length ? ` (${x.changed.length}개 적용)` : ""}`);
+      out.applied.push(t("say.ask_rule_applied", { text: x.rule.text, n: x.changed.length ? t("say.ask_rule_n", { n: x.changed.length }) : "" }));
     }
     out.todo = this.store.getTodo(id) ?? null;
-    const line = `✓ 적용: ${out.applied.join(", ") || "(바뀐 것 없음)"}${out.errors.length ? ` · ⚠️ ${out.errors.join(", ")}` : ""}`;
+    const line = `✓ ${t("say.ask_applied", { what: out.applied.join(", ") || t("say.ask_nothing_changed") })}${out.errors.length ? ` · ⚠️ ${out.errors.join(", ")}` : ""}`;
     this.todoLog(cur, [["system", line]]);
     markAsk(this.store.db, id, "applied", line);
     return out;
@@ -1317,10 +1318,11 @@ ${meetingsContext(this.store)}`,
     const cur = this.store.getTodo(id);
     if (!cur) return false;
     const pr = rule ? parseRule(rule) : null;
-    const summary = [opsSummary(focusOps(cur, ops)), pr?.ok ? `규칙 "${pr.value.text}"` : ""].filter(Boolean).join(" + ");
+    const summary = [opsSummary(focusOps(cur, ops)), pr?.ok ? t("say.ask_rule", { text: pr.value.text }) : ""].filter(Boolean).join(" + ");
     recordFeedback(this.store, { kind: "todo_proposal_rejected", ref: id, note: `${text ? `"${text.slice(0, 200)}" → ` : ""}${summary} 제안 거절` });
-    this.todoLog(cur, [["system", `✗ 버림: ${summary || "제안"}`]]);
-    markAsk(this.store.db, id, "rejected", `✗ 버림: ${summary || "제안"}`);
+    const dropped = `✗ ${t("say.ask_dropped", { what: summary || t("say.ask_proposal") })}`;
+    this.todoLog(cur, [["system", dropped]]);
+    markAsk(this.store.db, id, "rejected", dropped);
     return true;
   }
 
@@ -1349,13 +1351,13 @@ ${meetingsContext(this.store)}`,
       ex = {
         question: rec.question, reply: rec.reply, at: rec.at, outcome,
         ...(live ? { ops, preview: buildPreview(cur, ops), rev, rule } : { ops: [], preview: [], rule: null }),
-        ...(outcome === "stale" ? { result: "그 뒤에 할 일이 바뀌어서 그때 제안은 지났어요 — 다시 물어보세요." } : rec.result ? { result: rec.result } : {}),
+        ...(outcome === "stale" ? { result: t("say.ask_stale") } : rec.result ? { result: rec.result } : {}),
         ...(rec.replyN ? { replyN: rec.replyN } : {}),
       };
     } else if (x) { // 기록 없음(예전 문답) 또는 그 뒤 대화가 더 새로움 — ops 는 모른다(채팅 경로는 바로 적용)
-      const outcome: LastExchange["outcome"] = x.result?.startsWith("✓") ? "applied" : x.result?.startsWith("✗") ? "rejected" : x.result?.startsWith("제안:") ? "stale" : "answered";
+      const outcome: LastExchange["outcome"] = x.result?.startsWith("✓") ? "applied" : x.result?.startsWith("✗") ? "rejected" : (x.result?.startsWith("제안:") || x.result?.startsWith(t("say.ask_proposed", { what: "" }, "ja").trim())) ? "stale" : "answered";
       ex = { question: x.question, reply: x.reply, at: x.at, outcome, ops: [], preview: [], rule: null,
-        ...(outcome === "stale" ? { result: "예전 제안이라 다시 적용할 수 없어요 — 다시 물어보세요." } : x.result ? { result: x.result } : {}),
+        ...(outcome === "stale" ? { result: t("say.ask_old") } : x.result ? { result: x.result } : {}),
         ...(x.replyN ? { replyN: x.replyN } : {}) };
     }
     const actions = threadId && ex?.replyN ? this.actions.list({ threadId, limit: 50 }).filter((a) => a.msgN === ex!.replyN) : [];
@@ -1396,7 +1398,7 @@ ${meetingsContext(this.store)}`,
     if (a.type === PERMISSION) return this.onPermissionChange(a);
     if (a.type === MERGE_TYPE) { // 결과는 그 대화에 한 줄(다음 답이 무엇이 됐는지 알게). 말풍선은 Reactions 가
       if (a.status !== "pending" && a.status !== "running" && a.threadId && this.store.thread(a.threadId)) {
-        this.store.addChat("system", `${actionStatusLine(a)} — ${a.card.title}${a.result?.link ? ` (머지 커밋 ${a.result.link})` : ""}`, undefined, undefined, a.threadId);
+        this.store.addChat("system", `${actionStatusLine(a)} — ${a.card.title}${a.result?.link ? ` ${t("say.merged_commit_tail", { url: a.result.link })}` : ""}`, undefined, undefined, a.threadId);
         this.bus.threads({ thread: this.store.thread(a.threadId) });
       }
       return;
@@ -1419,7 +1421,7 @@ ${meetingsContext(this.store)}`,
     if (a.via !== "slack" || !this.slack) return;
     const text = `${actionStatusLine(a)} — ${a.card.title}`;
     if (a.status === "pending") {
-      this.slack.post(actionBlocks(a), `승인 요청: ${a.card.title}`, this.actions.slackThreadOf(a.id))
+      this.slack.post(actionBlocks(a), t("say.slack_approval_req", { title: a.card.title }), this.actions.slackThreadOf(a.id))
         .then((p) => { this.actions.setSlack(a.id, p.channel, p.ts); const now = this.actions.get(a.id); if (now && now.status !== "pending") this.slack!.update(p.channel, p.ts, actionBlocks(now), text).catch(() => {}); })
         .catch((e: any) => console.warn("[slack] 승인 카드 못 올림:", e?.message ?? e));
       return;

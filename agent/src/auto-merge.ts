@@ -8,6 +8,7 @@
 // 둘 다 머지 직전 검사(readyBlock — 실패한 검사·충돌·초안·대기 중 검사·GitHub 가 머지 가능 판정 전)를 통과해야 한다.
 // 못 하면 예전처럼 머지 승인 카드(이유를 붙여서).
 import { mergeBlock, type PrLookup, type PrRef, type PrStatus } from "./merge-request.ts";
+import { t } from "./i18n.ts";
 
 // config.json 에 autoMerge 가 없을 때의 값 — 비어 있다(사용자가 말·설정 창으로 직접 넣는다)
 export const AUTO_MERGE_SEED: readonly string[] = [];
@@ -37,8 +38,8 @@ export function autoMergeList(raw: unknown): string[] {
 export function readyBlock(pr: PrStatus): string | undefined {
   const b = mergeBlock(pr);
   if (b) return b;
-  if (pr.checks.pending) return `검사 ${pr.checks.pending}개가 아직 안 끝났어요`;
-  if (pr.mergeable !== "MERGEABLE") return "GitHub 가 아직 머지할 수 있는지 몰라요";
+  if (pr.checks.pending) return t("say.auto_pending", { n: pr.checks.pending });
+  if (pr.mergeable !== "MERGEABLE") return t("say.auto_unknown");
   return undefined;
 }
 
@@ -50,7 +51,7 @@ export async function settlePr(lookup: PrLookup, ref: PrRef, cwd: string | undef
     if (pr && (pr.state !== "OPEN" || mergeBlock(pr) || (pr.mergeable !== "UNKNOWN" && !pr.checks.pending))) break;
     if (i < poll.tries - 1) await sleep(poll.ms);
   }
-  return pr ? { pr } : { error: error || "PR 상태를 읽지 못했어요" };
+  return pr ? { pr } : { error: error || t("say.auto_read_fail") };
 }
 
 // ── 말로 시킨 머지 ─────────────────────────────────────────────

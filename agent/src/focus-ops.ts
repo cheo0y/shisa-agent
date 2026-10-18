@@ -5,6 +5,7 @@
 import type { Focus, FocusTodo, FocusView } from "./focus.ts";
 import { focusDuration } from "./focus.ts";
 import { localLine, spoken } from "./local-mode.ts";
+import { t } from "./i18n.ts";
 
 export const FOCUS_OPS_SCHEMA = {
   type: "array",
@@ -57,7 +58,7 @@ export function applyFocusOps(focus: FocusLike, ops: unknown, todos: () => reado
     const op = (raw && typeof raw === "object" ? raw : {}) as FocusOp;
     if (op.op === "stop") {
       const r = focus.stop();
-      if (r.stopped) applied.push(`집중 그만: ${focusDuration(r.stopped.seconds)}`);
+      if (r.stopped) applied.push(t("say.focus_stopped", { duration: focusDuration(r.stopped.seconds) }));
       else notes.push(localLine("focusIdle"));
       continue;
     }
@@ -66,11 +67,11 @@ export function applyFocusOps(focus: FocusLike, ops: unknown, todos: () => reado
     if (now.active) { notes.push(alreadyLine(now)); continue; }
     const ref = typeof op.todo === "string" ? op.todo.trim() : "";
     const todo = ref ? findFocusTodo(todos(), ref) : undefined;
-    if (ref && !todo) errors.push(`'${clip(ref)}' 할 일을 못 찾아서 할 일 없이 집중을 시작했어요`);
+    if (ref && !todo) errors.push(t("say.focus_todo_missing", { ref: clip(ref) }));
     const min = typeof op.minutes === "number" && Number.isFinite(op.minutes) && op.minutes >= 1 ? Math.round(op.minutes) : undefined;
     focus.start({ ...(min ? { minutes: min } : {}), ...(todo ? { todo } : {}) });
-    const extra = [min ? `${min}분` : "", todo ? `할 일: ${clip(todo.title, 40)}` : ""].filter(Boolean);
-    applied.push(`집중 시작${extra.length ? ` (${extra.join(" · ")})` : ""}`);
+    const extra = [min ? t("say.dur_m", { m: min }) : "", todo ? t("say.focus_todo", { title: clip(todo.title, 40) }) : ""].filter(Boolean);
+    applied.push(t("say.focus_started", { extra: extra.length ? ` (${extra.join(" · ")})` : "" }));
   }
   return { applied, errors, notes };
 }

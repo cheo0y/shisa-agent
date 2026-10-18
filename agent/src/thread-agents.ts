@@ -4,6 +4,7 @@
 // 실시간: 그 대화 run 에 서브에이전트 줄(parent)·Agent 줄·그 결과가 오면 ≈1초 모아 onChange(threadId) → SSE `agents`.
 import { basename } from "node:path";
 import type { Run, RunRegistry, RunUpdate } from "./runs.ts";
+import { t } from "./i18n.ts";
 
 export type AgentStatus = "running" | "done" | "failed" | "stopped";
 // background: 채팅이 백그라운드로 넘긴 에이전트(bg-agents.ts — 답과 따로 돌고, 끝나면 결과가 대화에 새 답으로). 카드에서 멈출 수 있다
@@ -72,7 +73,7 @@ export function agentsOfRun(run: Pick<Run, "id" | "status" | "watching">, rows: 
     if (a.result?.handedOff) {
       // 넘긴 줄: 백그라운드 run 의 카드가 있으면 그게 대신(threadAgents). 아직 run 이 없으면(막 시작 — 워크트리를 파는 중 등) 데몬이 아는 상태로, 모르면 결과 없음
       const j = bg?.(toolUseId), st = j?.status;
-      out.push({ runId: run.id, toolUseId, description: oneLine(String(a.row.input ?? ""), AGENT_LIMITS.description) || "서브에이전트",
+      out.push({ runId: run.id, toolUseId, description: oneLine(String(a.row.input ?? ""), AGENT_LIMITS.description) || t("say.subagent"),
         status: st === "running" || st === "done" || st === "failed" ? st : "stopped", tools: 0, last: "", startedAt: a.row.at, background: true, handedOff: true,
         ...(j?.worktree ? { worktree: { path: j.worktree.path, branch: j.worktree.branch } } : {}) });
       continue;
@@ -80,7 +81,7 @@ export function agentsOfRun(run: Pick<Run, "id" | "status" | "watching">, rows: 
     const wt = a.row.background ? (bg?.(toolUseId)?.worktree ?? a.worktree) : a.worktree;
     const status: AgentStatus = a.result ? (a.result.isError ? "failed" : "done") : live ? "running" : "stopped";
     out.push({
-      runId: run.id, toolUseId, description: oneLine(String(a.row.input ?? ""), AGENT_LIMITS.description) || "서브에이전트",
+      runId: run.id, toolUseId, description: oneLine(String(a.row.input ?? ""), AGENT_LIMITS.description) || t("say.subagent"),
       status, tools: a.tools, last: a.last ? lastLine(a.last) : "", startedAt: a.row.at,
       ...(a.result ? { endedAt: a.result.at } : {}),
       ...(a.row.via === "cli" ? { via: "cli" as const } : {}),
@@ -129,7 +130,7 @@ export function sessionLast(rows: SessionRow[]): string {
 export function sessionOfRun(run: Pick<Run, "id" | "title" | "status" | "startedAt" | "endedAt" | "repo" | "cwd" | "branch" | "prUrl" | "parentId">, rows: SessionRow[], askedAt?: string): ThreadSession {
   const where = run.repo || run.cwd || "";
   return {
-    runId: run.id, title: oneLine(run.title || "작업", SESSION_LIMITS.title) || "작업", repo: where ? basename(where) : "",
+    runId: run.id, title: oneLine(run.title || t("say.task"), SESSION_LIMITS.title) || t("say.task"), repo: where ? basename(where) : "",
     status: run.status, last: sessionLast(rows), startedAt: run.startedAt,
     ...(run.branch ? { branch: run.branch } : {}), ...(run.endedAt ? { endedAt: run.endedAt } : {}),
     ...(run.prUrl ? { prUrl: run.prUrl } : {}),
@@ -223,20 +224,20 @@ const okStatus = (s: string): Run["status"] => (s === "running" || s === "done" 
 export function threadWorktrees(src: WorktreeSources): ThreadWorktree[] {
   const out: ThreadWorktree[] = [];
   for (const r of src.fixRuns) out.push({
-    key: `fix:${r.id}`, kind: "fix", title: oneLine(r.title || "작업", SESSION_LIMITS.title) || "작업", status: r.status, tokens: r.tokens ?? 0,
+    key: `fix:${r.id}`, kind: "fix", title: oneLine(r.title || t("say.task"), SESSION_LIMITS.title) || t("say.task"), status: r.status, tokens: r.tokens ?? 0,
     askedAt: (r.ref && !r.parentId ? src.askedAt?.(r.ref) : undefined) ?? r.startedAt, runId: r.id,
     ...(r.branch ? { branch: r.branch } : {}), ...(r.cwd ? { path: r.cwd } : {}),
   });
   for (const j of src.bg) {
     if (!j.isolation) continue;
     out.push({
-      key: `agent:${j.toolUseId}`, kind: "agent", title: oneLine(j.description, AGENT_LIMITS.description) || "에이전트", status: okStatus(j.status),
+      key: `agent:${j.toolUseId}`, kind: "agent", title: oneLine(j.description, AGENT_LIMITS.description) || t("say.agent"), status: okStatus(j.status),
       tokens: j.runId ? src.tokensOf(j.runId) : 0, askedAt: j.queuedAt, toolUseId: j.toolUseId,
       ...(j.runId ? { runId: j.runId } : {}), ...(j.worktree ? { branch: j.worktree.branch, path: j.worktree.path } : {}),
     });
   }
   for (const s of src.subs) out.push({
-    key: `sub:${s.toolUseId}`, kind: "sub", title: oneLine(s.title, AGENT_LIMITS.description) || "서브에이전트", status: okStatus(s.status),
+    key: `sub:${s.toolUseId}`, kind: "sub", title: oneLine(s.title, AGENT_LIMITS.description) || t("say.subagent"), status: okStatus(s.status),
     tokens: s.runId ? src.tokensOf(s.runId, s.toolUseId) : 0, askedAt: s.at, toolUseId: s.toolUseId, branch: s.branch, path: s.path,
     ...(s.runId ? { runId: s.runId } : {}),
   });

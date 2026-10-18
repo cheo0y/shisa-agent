@@ -11,6 +11,7 @@
 // - 사용자가 직접 고친 우선순위는 규칙보다 이긴다(기존 할 일에 적용할 때·브리핑이 다시 올릴 때)
 import { randomUUID } from "node:crypto";
 import type { Store, Todo } from "./store.ts";
+import { t } from "./i18n.ts";
 
 export type RuleMatch = { keywords?: string[]; sources?: string[]; titleRegex?: string; description: string };
 export type RuleEffect = { priority?: 1 | 2 | 3 | 4; backlog?: boolean; skip?: boolean; note?: string };
@@ -132,20 +133,20 @@ export function withNote(cur: string | undefined | null, add: string | undefined
   return cur.includes(add) ? cur : `${cur} · ${add}`.slice(0, 2000);
 }
 
-const PRIO_KO: Record<number, string> = { 1: "P1 오늘 꼭", 2: "P2 이번 주", 3: "P3 참고", 4: "언젠가·백로그(P4)" };
+const PRIO_KO: Record<number, string> = { 1: "say.rule_p1", 2: "say.rule_p2", 3: "say.rule_p3", 4: "say.rule_p4" };
 
 // 사람이 읽는 한 줄: 제목에 "세미나" → 언젠가·백로그(P4)
 export function ruleSummary(r: Pick<RuleProposal, "match" | "effect">): string {
   const m = r.match, e = r.effect;
   const cond = [
-    m.keywords?.length ? `제목에 ${m.keywords.map((k) => `"${k}"`).join("·")}` : "",
-    m.titleRegex ? `제목 /${m.titleRegex}/` : "",
-    m.sources?.length ? `출처 ${m.sources.join("·")}` : "",
+    m.keywords?.length ? t("say.rule_kw", { kw: m.keywords.map((k) => `"${k}"`).join("·") }) : "",
+    m.titleRegex ? t("say.rule_re", { re: m.titleRegex }) : "",
+    m.sources?.length ? t("say.rule_src", { src: m.sources.join("·") }) : "",
   ].filter(Boolean).join(" + ");
   const eff = [
-    e.skip ? "자동으로 만들지 않음" : "",
-    e.priority !== undefined ? PRIO_KO[e.priority] : "",
-    e.note ? `메모 "${e.note}"` : "",
+    e.skip ? t("say.rule_skip") : "",
+    e.priority !== undefined && PRIO_KO[e.priority] ? t(PRIO_KO[e.priority]) : "",
+    e.note ? t("say.rule_note", { note: e.note }) : "",
   ].filter(Boolean).join(", ");
   return `${cond} → ${eff}`;
 }

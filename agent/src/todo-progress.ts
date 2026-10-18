@@ -12,6 +12,8 @@ import { HOME_DIR, type Config } from "./config.ts";
 import { finalOutput, runs as globalRuns, trackQuery, withRun, type Run, type RunKind, type RunRegistry } from "./runs.ts";
 import type { AutoEvidence, Node, Store, Todo } from "./store.ts";
 import { codexStructured, featureBrain, skipQuietly, usesCodex, type CodexDeps } from "./feature-brain.ts";
+import { t as tr } from "./i18n.ts";
+import { withLang } from "./lang-prompt.ts";
 
 export const PROGRESS = {
   intervalMin: 5,        // 기본 간격(cfg.progressCheckMin, 0 이면 끔)
@@ -188,7 +190,7 @@ export async function checkProgress(cfg: Config, store: Store, applier: Progress
       const reason = clip(c.reason, 120);
       if (!reason) { res.rejected.push({ todo: t.id, why: "이유 없음" }); continue; }
       if (finish.some((f) => f.id === t.id)) continue;
-      finish.push({ id: t.id, reason: `작업 기록: ${reason}`, evidence: { ids: ev as string[] } });
+      finish.push({ id: t.id, reason: tr("say.progress_reason", { reason }), evidence: { ids: ev as string[] } });
     }
     const done = finish.length ? await applier.autoCompleteTodos(finish) : [];
     res.done = done.map((t) => t.id);
@@ -213,20 +215,20 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
   const cwd = join(HOME_DIR, "todo-progress"); // HOME_DIR 아래 → 세션 수집에서 빠진다
   mkdirSync(cwd, { recursive: true });
   if (usesCodex(cfg)) {
-    return withRun({ kind: "todo-auto", title: "할 일 진행 확인", model: "codex", cwd }, async () => {
-      const { out } = await codexStructured({ system: PROGRESS_SYSTEM, prompt, schema: PROGRESS_SCHEMA }, codex);
+    return withRun({ kind: "todo-auto", title: tr("say.run_todo_progress"), model: "codex", cwd }, async () => {
+      const { out } = await codexStructured({ system: withLang(PROGRESS_SYSTEM), prompt, schema: PROGRESS_SCHEMA }, codex);
       return { out };
     });
   }
   const it = q({
     prompt,
     options: {
-      cwd, model: cfg.models.light, systemPrompt: PROGRESS_SYSTEM, tools: [], allowedTools: [], settingSources: [],
+      cwd, model: cfg.models.light, systemPrompt: withLang(PROGRESS_SYSTEM), tools: [], allowedTools: [], settingSources: [],
       persistSession: false, permissionMode: "dontAsk",
       outputFormat: { type: "json_schema", schema: PROGRESS_SCHEMA as unknown as Record<string, unknown> },
     },
   });
-  return withRun({ kind: "todo-auto", title: "할 일 진행 확인", model: cfg.models.light, cwd }, async (run) => {
+  return withRun({ kind: "todo-auto", title: tr("say.run_todo_progress"), model: cfg.models.light, cwd }, async (run) => {
     for await (const m of trackQuery(run, it as AsyncIterable<any>)) {
       if (m.type === "result") {
         if (m.subtype !== "success") throw new Error(`todo-progress: 실패 ${m.subtype}`);

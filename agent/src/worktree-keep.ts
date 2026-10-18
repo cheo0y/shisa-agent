@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { RunHandle } from "./runs.ts";
+import { t } from "./i18n.ts";
 
 const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 60e3 }).trim();
 
@@ -23,9 +24,9 @@ export function cleanupWorktree(repo: string, wt: string, o: { run?: Pick<RunHan
   if (!wt) return false;
   const left = o.shipped ? null : worktreeLeftovers(wt);
   if (left) {
-    const why = left.dirty < 0 ? "상태를 확인하지 못해서"
-      : `${[left.dirty ? `커밋 안 된 변경 ${left.dirty}개` : "", left.unpushed ? `푸시 안 된 커밋 ${left.unpushed}개` : ""].filter(Boolean).join(" · ")}가 있어서`;
-    o.run?.log({ type: "system", text: `📁 ${why} 워크트리를 지우지 않고 남겨 뒀어요: ${wt}`, worktree: wt });
+    const why = left.dirty < 0 ? t("say.wt_unknown")
+      : t("say.wt_left", { what: [left.dirty ? t("say.wt_dirty", { n: left.dirty }) : "", left.unpushed ? t("say.wt_unpushed", { n: left.unpushed }) : ""].filter(Boolean).join(" · ") });
+    o.run?.log({ type: "system", text: t("say.wt_kept", { why, path: wt }), worktree: wt });
     return true;
   }
   try { execFileSync("git", ["worktree", "remove", "--force", wt], { cwd: repo, stdio: "ignore" }); } catch {}

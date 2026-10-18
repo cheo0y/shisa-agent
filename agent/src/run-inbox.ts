@@ -8,6 +8,7 @@
 //   delivery { msgId, state: "cancelled" }                         — [취소](CLI 큐에서 뺌)
 //   delivery { msgId, state: "unsent" }                            — 닿기 전에 run(SDK 세션)이 끝남 → 세션 창이 "이어서 묻기로" 보낸다
 import type { RunHandle } from "./runs.ts";
+import { t } from "./i18n.ts";
 
 export type InboxItem = { text: string; clientId?: string; at: number };
 
@@ -52,7 +53,8 @@ export const injectedPrompt = (text: string) => `${INJECT_PREFIX}\n${text}`;
 
 // SDK 가 턴 한도(error_max_turns)로 끝냈을 때 — 실패(빨강)가 아니라 멈춤(주황) + [이어서 하기]. 세션 창은 이 글로 알아본다.
 // 사용자 작업 run 엔 한도를 걸지 않으니(maxTurns 없음) 거의 안 나지만, 나면 이렇게
-export const MAX_TURNS_NOTE = "턴 한도에 닿아 멈췄어요";
+export const MAX_TURNS_NOTE = "턴 한도에 닿아 멈췄어요"; // 한국어 원문(시험용) — 화면엔 maxTurnsNote()
+export const maxTurnsNote = () => t("say.max_turns");
 export class MaxTurnsError extends Error {
-  constructor() { super(MAX_TURNS_NOTE); this.name = "MaxTurnsError"; }
+  constructor() { super(maxTurnsNote()); this.name = "MaxTurnsError"; }
 }

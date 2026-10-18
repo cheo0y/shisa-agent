@@ -83,7 +83,7 @@ test("일본어: 고정 문구·정해진 말·응원·일정 알림이 일본�
     if (a.detail) assert.ok(!hangul.test(a.detail), `${q} detail: ${a.detail}`);
   }
   assert.match(quickAnswer("next_event", facts).text, /10分後\(09:10\)/);
-  assert.match(quickAnswer("next_todo", facts).detail ?? "", /今日かならず 検討[\s\S]*ほかに1件/);
+  assert.match(quickAnswer("next_todo", facts).detail ?? "", /今日中 検討[\s\S]*ほかに1件/);
   setCharacter("shisa");
   const m = { subject: "定例", start: "2026-10-16T06:00:00Z", end: "2026-10-16T07:00:00Z", link: "https://zoom.us/j/1" } as any;
   assert.match(alertText(m, 10), /オンライン/);

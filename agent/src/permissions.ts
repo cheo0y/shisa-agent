@@ -30,6 +30,7 @@ import { isSubagentTool, subagentCall } from "./subagents.ts";
 import type { ActionCard, ActionVia, PendingAction } from "./actions.ts";
 import { repoLocks, type RepoLocks } from "./repo-lock.ts";
 import { IS_WIN, isRealishUnknown, bashPathWin, isFsRoot, msysToWin, pathKey, pathWithin, realish, samePath, winLocalPath, winNorm, winPathForms, winShellNorm, withFsMemo } from "./plat.ts";
+import { t } from "./i18n.ts";
 
 export const PERMISSION_TTL_MS = 10 * 60e3;
 // 서비스·도구를 인자로 받는 MCP 중계 도구(이름이 …__invoke, 입력 { service, tool, args }) — 규칙·카드를 "서비스.도구" 단위로
@@ -876,11 +877,11 @@ export function ruleFor(toolName: string, input: unknown, c: PermCtx): RuleSpec 
   }
   if (EDIT_TOOLS.has(toolName)) {
     const d = fileDirScope(i.file_path ?? i.notebook_path, c, true);
-    return d ? { tool: "Edit", scope: d, label: `파일 편집 — ${d} 안` } : undefined;
+    return d ? { tool: "Edit", scope: d, label: t("say.perm_rule_edit", { dir: d }) } : undefined;
   }
   if (READ_FILE_TOOLS.has(toolName)) {
     const d = fileDirScope(toolName === "Read" ? i.file_path : i.path, c, false);
-    return d ? { tool: "Read", scope: d, label: `파일 읽기 — ${d} 안` } : undefined;
+    return d ? { tool: "Read", scope: d, label: t("say.perm_rule_read", { dir: d }) } : undefined;
   }
   if (/^[\w-]{1,128}$/.test(toolName) || /^mcp__[\w-]+__[\w-]+$/.test(toolName)) return { tool: toolName, scope: "", label: toolName };
   return undefined;
@@ -945,14 +946,15 @@ const stripHtml = (s: string) => s.replace(/<style[\s\S]*?<\/style>|<script[\s\S
 
 const SERVICE_ICON: Record<string, string> = { gmail: "✉️", ms365: "✉️", "google-calendar": "📅", slack: "💬", github: "🐙", jira: "🎫", notion: "📄", docs: "📄" };
 // 모델이 흔히 쓰는 인자 이름 → 카드 라벨(순서대로 보인다)
+// 라벨은 표 키(say.arg_*) — 카드를 만들 때 지금 언어로
 const ARG_LABELS: [RegExp, string][] = [
-  [/^(to|to_recipients|recipients|to_address(es)?)$/i, "받는 사람"], [/^(cc|cc_recipients)$/i, "참조"], [/^(bcc|bcc_recipients)$/i, "숨은 참조"],
-  [/^(channel|channel_id|channel_name)$/i, "채널"], [/^(thread_ts)$/i, "스레드"], [/^(user|user_id|users|assignee)$/i, "사람"],
-  [/^(subject)$/i, "제목"], [/^(title|name|summary|document_title|doc_title)$/i, "제목"],
-  [/^(project|project_key|space|space_key|folder|folder_id|path|file_name|filename)$/i, "위치"],
-  [/^(issue|issue_key|key|issue_id)$/i, "이슈"], [/^(event_id|id|message_id|document_id|doc_id|page_id)$/i, "대상 id"],
-  [/^(start|start_time|start_datetime)$/i, "시작"], [/^(end|end_time|end_datetime)$/i, "끝"], [/^(attendees)$/i, "참석자"],
-  [/^(status|transition|state|response)$/i, "상태"],
+  [/^(to|to_recipients|recipients|to_address(es)?)$/i, "to"], [/^(cc|cc_recipients)$/i, "cc"], [/^(bcc|bcc_recipients)$/i, "bcc"],
+  [/^(channel|channel_id|channel_name)$/i, "channel"], [/^(thread_ts)$/i, "thread"], [/^(user|user_id|users|assignee)$/i, "person"],
+  [/^(subject)$/i, "title"], [/^(title|name|summary|document_title|doc_title)$/i, "title"],
+  [/^(project|project_key|space|space_key|folder|folder_id|path|file_name|filename)$/i, "where"],
+  [/^(issue|issue_key|key|issue_id)$/i, "issue"], [/^(event_id|id|message_id|document_id|doc_id|page_id)$/i, "target"],
+  [/^(start|start_time|start_datetime)$/i, "start"], [/^(end|end_time|end_datetime)$/i, "end"], [/^(attendees)$/i, "attendees"],
+  [/^(status|transition|state|response)$/i, "status"],
 ];
 const BODY_KEYS = /^(body|content|text|html|markdown|md|message|description|comment|body_html|body_text|content_html|reply)$/i;
 
@@ -965,14 +967,15 @@ function mcpPreview(service: string, tool: string, rawArgs: unknown): { card: Ac
   for (const [k, v] of Object.entries(args)) {
     if (v === undefined || v === null || v === "") continue;
     if (!body && BODY_KEYS.test(k) && typeof v === "string") { body = cut(redact(/<[a-z][\s\S]*>/i.test(v) ? stripHtml(v) : v), 600); continue; }
-    const lab = ARG_LABELS.find(([re]) => re.test(k))?.[1];
+    const labKey = ARG_LABELS.find(([re]) => re.test(k))?.[1];
+    const lab = labKey ? t(`say.arg_${labKey}`) : undefined;
     if (lab && fields.length < 8) fields.push({ label: lab, value: safe(Array.isArray(v) ? v.map((x) => (typeof x === "object" ? (x as any)?.address ?? (x as any)?.email ?? JSON.stringify(x) : x)).join(", ") : v, 200) });
     else rest.push(`${k}: ${safe(v, 120)}`);
   }
-  if (rest.length) fields.push({ label: "그 밖의 값", value: cut(rest.slice(0, 6).join(" · "), 400) });
+  if (rest.length) fields.push({ label: t("say.arg_rest"), value: cut(rest.slice(0, 6).join(" · "), 400) });
   const icon = SERVICE_ICON[service] ?? (/mail/i.test(tool) ? "✉️" : /event|calendar|meeting/i.test(tool) ? "📅" : "🔧");
   return {
-    card: { icon, title: `${service} · ${tool}`, verb: "실행", question: `**${service}.${tool}** 를 실행할까요?`, notice: "허용하면 바로 실행돼요(되돌릴 수 없을 수 있어요)" },
+    card: { icon, title: `${service} · ${tool}`, verb: t("say.perm_verb_run"), question: t("say.perm_q_run", { what: `${service}.${tool}` }), notice: t("say.perm_notice_mcp") },
     fields, ...(body ? { body } : {}),
   };
 }
@@ -995,25 +998,25 @@ export function buildPreview(toolName: string, input: unknown, c: PermCtx): Prev
   if (mcp) return { ...mcpPreview(mcp[1], mcp[2], i), bodyKind: "text" };
   if (toolName === "Bash") {
     return {
-      card: { icon: "🖥️", title: typeof i.description === "string" && i.description ? cut(i.description, 80) : "셸 명령 실행", verb: "실행", question: "이 명령을 실행할까요?", notice: "허용하면 이 컴퓨터에서 바로 실행돼요" },
-      fields: [{ label: "위치(cwd)", value: c.cwd }], body: cut(redact(String(i.command ?? "")), 1500), bodyKind: "code",
+      card: { icon: "🖥️", title: typeof i.description === "string" && i.description ? cut(i.description, 80) : t("say.perm_shell_title"), verb: t("say.perm_verb_run"), question: t("say.perm_shell_q"), notice: t("say.perm_shell_notice") },
+      fields: [{ label: t("say.perm_cwd"), value: c.cwd }], body: cut(redact(String(i.command ?? "")), 1500), bodyKind: "code",
     };
   }
   if (EDIT_TOOLS.has(toolName)) {
     const file = String(i.file_path ?? i.notebook_path ?? "?");
-    const verb = toolName === "Write" ? "파일 쓰기" : "파일 고치기";
+    const verb = toolName === "Write" ? t("say.perm_write") : t("say.perm_edit");
     return {
-      card: { icon: "✏️", title: `${verb} — ${basename(file)}`, verb, question: `이 파일을 ${toolName === "Write" ? "쓸까요" : "고칠까요"}?`, notice: "허용하면 바로 바뀌어요" },
-      fields: [{ label: "파일", value: file }], ...(editBody(toolName, i) ? { body: editBody(toolName, i), bodyKind: toolName === "Write" || toolName === "NotebookEdit" ? "code" as const : "diff" as const } : {}),
+      card: { icon: "✏️", title: `${verb} — ${basename(file)}`, verb, question: toolName === "Write" ? t("say.perm_write_q") : t("say.perm_edit_q"), notice: t("say.perm_edit_notice") },
+      fields: [{ label: t("say.perm_file"), value: file }], ...(editBody(toolName, i) ? { body: editBody(toolName, i), bodyKind: toolName === "Write" || toolName === "NotebookEdit" ? "code" as const : "diff" as const } : {}),
     };
   }
   if (READ_FILE_TOOLS.has(toolName)) {
     const p = String((toolName === "Read" ? i.file_path : i.path) ?? c.cwd);
-    return { card: { icon: "📂", title: `허용 폴더 밖 읽기 — ${basename(p)}`, verb: "읽기", question: "허용된 레포 밖 파일을 읽을까요?", notice: "읽기만 해요" }, fields: [{ label: "경로", value: p }, ...(i.pattern ? [{ label: "패턴", value: safe(i.pattern, 120) }] : [])] };
+    return { card: { icon: "📂", title: t("say.perm_read_title", { name: basename(p) }), verb: t("say.perm_read"), question: t("say.perm_read_q"), notice: t("say.perm_read_notice") }, fields: [{ label: t("say.perm_path"), value: p }, ...(i.pattern ? [{ label: t("say.perm_pattern"), value: safe(i.pattern, 120) }] : [])] };
   }
   const short = toolName.startsWith("mcp__") ? toolName.slice(5).replace("__", " · ") : toolName;
   return {
-    card: { icon: "🔧", title: short, verb: "실행", question: `**${short}** 를 실행할까요?`, notice: "허용하면 바로 실행돼요" },
+    card: { icon: "🔧", title: short, verb: t("say.perm_verb_run"), question: t("say.perm_q_run", { what: short }), notice: t("say.perm_notice") },
     fields: [], body: cut(redact(JSON.stringify(i, null, 1) ?? ""), 800), bodyKind: "code",
   };
 }
@@ -1030,9 +1033,10 @@ export type Special = (toolName: string, input: Record<string, unknown>) => Prom
 // 화면의 stepLabel(desktop/src/chat.js)이 "." 으로 서비스·도구를 나누므로 마침표를 넣지 않는다
 export type PermWait = { toolName: string; input: Record<string, unknown>; phase: "wait" | "allowed" | "denied" };
 export function waitStep(via: ActionVia): string {
-  return `승인을 기다리고 있어요 — ${via === "chat" ? "채팅 창의 카드나 캐릭터 말풍선" : "캐릭터 말풍선이나 승인 카드"}에서 허용해 주세요`;
+  return t(via === "chat" ? "say.perm_wait_chat" : "say.perm_wait_other");
 }
 export const DENIED_STEP = "승인되지 않았어요 — 다른 방법을 생각하고 있어요";
+export const deniedStep = () => t("say.perm_denied_step");
 
 export const DENIED_MSG = "사용자가 이 작업을 거부했어요. 같은 호출을 다시 시도하지 말고, 다른 방법을 제안하거나 무엇을 원하는지 물어보세요.";
 

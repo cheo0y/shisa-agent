@@ -9,6 +9,7 @@ import type { Store, Todo, TodoPatch } from "./store.ts";
 import { kstDay } from "./store.ts";
 import { isBusinessDay, localDate, localHhmm } from "./calendar.ts";
 import { phrase } from "./phrases.ts";
+import { t as tr } from "./i18n.ts";
 
 export type PlanItem = { id: string; title: string; done: boolean; priority: number; source: string; doing?: boolean };
 // carry: 아침에 물은 「어제 남은 P1」 중 아직 고르지 않았고 그대로 열려 있는 것(패널 오늘 할 일 탭 위 안내)
@@ -176,7 +177,7 @@ export class DailyPlanService {
   // 오늘 할 일 탭에서 적기 = P1(오늘 꼭) 할 일. priority 는 예전 호출 호환으로 받기만 한다
   add(title: string, _priority?: number): { ok: true; item: PlanItem; plan: DailyPlan } | { ok: false; message: string } {
     const t = tidy(title);
-    if (!t) return { ok: false, message: "제목이 비어 있어요" };
+    if (!t) return { ok: false, message: tr("say.dp_empty_title") };
     const todo = this.ports.add({ title: t, priority: TODAY_PRIORITY, source: "user" });
     return { ok: true, item: planItem(todo), plan: this.state() };
   }
@@ -199,40 +200,40 @@ export class DailyPlanService {
       if (op.op === "add") {
         if (op.id) {
           const cur = this.store.getTodo(op.id);
-          if (!cur || (cur.status !== "open" && cur.status !== "done")) { errors.push(`할 일에서 "${op.id}"를 못 찾았어요`); continue; }
+          if (!cur || (cur.status !== "open" && cur.status !== "done")) { errors.push(tr("say.dp_todo_missing", { id: op.id })); continue; }
           if (cur.priority !== TODAY_PRIORITY) this.ports.edit(cur.id, { priority: TODAY_PRIORITY });
-          applied.push(`오늘 할 일로: ${cur.title.slice(0, 40)}`);
+          applied.push(tr("say.dp_to_today", { title: cur.title.slice(0, 40) }));
           continue;
         }
         const t = tidy(op.title ?? "");
-        if (!t) { errors.push("추가할 제목이 없어요"); continue; }
+        if (!t) { errors.push(tr("say.dp_no_title")); continue; }
         this.ports.add({ title: t, priority: TODAY_PRIORITY, source: "user" });
-        applied.push(`추가: ${t.slice(0, 40)}`);
+        applied.push(tr("say.dp_added", { title: t.slice(0, 40) }));
         continue;
       }
       const it = items.find((x) => x.id === op.id);
-      if (!it) { errors.push(`오늘 할 일에서 "${op.id}"를 못 찾았어요`); continue; }
+      if (!it) { errors.push(tr("say.dp_today_missing", { id: op.id })); continue; }
       if (op.op === "remove") {
         this.ports.edit(it.id, { priority: OUT_OF_TODAY });
-        applied.push(`오늘에서 뺌(이번 주로): ${it.title.slice(0, 40)}`);
+        applied.push(tr("say.dp_removed", { title: it.title.slice(0, 40) }));
         continue;
       }
       if (op.op === "toggle") {
         const done = op.done !== undefined ? !!op.done : !it.done;
         this.ports.edit(it.id, { status: done ? "done" : "open" });
-        applied.push(done ? `끝냄: ${it.title.slice(0, 40)}` : `다시 열음: ${it.title.slice(0, 40)}`);
+        applied.push(tr(done ? "say.dp_done" : "say.dp_reopened", { title: it.title.slice(0, 40) }));
         continue;
       }
       const patch: TodoPatch = {};
       if (op.title !== undefined) {
         const title = tidy(op.title);
-        if (!title) { errors.push("제목이 비어 있어요"); continue; }
+        if (!title) { errors.push(tr("say.dp_empty_title")); continue; }
         if (title !== it.title) patch.title = title;
       }
       if (op.priority !== undefined && prio(op.priority, it.priority) !== it.priority) patch.priority = prio(op.priority, it.priority); // 1 이 아니면 오늘 할 일에서 빠진다
       if (op.done !== undefined && !!op.done !== it.done) patch.status = op.done ? "done" : "open";
       if (Object.keys(patch).length) this.ports.edit(it.id, patch);
-      applied.push(`고침: ${(patch.title ?? it.title).slice(0, 40)}`);
+      applied.push(tr("say.dp_edited", { title: (patch.title ?? it.title).slice(0, 40) }));
     }
     return { applied, errors, plan: this.state(date) };
   }

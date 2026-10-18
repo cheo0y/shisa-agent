@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { BG_MARK } from "./bg-agents.ts";
 import { isAbsPath } from "./plat.ts";
+import { t } from "./i18n.ts";
 
 export type RunKind = "fix" | "briefing" | "chat" | "profile" | "kg" | "calendar" | "slack-ingest" | "todo-auto" | "action" | "other";
 export const RUN_KINDS: RunKind[] = ["fix", "briefing", "chat", "profile", "kg", "calendar", "slack-ingest", "todo-auto", "action", "other"];
@@ -210,7 +211,7 @@ export class RunRegistry {
     const cols = new Set((db.prepare("PRAGMA table_info(runs)").all() as any[]).map((c) => c.name));
     for (const [name, type] of RUN_COLS) if (!cols.has(name)) db.exec(`ALTER TABLE runs ADD COLUMN ${name} ${type}`);
     db.exec("CREATE INDEX IF NOT EXISTS runs_parent ON runs(parent_id)");
-    db.prepare("UPDATE runs SET status = 'failed', ended_at = ?, error = coalesce(error, '데몬 재시작으로 끊김') WHERE status = 'running'").run(now());
+    db.prepare("UPDATE runs SET status = 'failed', ended_at = ?, error = coalesce(error, ?) WHERE status = 'running'").run(now(), t("say.run_daemon_restart"));
     this.backfillOrigins();
     this.controls.clear();
     this.seqs.clear();
@@ -494,20 +495,20 @@ export class RunRegistry {
     try { await c.fn.call(c.ctl, model); }
     catch (e: any) { return { ok: false, status: 409, error: `could not change model: ${String(e?.message ?? e)}` }; }
     this.update(id, { model });
-    this.logEvent(id, { type: "system", text: `모델을 ${model} 로 바꿨어요 — 다음 턴부터` });
+    this.logEvent(id, { type: "system", text: t("say.run_model_changed", { model }) });
     return { ok: true };
   }
   async interrupt(id: string): Promise<ControlResult> {
     const c = this.check(id, "interrupt");
     if (!c.ok) return c.res;
     await c.fn.call(c.ctl);
-    this.logEvent(id, { type: "system", text: "사용자가 중단(interrupt)했어요" });
+    this.logEvent(id, { type: "system", text: t("say.run_interrupted") });
     return { ok: true };
   }
   async stop(id: string): Promise<ControlResult> {
     const c = this.check(id, "stop");
     if (!c.ok) return c.res;
-    this.logEvent(id, { type: "system", text: "사용자가 정지(stop)했어요" });
+    this.logEvent(id, { type: "system", text: t("say.run_stopped") });
     await c.fn.call(c.ctl);
     return { ok: true };
   }
@@ -551,7 +552,7 @@ function sanitize(kind: RunKind, e: RunEventInput): Omit<RunEvent, "seq" | "at">
   if (quiet) {
     // 중계 run: 본문 없이 이름·크기만
     if (ev.type === "assistant" || ev.type === "user" || ev.type === "result") {
-      if (ev.text !== undefined) { out.size = ev.text.length; out.text = `(본문 ${ev.text.length}자 — 기록 안 함)`; }
+      if (ev.text !== undefined) { out.size = ev.text.length; out.text = t("say.run_body_hidden", { n: ev.text.length }); }
     }
     if (ev.type === "tool_use") { if (ev.input !== undefined) out.size = ev.input.length; delete out.input; delete out.diff; }
     if (ev.type === "tool_result") { if (ev.output !== undefined) out.size = ev.output.length; delete out.output; }
@@ -577,7 +578,7 @@ export function compactInput(name: string, input: any): string {
   if (name === "WebSearch") return str(input.query);
   if (name === "Agent" || name === "Task") return str(input.description) || str(input.subagent_type) || json(input);
   if (name === "Skill") return [str(input.skill), str(input.args)].filter(Boolean).join(" ");
-  if (name === "TodoWrite" && Array.isArray(input.todos)) return `할 일 ${input.todos.length}개`;
+  if (name === "TodoWrite" && Array.isArray(input.todos)) return t("say.run_todowrite", { n: input.todos.length });
   // 서비스·도구를 받는 MCP 중계 도구(invoke 류): 실제 서비스·도구와 인자
   if (typeof input.service === "string" && typeof input.tool === "string") {
     const args = input.args && typeof input.args === "object" && Object.keys(input.args).length ? json(input.args) : "";
@@ -609,7 +610,7 @@ export function logSdkMessage(run: RunHandle, m: any, opts: LogOpts = {}) {
     if (m.session_id) run.setSession(m.session_id);
     // SDK 가 실제로 돈 폴더(세션 기록 ~/.claude/projects/<이 폴더>/ — "Claude Code에서 열기"·터미널 기록 불러오기가 여기서 찾는다)
     if (typeof m.cwd === "string" && isAbsPath(m.cwd) && m.cwd.length <= 1000 && !/[\0\r\n]/.test(m.cwd)) run.setCwd(m.cwd);
-    run.log({ type: "system", text: `세션 시작 · ${m.model ?? ""}${m.cwd ? ` · ${m.cwd}` : ""}` });
+    run.log({ type: "system", text: t("say.run_session_start", { model: m.model ?? "", cwd: m.cwd ? ` · ${m.cwd}` : "" }) });
     return;
   }
   const parent = typeof m.parent_tool_use_id === "string" && m.parent_tool_use_id ? m.parent_tool_use_id : undefined;
@@ -639,7 +640,7 @@ export function logSdkMessage(run: RunHandle, m: any, opts: LogOpts = {}) {
     }
     if (m.isSynthetic || (m.uuid && opts.skipUserUuids?.has(m.uuid))) return;
     const text = resultText(content);
-    if (/^\[Request interrupted/.test(text.trim())) { if (!parent) run.log({ type: "system", text: "중단됨(SDK)" }); } // SDK 가 끼워 넣는 중단 표시
+    if (/^\[Request interrupted/.test(text.trim())) { if (!parent) run.log({ type: "system", text: t("say.run_interrupted_sdk") }); } // SDK 가 끼워 넣는 중단 표시
     else if (text.trim()) log({ type: "user", text }); // 서브에이전트면 그 지시(프롬프트)
     return;
   }

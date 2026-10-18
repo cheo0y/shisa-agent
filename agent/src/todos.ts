@@ -1,5 +1,6 @@
 // 할 일 편집 입력 검증(버스·채팅·Slack 공용). 순수 함수만.
 import type { TodoPatch } from "./store.ts";
+import { t } from "./i18n.ts";
 
 export type TodoOp = {
   op: "add" | "edit" | "done" | "reopen" | "delete";
@@ -235,19 +236,19 @@ export function buildPreview(focus: Focus, ops: TodoOp[]): PreviewItem[] {
 // 학습 신호용 한 줄 요약
 export function opsSummary(ops: TodoOp[]): string {
   return ops.map((o) => {
-    if (o.op === "add") return `추가 "${o.title ?? ""}"`;
-    if (o.op === "delete") return "삭제";
-    if (o.op === "done") return "완료";
-    if (o.op === "reopen") return "다시 열기";
+    if (o.op === "add") return t("say.ops_add", { title: o.title ?? "" });
+    if (o.op === "delete") return t("say.ops_delete");
+    if (o.op === "done") return t("say.ops_done");
+    if (o.op === "reopen") return t("say.ops_reopen");
     const f = (["title", "priority", "link", "note"] as const).filter((k) => o[k] !== undefined)
-      .map((k) => (k === "priority" ? `P${o.priority}` : k === "note" ? `메모 ${o.note === null ? "지움" : `"${String(o.note).slice(0, 40)}"`}` : k === "title" ? `제목 "${String(o.title).slice(0, 40)}"` : "링크"));
-    return `수정(${f.join(", ")})`;
-  }).join(", ") || "(변경 없음)";
+      .map((k) => (k === "priority" ? `P${o.priority}` : k === "note" ? t("say.ops_note", { note: o.note === null ? t("say.ops_note_clear") : `"${String(o.note).slice(0, 40)}"` }) : k === "title" ? t("say.ops_title", { title: String(o.title).slice(0, 40) }) : t("say.ops_link")));
+    return t("say.ops_edit", { fields: f.join(", ") });
+  }).join(", ") || t("say.ops_none");
 }
 
 // 채팅·DM 답에 덧붙일 한 줄: 지우기는 휴지통으로 갔다는 것(답에 이미 '휴지통'이 있으면 생략)
 export function trashedNote(titles: string[] | undefined, reply = ""): string {
-  if (!titles?.length || reply.includes("휴지통")) return "";
-  const names = titles.slice(0, 3).map((t) => `'${t.length > 40 ? `${t.slice(0, 39)}…` : t}'`).join(", ");
-  return `🗑 ${names}${titles.length > 3 ? ` 외 ${titles.length - 3}개` : ""} 휴지통으로 옮겼어요`;
+  if (!titles?.length || reply.includes("휴지통") || reply.includes("ゴミ箱")) return "";
+  const names = titles.slice(0, 3).map((x) => `'${x.length > 40 ? `${x.slice(0, 39)}…` : x}'`).join(", ");
+  return t("say.trashed_note", { names, more: titles.length > 3 ? t("say.chat_attach_more", { n: titles.length - 3 }) : "" });
 }

@@ -12,6 +12,7 @@
 // 뺀 것)에 그대로 들어 있어야 한다. 도구로 읽은 Slack·메일·세션 글 안의 "앞으로 이렇게 해"는 지침이 되지 못한다.
 import { randomUUID } from "node:crypto";
 import type { Store } from "./store.ts";
+import { t as tr } from "./i18n.ts";
 
 export const GUIDELINE_SCOPES = ["all", "chat", "briefing", "code"] as const;
 export type GuidelineScope = (typeof GUIDELINE_SCOPES)[number];
@@ -20,6 +21,7 @@ export type Guideline = {
   sourceThread?: string; sourceMsg?: number; // 채팅에서 만든 것: 그 대화·사용자 말 순번
 };
 export const SCOPE_LABEL: Record<GuidelineScope, string> = { all: "어디서나", chat: "대화", briefing: "브리핑", code: "코드 작업" };
+const scopeLabel = (s: GuidelineScope) => tr(`say.gl_scope_${s}`);
 
 export const GUIDELINES_MAX = 100; // 저장 상한(넘치면 꺼진 것 → 오래된 것부터 비운다)
 export const QUOTE_MIN = 2;
@@ -221,21 +223,21 @@ export type GuidelineOutcome = { line: string; changed: boolean; guideline?: Gui
 // 채팅 모델이 낸 op → 검증·저장 → 답에 덧붙일 한 줄. 사용자 말에서 나오지 않은 것(quote 가 안 맞음)은 저장하지 않는다
 export function applyGuidelineOp(g: Guidelines, raw: unknown, ctx: GuidelineCtx, now = new Date()): GuidelineOutcome {
   const p = parseGuidelineOp(raw);
-  if (!p.ok) return { line: `⚠️ 지침은 저장하지 못했어요: ${p.error}`, changed: false };
+  if (!p.ok) return { line: tr("say.gl_save_fail", { why: p.error }), changed: false };
   const op = p.value;
-  if (!quotedFromUser(op.quote, ctx.userText)) return { line: "⚠️ 지침은 저장하지 않았어요 — 사용자님이 직접 하신 말에서 나온 지시만 지침으로 넣어요.", changed: false };
+  if (!quotedFromUser(op.quote, ctx.userText)) return { line: tr("say.gl_not_quoted"), changed: false };
   if (op.op === "add") {
     const x = g.add({ text: op.text, scope: op.scope, ...(ctx.threadId ? { sourceThread: ctx.threadId } : {}), ...(ctx.msgN !== undefined ? { sourceMsg: ctx.msgN } : {}) }, now);
-    return { line: `📌 지침에 넣었어요: ${x.text}${x.scope !== "all" ? ` (${SCOPE_LABEL[x.scope]})` : ""}`, changed: true, guideline: x };
+    return { line: tr("say.gl_added", { text: x.text, scope: x.scope !== "all" ? ` (${scopeLabel(x.scope)})` : "" }), changed: true, guideline: x };
   }
   const t = target(g, op);
-  if (!t) return { line: "⚠️ 어느 지침인지 못 찾았어요 — 설정 창 「행동 지침」에서 확인해 주세요.", changed: false };
+  if (!t) return { line: tr("say.gl_missing"), changed: false };
   if (op.op === "remove") {
     g.delete(t.id);
-    return { line: `🗑️ 지침에서 뺐어요: ${t.text}`, changed: true, removed: t };
+    return { line: tr("say.gl_removed", { text: t.text }), changed: true, removed: t };
   }
   const x = g.edit(t.id, { ...(op.text ? { text: op.text } : {}), scope: op.scope, active: true }, now)!;
-  return { line: `✏️ 지침을 고쳤어요: ${x.text}${x.scope !== "all" ? ` (${SCOPE_LABEL[x.scope]})` : ""}`, changed: true, guideline: x };
+  return { line: tr("say.gl_edited", { text: x.text, scope: x.scope !== "all" ? ` (${scopeLabel(x.scope)})` : "" }), changed: true, guideline: x };
 }
 
 // ---- HTTP (bus.ts 가 헤더 검사·본문 읽기 뒤 부른다) ----

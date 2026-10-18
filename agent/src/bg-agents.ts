@@ -9,6 +9,7 @@
 //     쓰기는 체크아웃마다의 쓰기 잠금(repo-lock.ts)에 들어가 같은 체크아웃을 고치는 다른 답·에이전트와 엇갈리지 않는다.
 //     isolation: "worktree" 로 불리면 자기 워크트리(agent-worktrees.ts)에서 돌아 다른 에이전트와 잠금도 겹치지 않는다
 import type { ActionVia } from "./actions.ts";
+import { t as tr } from "./i18n.ts";
 
 export const BG_MARK = "[백그라운드 에이전트]"; // 채팅 run 의 Agent 줄 결과 머리(대화 속 카드는 이 줄 대신 백그라운드 run 의 카드를 쓴다)
 export const BG_LIMITS = { result: 12_000, description: 120 }; // 화면에 보일 길이(동시 개수 상한 아님)
@@ -98,19 +99,19 @@ export class BackgroundAgents {
         }
         out = await this.ports.run(j, (runId) => { j.runId = runId; });
       } catch (e) { err = e; }
-      if (iso) { try { note = await iso.finish(j.runId); } catch (e: any) { note = `🌿 워크트리 정리 실패: ${oneLine(String(e?.message ?? e), 200)}`; } }
+      if (iso) { try { note = await iso.finish(j.runId); } catch (e: any) { note = tr("say.bg_wt_fail", { why: oneLine(String(e?.message ?? e), 200) }); } }
       this.running--;
       if (j.abort.signal.aborted) {
         this.finish(j, "stopped");
-        this.ports.post(j.threadId, "system", `에이전트 「${j.description}」 을(를) 멈췄어요${note ? `\n${note}` : ""}`);
+        this.ports.post(j.threadId, "system", tr("say.bg_stopped", { name: j.description, note: note ? `\n${note}` : "" }));
       } else if (err !== undefined) {
         this.finish(j, "failed");
-        this.ports.post(j.threadId, "assistant", `🤖 에이전트 「${j.description}」 이(가) 끝까지 못 했어요 — ${oneLine(String((err as any)?.message ?? err), 300)}${note ? `\n\n${note}` : ""}`);
+        this.ports.post(j.threadId, "assistant", tr("say.bg_failed", { name: j.description, why: oneLine(String((err as any)?.message ?? err), 300), note: note ? `\n\n${note}` : "" }));
       } else {
         this.finish(j, "done");
         const body = (out ?? "").trim();
-        const cut = body.length > BG_LIMITS.result ? `${body.slice(0, BG_LIMITS.result)}\n\n…(길어서 여기까지 — 전체는 작업 세션 창에서)` : body;
-        this.ports.post(j.threadId, "assistant", `🤖 에이전트 「${j.description}」 끝났어요\n\n${cut || "(남긴 글이 없어요)"}${note ? `\n\n${note}` : ""}`);
+        const cut = body.length > BG_LIMITS.result ? `${body.slice(0, BG_LIMITS.result)}\n\n${tr("say.bg_cut")}` : body;
+        this.ports.post(j.threadId, "assistant", tr("say.bg_done", { name: j.description, body: cut || tr("say.bg_no_text"), note: note ? `\n\n${note}` : "" }));
       }
       if (this.running === 0) this.ports.mood?.(false);
     })();

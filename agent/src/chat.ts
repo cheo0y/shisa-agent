@@ -37,6 +37,8 @@ import { parsePrRef } from "./merge-request.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { codingReady } from "./coding.ts";
 import { calendarBlockText, calendarTz, covered, midnight, NEED_SCHEMA, parseNeeds, rangeArgs, rangeFromText, readCalendarBlock } from "./calendar-ai.ts";
+import { t } from "./i18n.ts";
+import { language, type Lang } from "./lang.ts";
 
 export type { PanelSection };
 export type ChatReply = { reply_md: string; bubble: string; show: PanelSection | null; proposals: Thought["proposals"]; todo_ops?: TodoOp[]; project_ops?: unknown[]; plan_ops?: PlanOp[]; memory_ops?: MemoryOp[]; focus_ops?: FocusOp[]; rule?: unknown; guideline?: unknown; actions?: unknown[]; merges?: MergeAsk[]; auto_merge?: AutoMergeAsk[]; need?: unknown[] };
@@ -71,13 +73,17 @@ export type ChatEvent = { chatId: string; threadId: string } & (
   // 사용자가 마지막 말을 고침(Chat.edit · editQueued). n: 고친(숨긴) 말 순번 — 그 말부터 뒤는 숨겼고 chatId 가 새 말로 다시 돈다.
   // n 이 없으면 줄 서 있던 말의 글만 바뀐 것(chatId 그대로). replaces: 고치느라 멈춘 답의 chatId(캐릭터 창이 새 답을 제 것으로 잇게)
   | { status: "edited"; text: string; n?: number; replaces?: string });
-export const STOPPED_TEXT = "멈췄어요"; // stopped 이벤트 글
+export const STOPPED_TEXT = "멈췄어요"; // stopped 이벤트 글(한국어 원문 — 화면엔 stoppedText() 로 지금 언어)
 export const STOPPED_LINE = "답을 멈췄어요"; // 스레드에 남는 시스템 줄(가짜 답은 안 남긴다)
+export const stoppedText = () => t("say.chat_stopped");
+export const stoppedLine = () => t("say.chat_stopped_line");
 // 답 없이 끝난 턴(오류·승인 카드 만료로 멈춤·데몬 재시작)에 남는 시스템 줄 — 이 물음은 답을 못 받았다고 알리고 턴을 닫는다.
 // 그 턴에 뜬 승인 카드는 이 줄에 붙는다(답이 없다고 대화 맨 아래를 떠돌지 않게)
-export const unfinishedLine = (why: string) => `답을 끝내지 못했어요 — ${why}. 다시 물어봐 주세요`;
+export const unfinishedLine = (why: string) => t("say.chat_unfinished", { why });
 export const EXPIRED_WHY = "승인 카드가 응답 없이 취소돼 멈췄어요";
 export const RESTART_WHY = "앱을 다시 켜서 끊겼어요";
+export const expiredWhy = () => t("say.chat_expired_why");
+export const restartWhy = () => t("say.chat_restart_why");
 // 슬래시 명령(`/code-review high`): 말 그대로 SDK 에 넘기고 마지막 답 글을 받는다
 // abort: 이 답을 멈추는 손잡이(Chat.stop) — ask() 가 SDK options.abortController 로 넘긴다
 // attachments: 이번 말에 붙인 첨부(대화 폴더로 옮긴 것). 없으면 예전 그대로
@@ -101,9 +107,9 @@ export const CLIENT_ID = /^[\w-]{1,64}$/;
 // 고른 것이 그 뇌에 맞나 — 맞지 않으면 이유(400). 로컬 뇌·모르는 뇌는 고를 수 없다
 export function pickProblem(cfg: Pick<Config, "brain">, pick: ChatPick | null | undefined): string | undefined {
   if (!pick) return undefined;
-  if (pick.provider !== undefined && !isChatProvider(pick.provider)) return "그 AI 는 채팅에서 고를 수 없어요";
+  if (pick.provider !== undefined && !isChatProvider(pick.provider)) return t("say.chat_pick_bad_ai");
   const provider = pick.provider ?? cfg.brain?.provider ?? "claude-code";
-  if (pick.model !== undefined && !modelFits(provider, pick.model)) return `그 모델(${String(pick.model).slice(0, 60)})은 ${BRAIN_LABEL[provider as keyof typeof BRAIN_LABEL] ?? provider} 에서 못 써요`;
+  if (pick.model !== undefined && !modelFits(provider, pick.model)) return t("say.chat_pick_bad_model", { model: String(pick.model).slice(0, 60), brain: BRAIN_LABEL[provider as keyof typeof BRAIN_LABEL] ?? provider });
   return undefined;
 }
 
@@ -117,7 +123,7 @@ export function pickedBrain(cfg: Config, pick: ChatPick | undefined, opts: { mod
   // model: converse 에 넘길 것(없으면 converse 가 그 뇌의 일반 모델) · shown: 답 표시용(실제로 쓸 모델)
   const model = chosen ?? fallback ?? (opts.hover ? roleModel(c, "quick", provider) : undefined);
   const shown = model ?? roleModel(c, "general", provider);
-  const name = shown ? modelLabel(shown) : "기본 모델";
+  const name = shown ? modelLabel(shown) : t("say.chat_default_model");
   return { cfg: c, ...(model ? { model } : {}), by: { provider, ...(shown ? { model: shown } : {}), label: `${BRAIN_LABEL[provider as keyof typeof BRAIN_LABEL] ?? provider} · ${name}`, ...(pick?.provider || chosen ? { picked: true } : {}) } };
 }
 // 말에 「춤」「댄스」「dance」가 들어 있으면 보내자마자 캐릭터가 춤 영상을 튼다(모델 답을 기다리지 않는다)
@@ -141,22 +147,23 @@ export function danceOnly(text: string): boolean {
 const firstLine = (t: string, max = 80) => { const l = t.split("\n").map((x) => x.trim()).find(Boolean) ?? ""; return [...l].length > max ? `${[...l].slice(0, max - 1).join("")}…` : l; };
 
 export const HISTORY_TURNS = 12;
-export const MERGE_CARD_LINE = "머지 승인 카드를 띄웠어요 — 카드나 캐릭터 말풍선에서 ✓ 를 누르면 머지해요."; // 모델에 넘기는 그 스레드의 최근 문답 수(말 2개 = 1턴)
+export const MERGE_CARD_LINE = "머지 승인 카드를 띄웠어요 — 카드나 캐릭터 말풍선에서 ✓ 를 누르면 머지해요.";
+export const mergeCardLine = () => t("say.chat_merge_card"); // 모델에 넘기는 그 스레드의 최근 문답 수(말 2개 = 1턴)
 
 // 첫 말로 짓는 제목: 첫 줄, 마크다운 기호 걷고 30자
 export function threadTitle(text: string, max = 30): string {
   const line = text.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
   const plain = line.replace(/[#>*_`~\[\]]/g, "").replace(/\s+/g, " ").trim();
   const chars = [...plain];
-  if (!chars.length) return "새 대화";
+  if (!chars.length) return t("say.chat_new_thread");
   return chars.length > max ? `${chars.slice(0, max - 1).join("").trimEnd()}…` : plain;
 }
 
 // 할 일 하나에 붙은 스레드(하나만, 다시 씀). 보관했으면 꺼낸다
 export function todoThreadFor(store: Store, todo: Pick<Todo, "id" | "title">): { thread: Thread; created: boolean } {
-  const t = store.todoThread(todo.id);
-  if (t) return { thread: t.archived ? store.editThread(t.id, { archived: false })! : t, created: false };
-  return { thread: store.createThread({ title: `할 일: ${todo.title}`.slice(0, 80), kind: "todo", todoId: todo.id }), created: true };
+  const th = store.todoThread(todo.id);
+  if (th) return { thread: th.archived ? store.editThread(th.id, { archived: false })! : th, created: false };
+  return { thread: store.createThread({ title: t("say.chat_todo_thread", { title: todo.title }).slice(0, 80), kind: "todo", todoId: todo.id }), created: true };
 }
 
 const SECTIONS = ["overview", "projects", "todos", "today", "chat"] as const;
@@ -379,11 +386,11 @@ export async function converse(
       r = await once();
       break;
     }
-    onStep("일정 확인 중…");
+    onStep(t("say.chat_cal_checking"));
     for (const rg of fresh) { seen.push(rg); extra.push(calendarBlockText(await readCalendarBlock(store, rg, readOpts))); }
     r = await once();
   }
-  if (!String(r?.reply_md ?? "").trim() && parseNeeds(r?.need).length) r = { ...r, reply_md: "일정을 읽었는데 답을 만들지 못했어요. 한 번 더 물어봐 주세요.", bubble: r.bubble || "다시 물어봐 줘요" };
+  if (!String(r?.reply_md ?? "").trim() && parseNeeds(r?.need).length) r = { ...r, reply_md: t("say.chat_cal_no_answer"), bubble: r.bubble || t("say.chat_ask_again") };
   return { ...tidyThought(r), show: SECTIONS.includes(r.show as PanelSection) ? r.show : null, proposals: r.proposals ?? [], todo_ops: r.todo_ops ?? [], project_ops: Array.isArray(r.project_ops) ? r.project_ops : [], plan_ops: r.plan_ops ?? [], memory_ops: r.memory_ops ?? [], focus_ops: Array.isArray(r.focus_ops) ? r.focus_ops : [], rule: r.rule ?? null, guideline: r.guideline ?? null, actions: Array.isArray(r.actions) ? r.actions : [], merges: Array.isArray(r.merges) ? r.merges : [], auto_merge: Array.isArray(r.auto_merge) ? r.auto_merge : [] };
 }
 
@@ -397,29 +404,32 @@ export async function runCommand(cfg: Config, store: Store, history: ChatTurn[],
   const refs = attachments?.length ? `\n\n${attachments.map((a) => attachmentRef(a, threadId)).join("\n")}` : "";
   const out = await ask<string>(cfg, `${text}${refs}`, null, onStep, { ...opts, project: true, ...(abort ? { abort } : {}) });
   const md = typeof out === "string" ? out.trim() : "";
-  return { reply_md: md || "(명령이 끝났지만 남긴 글이 없어요)", bubble: md.split("\n").find((l) => l.trim())?.slice(0, 40) ?? "끝났어요", show: null, proposals: [] };
+  return { reply_md: md || t("say.chat_cmd_empty"), bubble: md.split("\n").find((l) => l.trim())?.slice(0, 40) ?? t("say.chat_cmd_done"), show: null, proposals: [] };
 }
 
 // 글 없이 첨부만 보낸 말의 이름(제목·run 제목): "📎 a.png 외 2개"
 export function attachmentsTitle(list: Pick<Attachment, "name">[] | undefined): string {
   if (!list?.length) return "";
-  return `📎 ${list[0].name}${list.length > 1 ? ` 외 ${list.length - 1}개` : ""}`;
+  return `📎 ${list[0].name}${list.length > 1 ? t("say.chat_attach_more", { n: list.length - 1 }) : ""}`;
 }
 
 // 새 대화 제목(가벼운 모델, 도구 없이 한 번). 답이 끝난 뒤 따로 — 실패하면 첫 말 제목 그대로
 export const TITLE_SCHEMA = { type: "object", additionalProperties: false, required: ["title"], properties: { title: { type: "string", description: "대화 제목. 한국어 명사구 4–18자, 따옴표·마침표 없이." } } } as const;
+const LANGUAGE_NAME_KO: Record<Lang, string> = { ko: "한국어", ja: "일본어" }; // 모델 지시 속 언어 이름
+// 지금 언어로 짓게(한국어가 아니면 「한국어 명사구」 자리를 그 언어로 — 제목은 대화 목록에 그대로 보인다)
+export const titleSchema = (l: Lang = language()) => (l === "ko" ? TITLE_SCHEMA : { ...TITLE_SCHEMA, properties: { title: { type: "string", description: `대화 제목. ${LANGUAGE_NAME_KO[l]} 명사구 4–18자, 따옴표·마침표 없이.` } } } as const);
 export async function suggestTitle(cfg: Config, text: string, reply: string, threadId?: string): Promise<string | undefined> {
   const provider = cfg.brain?.provider ?? "claude-code";
   if (provider === "local") return undefined; // 로컬 뇌는 모델이 없다(빈 run 을 만들지 않는다)
   // Gemini 무료 키는 모델마다 하루 횟수가 적다(2026-10 시험: gemini-3.8-flash 하루 20번). 제목 짓기로 반을 쓰지 않게 첫 말 제목 그대로
   if (provider === "gemini") return undefined;
   const prompt = `아래 대화의 제목을 지어라.\n\n사용자: """${text.slice(0, 600)}"""\n${character().name}: """${reply.slice(0, 600)}"""`;
-  const r = await ask<{ title: string }>(cfg, prompt, TITLE_SCHEMA, undefined, {
+  const r = await ask<{ title: string }>(cfg, prompt, titleSchema(), undefined, {
     model: cfg.models.light, role: "light", tools: false, system: "너는 대화 목록에 붙일 짧은 제목을 짓는 도우미다.",
-    run: { kind: "chat", title: "대화 제목 짓기", ...(threadId ? { ref: threadId } : {}) },
+    run: { kind: "chat", title: t("say.chat_title_run"), ...(threadId ? { ref: threadId } : {}) },
   });
-  const t = typeof r?.title === "string" ? r.title.replace(/["'“”‘’.]/g, "").trim() : "";
-  return t || undefined;
+  const title = typeof r?.title === "string" ? r.title.replace(/["'“”‘’.]/g, "").trim() : "";
+  return title || undefined;
 }
 
 // 채팅 모델 호출 설정: 모델은 일반(models.general) — 코드 질문이어도. 세션 창에서 고른 모델이 있으면 그것. cwd 는 관련 레포(repoRoots 안), 없으면 ~/.cy-agent/brain.
@@ -429,7 +439,7 @@ export function chatAskOpts(cfg: Config, text: string, repo?: RelatedRepo, threa
     system: chatSystemFor(cfg, codingReady(cfg)), model: model ?? roleModel(cfg, "general"),
     code: { roots: cfg.repoRoots, ...(repo ? { cwd: repo.path } : {}) },
     interactive: { origin: { via, ...(threadId ? { threadId } : {}) } },
-    run: { kind: "chat" as const, title: `채팅: ${text.split("\n")[0].slice(0, 60)}`, ...(threadId ? { ref: threadId } : {}) },
+    run: { kind: "chat" as const, title: t("say.chat_run_title", { text: text.split("\n")[0].slice(0, 60) }), ...(threadId ? { ref: threadId } : {}) },
   };
 }
 
@@ -486,13 +496,14 @@ type Held = HeldChat & { key: string };
 
 // 같은 레포를 고치는 앞 대화를 기다릴 때 보이는 글
 export const repoWaitReason = (aheadText: string | undefined, repo: string) =>
-  `앞 대화${aheadText ? `(“${aheadText}”)` : ""}가 같은 레포(${repoName(repo)})를 고치는 중이라 기다려요`;
-export const threadWaitReason = (aheadText: string | undefined) => `앞 답${aheadText ? `(“${aheadText}”)` : ""}이 끝나면 보내요`;
+  t("say.chat_wait_repo", { ahead: aheadText ? t("say.chat_ahead_quote", { text: aheadText }) : "", repo: repoName(repo) });
+export const threadWaitReason = (aheadText: string | undefined) => t("say.chat_wait_thread", { ahead: aheadText ? t("say.chat_ahead_quote", { text: aheadText }) : "" });
 
 // 도구 없는 뇌(Gemini·OpenAI·Claude API·Genspark·Codex) 채팅 한 번의 전체 한도 — 넘으면 끊고 오류로 끝낸다(「답하는 중」에 남지 않게).
 // Claude Code 뇌는 승인 카드·레포 잠금·에이전트를 기다리느라 길어질 수 있어 걸지 않는다
 export const CHAT_DEADLINE_MS = 180_000;
 export const DEADLINE_TEXT = "답이 너무 오래 걸려 멈췄어요(3분 넘게 답이 없었어요). 잠시 뒤 다시 보내 주세요";
+export const deadlineText = () => t("say.chat_deadline");
 // 로그에 남길 짧은 이유(말·프롬프트는 넣지 않는다 — 「— 」 뒤의 모델 글도 뗀다)
 const failReason = (msg: string) => msg.split(/ — |\n/)[0].slice(0, 80);
 
@@ -530,7 +541,7 @@ export class Chat {
     let briefs: AttachBrief[] = keep.map((a) => ({ id: a.id, name: a.name, kind: a.kind, size: a.size }));
     if (ids.length) {
       const st = this.ports.attachments;
-      const why = st ? st.check(ids) : "첨부를 받을 수 없어요";
+      const why = st ? st.check(ids) : t("say.chat_no_attach");
       if (why) return { error: "bad_attachment", message: why };
       briefs = [...briefs, ...ids.map((id) => { const x = st!.staged(id)!; return { id, name: x.name, kind: x.kind, size: x.size }; })];
     }
@@ -691,7 +702,7 @@ export class Chat {
       this.live.delete(chatId);
       const lane = this.lanes.get(l.threadId);
       if (lane) lane.waiting = lane.waiting.filter((j) => j.chatId !== chatId);
-      this.ports.emit({ chatId, threadId: l.threadId, status: "stopped", text: STOPPED_TEXT });
+      this.ports.emit({ chatId, threadId: l.threadId, status: "stopped", text: stoppedText() });
       this.emitQueued(); // 뒤의 차례가 당겨졌다
     }
     return true;
@@ -794,8 +805,8 @@ export class Chat {
     // 멈췄으면: 답·할 일 편집·제안·확인 카드 없이 시스템 줄만 남기고 stopped
     const onStopped = () => {
       ended = "멈춤";
-      if (recorded) closeTurn(STOPPED_LINE);
-      emit({ status: "stopped", text: STOPPED_TEXT });
+      if (recorded) closeTurn(stoppedLine());
+      emit({ status: "stopped", text: stoppedText() });
     };
     if (++this.active === 1) this.ports.mood?.(true); // 하나라도 돌면 바쁨 — 여러 스레드가 동시에 돌아도 마지막이 끝날 때까지
     let done: string | undefined;
@@ -804,7 +815,7 @@ export class Chat {
     try {
       // 차례가 왔을 때 다시 본다 — 앞선 대화가 그 할 일·스레드를 지웠을 수도 있다
       const thread = this.store.thread(threadId);
-      if (!thread) { emit({ status: "error", text: "이 대화가 지워졌어요." }); return; }
+      if (!thread) { emit({ status: "error", text: t("say.chat_thread_gone") }); return; }
       // 고른 뇌·모델(이 대화에 기억한 것). 캐릭터 빠른 대화는 그 뇌의 빠른 대화 모델(패널 선택과 따로). 기본 뇌 설정은 그대로
       brain = pickedBrain(this.cfg, pick, { ...(model ? { model } : {}), hover: thread.kind === "hover" });
       model = brain.model;
@@ -812,18 +823,18 @@ export class Chat {
       console.log(`[chat] 시작 ${tag} 뇌=${brain.by.provider} 모델=${brain.by.model ?? "기본"}`);
       logged = true;
       if (brain.by.provider !== "claude-code") {
-        overdue = new Promise<never>((_, rej) => { timer = setTimeout(() => { late = true; abort.abort(); rej(new Error(DEADLINE_TEXT)); }, this.deadlineMs); });
+        overdue = new Promise<never>((_, rej) => { timer = setTimeout(() => { late = true; abort.abort(); rej(new Error(deadlineText())); }, this.deadlineMs); });
         overdue.catch(() => {});
       }
       const picked = todoId ? this.store.getTodo(todoId) : undefined;
-      if (todoId && !picked) { emit({ status: "error", text: "그 할 일을 못 찾았어요. 이미 지워졌을 수도 있어요." }); return; }
+      if (todoId && !picked) { emit({ status: "error", text: t("say.chat_todo_gone") }); return; }
       // 할 일 스레드면 따로 집어 들지 않아도 그 할 일이 대화 대상(지워졌으면 대상 없이)
       const focus = picked ?? (thread.kind === "todo" && thread.todoId ? this.store.getTodo(thread.todoId) : undefined);
       const history = this.store.threadMessages(threadId, { limit: HISTORY_TURNS * 2 });
       // 첨부: 올려 둔 것을 이 대화 폴더로(못 찾으면 이 말은 보내지 않는다)
       const attachments: Attachment[] = [...(att?.keep ?? [])];
       if (att?.ids.length) {
-        if (!this.ports.attachments) { emit({ status: "error", text: "첨부를 받을 수 없어요." }); return; }
+        if (!this.ports.attachments) { emit({ status: "error", text: t("say.chat_no_attach_dot") }); return; }
         try { attachments.push(...this.ports.attachments.claim(att.ids, threadId)); }
         catch (e: any) { emit({ status: "error", text: String(e?.message ?? e) }); return; }
       }
@@ -858,9 +869,9 @@ export class Chat {
         ? this.runCommand(brain.cfg, this.store, history, text, onStep, threadId, model, thread.kind === "hover" ? "hover" : "chat", abort, ...(attachments.length ? [attachments] : []))
         : this.converse(brain.cfg, this.store, history, text, onStep, summary, focus, threadId, model, abort, this.ports.dashboard ? { dashboard: () => this.ports.dashboard!() } : undefined, ...(attachments.length ? [attachments] : [])));
       clearTimeout(timer);
-      if (late) throw new Error(DEADLINE_TEXT); // 한도와 답이 같이 왔으면 한도 쪽(이미 abort 했다)
+      if (late) throw new Error(deadlineText()); // 한도와 답이 같이 왔으면 한도 쪽(이미 abort 했다)
       if (stopped()) { onStopped(); return; } // 멈춘 사이 답이 와도 버린다(제안이 수정 run 을 띄우지 않게)
-      let reply = r.reply_md?.trim() || r.bubble || "(답이 비었어)";
+      let reply = r.reply_md?.trim() || r.bubble || t("say.chat_empty_reply");
       // 집어 든 할 일이 있으면 id 빠진 op는 그 할 일로
       let ops = (r.todo_ops ?? []).map((op) => (focus && op.op !== "add" && !op.id ? { ...op, id: focus.id } : op));
       const lines: string[] = []; // 적용한 변경 — 스레드에 시스템 줄로
@@ -910,7 +921,7 @@ export class Chat {
       const amOps = (command ? [] : r.auto_merge ?? []).filter((o) => o && (o.op === "add" || o.op === "remove") && typeof o.repo === "string");
       const amOk = amOps.filter((o) => autoMergeConsent(o.op, text));
       if (amOk.length && this.ports.autoMerge) reply += `\n\n${this.ports.autoMerge(amOk).join("\n")}`;
-      if (amOps.length > amOk.length) reply += `\n\nℹ️ 자동 머지 레포는 바꾸지 않았어요 — 「이 레포는 알아서 머지까지 해」·「X는 이제 머지 묻고 해」처럼 직접 말해 주세요`;
+      if (amOps.length > amOk.length) reply += `\n\nℹ️ ${t("say.chat_auto_merge_unchanged")}`;
       // userSaid 는 모델 표시 + 사용자 말(text)로 다시 확인한 것만(머지 동사·물음 아님·말에 번호가 있으면 그 번호). 막힌 시도·모델 생각은 카드로
       const tried = this.ports.takeMergeAttempts?.(threadId) ?? [];
       const raw = (r.merges ?? []).filter((m) => m && typeof m.pr === "string" && m.pr.trim());
@@ -924,8 +935,8 @@ export class Chat {
         else if (merged.length) reply = `${merged.join("\n")}\n\n${reply}`;
         if (m.created.length) {
           // 모델이 merges 없이 막힌 얘기만 했으면 그 글 대신 짧게(카드가 검사·충돌을 보여 준다)
-          if (!asked.length) reply = MERGE_CARD_LINE;
-          else if (!/머지 승인 카드/.test(reply)) reply = `${MERGE_CARD_LINE}\n\n${reply}`;
+          if (!asked.length) reply = mergeCardLine();
+          else if (!/머지 승인 카드|マージ承認カード/.test(reply)) reply = `${mergeCardLine()}\n\n${reply}`;
         }
         if (m.errors.length) reply += `\n\n${m.errors.map((e) => `⚠️ ${e}`).join("\n")}`;
       }
@@ -933,7 +944,7 @@ export class Chat {
       const madeWts: { title: string; branch?: string }[] = []; // 이번 답이 판 워크트리(수정 run 마다 하나)
       for (const pr of r.proposals ?? []) {
         const made = await this.ports.propose(pr, threadId).catch(() => undefined);
-        if (made == null) reply += `\n\n⚠️ "${pr.title}" 작업을 시작하지 못했어요 — 허용된 레포(repoRoots) 안인지 확인해 주세요.`;
+        if (made == null) reply += `\n\n⚠️ ${t("say.chat_propose_fail", { title: pr.title })}`;
         else { const p = made as { id?: unknown; title?: unknown }; if (typeof p.id === "string") madeWts.push({ title: String(p.title ?? pr.title), branch: fixBranch({ id: p.id, title: String(p.title ?? pr.title) }) }); }
       }
       // 워크트리를 팠으면(수정 run · 격리 에이전트) 데몬이 실제 것으로 「🌿 워크트리 N개 만들었어요」 + 하나씩(모델 말에 맡기지 않는다)
@@ -954,16 +965,16 @@ export class Chat {
     } catch (e: any) {
       if (stopped()) onStopped();
       else {
-        const msg = late ? DEADLINE_TEXT : String(e?.message ?? e).slice(0, 200);
+        const msg = late ? deadlineText() : String(e?.message ?? e).slice(0, 200);
         ended = `실패 ${failReason(msg)}`;
         // 답이 안 왔다 — 턴을 닫아 둔다(물음만 덩그러니·카드만 맨 아래에 남지 않게). 승인 카드가 응답 없이 만료됐으면 그 이유로
         if (recorded) {
           const expired = (this.ports.threadPermissions?.(threadId, since) ?? []).some((a) => a.status === "expired");
-          closeTurn(unfinishedLine(expired ? EXPIRED_WHY : `오류로 멈췄어요(${msg.slice(0, 120)})`));
+          closeTurn(unfinishedLine(expired ? expiredWhy() : t("say.chat_error_stop", { why: msg.slice(0, 120) })));
         }
         // 고른 뇌·모델이면 그 이름으로 + 기본으로 다시 보내기(그 말 n 을 고쳐 보내는 길)
-        if (brain?.by.picked) emit({ status: "error", text: `${brain.by.label} 모델이 답하지 못했어요: ${msg}`, ...(userN ? { retry: { n: userN, text, label: brain.by.label } } : {}) });
-        else emit({ status: "error", text: `대화하다 막혔어요: ${msg}` });
+        if (brain?.by.picked) emit({ status: "error", text: t("say.chat_picked_fail", { label: brain.by.label, why: msg }), ...(userN ? { retry: { n: userN, text, label: brain.by.label } } : {}) });
+        else emit({ status: "error", text: t("say.chat_fail", { why: msg }) });
       }
     } finally {
       clearTimeout(timer);

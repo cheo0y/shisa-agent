@@ -22,6 +22,7 @@ import { LANGUAGES, language, type Lang } from "./lang.ts";
 import { PHRASES, unknownVars } from "./phrases.ts";
 import { LINES, QUICK_LINES, SHISA_EXTRA, WEATHER_LINES } from "./local-mode.ts";
 import { SAY_VARS, type ClipKind, type ClipTable } from "./clips.ts";
+import { t, t as tr } from "./i18n.ts"; // tr: 지역 변수 t(글)가 가리는 곳
 
 // ---- 그림·영상 칸 ----
 // 꼭 넣을 넷: 눈 뜬 것·눈 감은 것(깜빡임)·응원·춤. 고를 수 있는 것: 집중(공부 중)·일정 알림·점심시간(없으면 일정 알림 영상). 빈 칸은 데스크톱이 대신 쓸 것을 고른다(character.js customAssets)
@@ -60,10 +61,10 @@ export function sniffMedia(b: Uint8Array): string | null {
 
 // 올린 파일 → 저장할 확장자 | 거절 이유. 이름의 확장자가 받는 종류가 아니어도, 내용이 그림·영상이 아니어도 거절
 export function mediaKind(name: string, bytes: Uint8Array): { ext: string } | { error: string } {
-  const bad = { error: "그림·영상만 넣을 수 있어요(png·jpg·webp·gif·webm·mp4)" };
+  const bad = { error: t("say.ch_media_only") };
   const m = /\.([A-Za-z0-9]{1,8})$/.exec(String(name ?? "").trim());
   if (m && !NAME_EXT[m[1].toLowerCase()]) return bad;
-  if (!bytes?.length) return { error: "빈 파일이에요" };
+  if (!bytes?.length) return { error: t("say.ch_empty_file") };
   const ext = sniffMedia(bytes);
   return ext ? { ext } : bad;
 }
@@ -82,10 +83,10 @@ export function newUserId(taken: (id: string) => boolean, rand: () => string = (
 export const defaultFrame = (file: string): boolean => !/\.(png|webm)$/i.test(file);
 // 사용자가 고른 테두리(칸 → 켬/끔) 다듬기. 모르는 칸·불리언이 아닌 값이면 오류
 function cleanFrames(v: unknown): Partial<Record<MediaSlot, boolean>> | { error: string } {
-  if (!isObj(v)) return { error: "frames 는 { 칸: true|false } 여야 해요" };
+  if (!isObj(v)) return { error: t("say.ch_frames_shape") };
   const out: Partial<Record<MediaSlot, boolean>> = {};
   for (const [k, x] of Object.entries(v)) {
-    if (!isMediaSlot(k) || typeof x !== "boolean") return { error: `frames 칸이 이상해요: ${k}` };
+    if (!isMediaSlot(k) || typeof x !== "boolean") return { error: t("say.ch_frames_bad", { k }) };
     out[k] = x;
   }
   return out;
@@ -95,7 +96,7 @@ export const STORED_FILE = /^(eyes_open|eyes_closed|cheer|dance|study|plan|lunch
 // 영상 한마디 다듬기: 제어 문자·줄바꿈 없이 한 줄로. 비면 undefined(그 칸 기본 대사). 길이 제한은 없다
 export function cleanSay(v: unknown): string | undefined | { error: string } {
   if (v === null || v === undefined) return undefined;
-  if (typeof v !== "string") return { error: "한마디는 글이어야 해요" };
+  if (typeof v !== "string") return { error: tr("say.ch_say_text") };
   const t = v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
   return t || undefined;
 }
@@ -187,14 +188,14 @@ const schemaMap = () => new Map(linesSchema().map((d) => [d.path, d]));
 function cleanValue(d: FieldDef, v: unknown): Value | undefined | { error: string } {
   const where = d.label ? `${d.path}(${d.label})` : d.path;
   if (d.kind === "text") {
-    if (typeof v !== "string") return { error: `${where} 칸은 글이어야 해요` };
+    if (typeof v !== "string") return { error: tr("say.ch_slot_text", { where }) };
     // 제어 문자는 뺀다. 한 줄 칸(이름·프롬프트 첫 문장·말투 줄)은 줄바꿈도 없앤다 — 프롬프트 다른 줄을 흉내 내지 못하게
     let t = v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
     // 둘러보기 조각(「 일정 10분 전엔…」)처럼 앞뒤 빈칸이 뜻이 있는 글이 있어 한 줄 칸만 다듬는다
     if (d.oneLine) t = t.replace(/\s+/g, " ").trim();
     return t.trim() ? t : undefined;
   }
-  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) return { error: `${where} 칸은 줄 목록이어야 해요` };
+  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) return { error: t("say.ch_slot_lines", { where }) };
   // flair 는 「우와, 」처럼 끝 빈칸이 뜻이 있어 그대로 둔다
   const keepSpace = d.path.startsWith("flair.");
   const l = (v as string[]).map((x) => x.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")).map((x) => (keepSpace ? x : x.trim())).filter((x) => x.trim());
@@ -203,22 +204,22 @@ function cleanValue(d: FieldDef, v: unknown): Value | undefined | { error: strin
 
 // 대사 검사·다듬기. 모르는 칸·모르는 자리표시는 거절(이유는 화면에 그대로 보여 줄 한국어)
 export function validateLines(input: unknown): { ok: true; lines: LinesPatch } | { ok: false; error: string } {
-  if (!isObj(input)) return { ok: false, error: "대사는 칸 묶음(객체)이어야 해요" };
+  if (!isObj(input)) return { ok: false, error: t("say.ch_lines_obj") };
   const defs = schemaMap();
   const out: Record<string, Value> = {};
   for (const [path, v] of Object.entries(flattenLines(input))) {
     const d = defs.get(path);
-    if (!d) return { ok: false, error: `모르는 칸이에요: ${path}` };
+    if (!d) return { ok: false, error: t("say.ch_unknown_slot_k", { k: path }) };
     const c = cleanValue(d, v);
     if (c && typeof c === "object" && !Array.isArray(c)) return { ok: false, error: c.error };
     if (c === undefined) continue;
     const bad = (Array.isArray(c) ? c : [c]).flatMap((l) => unknownVars(l, d.vars)).filter((x, i, a) => a.indexOf(x) === i);
-    if (bad.length) return { ok: false, error: `모르는 자리표시 ${bad.map((x) => `{${x}}`).join(" ")}: ${d.label ? `${d.path}(${d.label})` : d.path}${d.vars.length ? ` · 쓸 수 있는 것: ${d.vars.map((x) => `{${x}}`).join(" ")}` : " · 이 칸은 자리표시를 못 써요"}` };
+    if (bad.length) return { ok: false, error: t("say.ch_bad_vars", { bad: bad.map((x) => `{${x}}`).join(" "), where: d.label ? `${d.path}(${d.label})` : d.path, ok: d.vars.length ? t("say.ch_vars_ok", { vars: d.vars.map((x) => `{${x}}`).join(" ") }) : t("say.ch_vars_none") }) };
     out[path] = c;
   }
   // 객체 모양이지만 칸이 아닌 것(예: { phrases: "글" } 처럼 묶음 자리에 글)
   const tops = new Set([...defs.keys()].map((p) => p.split(".")[0]));
-  for (const [k, v] of Object.entries(input)) if (!tops.has(k) || (!isObj(v) && !defs.has(k))) return { ok: false, error: `모르는 칸이에요: ${k}` };
+  for (const [k, v] of Object.entries(input)) if (!tops.has(k) || (!isObj(v) && !defs.has(k))) return { ok: false, error: t("say.ch_unknown_slot_k", { k }) };
   return { ok: true, lines: unflattenLines(out) };
 }
 
@@ -389,7 +390,7 @@ export class CharacterStore {
     }
     // 테두리 칸 값: 그림이 있는 칸만(여러 개 넣는 칸은 앞으로 더할 파일의 기본값)
     for (const [slot, on] of Object.entries(rawFrames) as [MediaSlot, boolean][]) if (media[slot] || clips[slot]) frames[slot] = on;
-    const name = (typeof v.lines.name === "string" && v.lines.name) || (typeof raw.name === "string" && raw.name.trim()) || "새 캐릭터";
+    const name = (typeof v.lines.name === "string" && v.lines.name) || (typeof raw.name === "string" && raw.name.trim()) || t("say.ch_new_name");
     return {
       id, name, from: typeof raw.from === "string" ? raw.from : "shisa",
       created: typeof raw.created === "string" ? raw.created : this.now().toISOString(),
@@ -443,9 +444,9 @@ export class CharacterStore {
     if (!isObj(body)) return fail(400, "json object required");
     for (const k of Object.keys(body)) if (!["name", "from", "lines", "frames"].includes(k)) return fail(400, `unknown key: ${k}`);
     const name = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim() : "";
-    if (!name) return fail(400, "이름을 적어 주세요");
+    if (!name) return fail(400, t("say.ch_need_name"));
     const from = body.from === undefined ? "shisa" : body.from;
-    if (typeof from !== "string" || !this.has(from)) return fail(400, "가져올 캐릭터가 없어요");
+    if (typeof from !== "string" || !this.has(from)) return fail(400, t("say.ch_no_source"));
     let frames: UserCharacter["frames"] = {};
     if (body.frames !== undefined) { const f = cleanFrames(body.frames); if ("error" in f) return fail(400, f.error); frames = f; }
     let extra: LinesPatch = {};
@@ -463,7 +464,7 @@ export class CharacterStore {
     const at = this.now().toISOString();
     const c: UserCharacter = { id, name, from, created: at, updated: at, frames: {}, media: {}, clips: {}, lines: v.lines };
     applyFrames(c, frames); // 만들 때 고른 테두리(파일을 넣기 전이라 칸 값으로 — 파일이 들어오면 그 값으로 시작)
-    try { this.saveUser(c); } catch (e: any) { return fail(500, `저장하지 못했어요(${e?.code ?? "오류"})`); }
+    try { this.saveUser(c); } catch (e: any) { return fail(500, t("say.ch_save_fail", { code: e?.code ?? t("say.ch_error") })); }
     this.users.set(id, c);
     this.changed();
     return { status: 201, body: { character: this.view().characters.find((x) => x.id === id) } };
@@ -488,7 +489,7 @@ export class CharacterStore {
       try {
         if (isEmptyPatch(patch)) rmSync(file, { force: true });
         else { mkdirSync(join(this.dir, "overrides"), { recursive: true, mode: 0o700 }); writeJson(file, patch); }
-      } catch (e: any) { return fail(500, `저장하지 못했어요(${e?.code ?? "오류"})`); }
+      } catch (e: any) { return fail(500, t("say.ch_save_fail", { code: e?.code ?? t("say.ch_error") })); }
       if (isEmptyPatch(patch)) delete this.overrides[id];
       else this.overrides[id] = patch;
       this.changed();
@@ -505,7 +506,7 @@ export class CharacterStore {
     }
     if (body.name !== undefined) {
       const n = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim() : "";
-      if (!n) return fail(400, "이름을 적어 주세요");
+      if (!n) return fail(400, t("say.ch_need_name"));
       next.lines = { ...next.lines, name: n };
     }
     next.name = (typeof next.lines.name === "string" && next.lines.name) || c.name;
@@ -516,28 +517,28 @@ export class CharacterStore {
       applyFrames(next, f);
     }
     if (body.files !== undefined) {
-      if (!isObj(body.files)) return fail(400, "files 는 { 저장 이름: { say?, frame? } } 여야 해요");
+      if (!isObj(body.files)) return fail(400, t("say.ch_files_shape"));
       for (const [file, m] of Object.entries(body.files)) {
         const slot = MULTI_SLOTS.find((s) => next.clips[s]?.some((x) => x.file === file));
         const item = slot && next.clips[slot]!.find((x) => x.file === file);
-        if (!slot || !item) return fail(400, `이 캐릭터의 파일이 아니에요: ${file}`);
-        if (!isObj(m) || Object.keys(m).some((k) => k !== "say" && k !== "frame")) return fail(400, `files.${file} 는 { say?, frame? } 여야 해요`);
+        if (!slot || !item) return fail(400, t("say.ch_not_file", { file }));
+        if (!isObj(m) || Object.keys(m).some((k) => k !== "say" && k !== "frame")) return fail(400, t("say.ch_file_shape", { file }));
         if ("say" in m) {
           const say = cleanSay(m.say);
           if (say && typeof say === "object") return fail(400, say.error);
           const vars = SAY_VARS[slot as ClipKind] ?? [];
           const bad = typeof say === "string" ? unknownVars(say, vars) : [];
-          if (bad.length) return fail(400, `모르는 자리표시 ${bad.map((x) => `{${x}}`).join(" ")}${vars.length ? ` · 쓸 수 있는 것: ${vars.map((x) => `{${x}}`).join(" ")}` : " · 이 칸 한마디는 자리표시를 못 써요"}`);
+          if (bad.length) return fail(400, t("say.ch_bad_vars_say", { bad: bad.map((x) => `{${x}}`).join(" "), ok: vars.length ? t("say.ch_vars_ok", { vars: vars.map((x) => `{${x}}`).join(" ") }) : t("say.ch_vars_none_say") }));
           if (say) item.say = say; else delete item.say;
         }
         if ("frame" in m) {
           if (m.frame === null) delete item.frame;
           else if (typeof m.frame === "boolean") item.frame = m.frame;
-          else return fail(400, `files.${file}.frame 은 true|false|null 이어야 해요`);
+          else return fail(400, t("say.ch_frame_shape", { file }));
         }
       }
     }
-    try { this.saveUser(next); } catch (e: any) { return fail(500, `저장하지 못했어요(${e?.code ?? "오류"})`); }
+    try { this.saveUser(next); } catch (e: any) { return fail(500, t("say.ch_save_fail", { code: e?.code ?? t("say.ch_error") })); }
     this.users.set(id, next);
     this.changed();
     return { status: 200, body: { character: this.view().characters.find((x) => x.id === id) } };
@@ -545,8 +546,8 @@ export class CharacterStore {
 
   // DELETE /characters/:id/lines — 기본 캐릭터 대사를 기본값으로(덮어쓰기 파일을 지운다)
   reset(id: string): Result {
-    if (!isBuiltinId(id)) return fail(this.users.has(id) ? 400 : 404, this.users.has(id) ? "직접 만든 캐릭터는 기본값이 없어요" : "no such character");
-    try { rmSync(join(this.dir, "overrides", overrideFile(id)), { force: true }); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    if (!isBuiltinId(id)) return fail(this.users.has(id) ? 400 : 404, this.users.has(id) ? t("say.ch_custom_no_default") : "no such character");
+    try { rmSync(join(this.dir, "overrides", overrideFile(id)), { force: true }); } catch (e: any) { return fail(500, t("say.ch_delete_fail", { code: e?.code ?? t("say.ch_error") })); }
     delete this.overrides[id];
     this.changed();
     return { status: 200, body: { character: this.view().characters.find((x) => x.id === id) } };
@@ -554,14 +555,14 @@ export class CharacterStore {
 
   // DELETE /characters/:id — 사용자 캐릭터만(폴더째). 지금 쓰던 거면 시사로
   remove(id: string): Result {
-    if (isBuiltinId(id)) return fail(400, "기본 캐릭터는 지울 수 없어요");
+    if (isBuiltinId(id)) return fail(400, t("say.ch_builtin_delete"));
     if (!this.users.has(id) || !isUserId(id)) return fail(404, "no such character");
     const dir = join(this.dir, id);
     try { if (existsSync(dir) && !lstatSync(dir).isSymbolicLink()) rmSync(dir, { recursive: true, force: true, ...RM_RETRY }); else rmSync(dir, { force: true }); }
     catch (e: any) {
       // Windows: 화면이 그 캐릭터 영상을 아직 열고 있으면 폴더째 못 지운다(EBUSY·EPERM). character.json 만 지워 목록에서 빼고
       // 남은 파일은 다음에 켤 때 치운다(load 의 sweep). character.json 도 못 지우면 그대로 실패
-      try { rmSync(join(dir, "character.json"), { force: true, ...RM_RETRY }); } catch { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+      try { rmSync(join(dir, "character.json"), { force: true, ...RM_RETRY }); } catch { return fail(500, t("say.ch_delete_fail", { code: e?.code ?? t("say.ch_error") })); }
     }
     this.users.delete(id);
     const removedCurrent = this.install();
@@ -572,8 +573,8 @@ export class CharacterStore {
   // PUT /characters/:id/media/:slot — 본문 = 파일 바이트. 이름은 새로 짓고 예전 파일은 지운다
   putMedia(id: string, slot: string, name: string, bytes: Uint8Array): Result {
     const c = this.users.get(id);
-    if (!c) return fail(isBuiltinId(id) ? 400 : 404, isBuiltinId(id) ? "기본 캐릭터 그림은 바꿀 수 없어요" : "no such character");
-    if (!isMediaSlot(slot)) return fail(400, "모르는 칸이에요");
+    if (!c) return fail(isBuiltinId(id) ? 400 : 404, isBuiltinId(id) ? t("say.ch_builtin_media") : "no such character");
+    if (!isMediaSlot(slot)) return fail(400, t("say.ch_unknown_slot"));
     const k = mediaKind(name, bytes);
     if ("error" in k) return fail(400, k.error);
     const file = `${slot}-${randomBytes(4).toString("hex")}.${k.ext}`;
@@ -587,7 +588,7 @@ export class CharacterStore {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       writeFileAtomic(join(dir, file), bytes, { mode: 0o600, tmp: join(dir, `.${file}.tmp`) });
       this.saveUser(next);
-    } catch (e: any) { return fail(500, `저장하지 못했어요(${e?.code ?? "오류"})`); }
+    } catch (e: any) { return fail(500, t("say.ch_save_fail", { code: e?.code ?? t("say.ch_error") })); }
     const old = multi ? undefined : c.media[slot];
     if (old && old !== file) try { rmSync(join(dir, old), { force: true, ...RM_RETRY }); } catch { /* 남아도 쓰지 않는다(다음에 켤 때 치운다) */ }
     this.users.set(id, next);
@@ -600,9 +601,9 @@ export class CharacterStore {
   removeMedia(id: string, slot: string, file?: string): Result {
     const c = this.users.get(id);
     if (!c) return fail(404, "no such character");
-    if (!isMediaSlot(slot)) return fail(400, "모르는 칸이에요");
+    if (!isMediaSlot(slot)) return fail(400, t("say.ch_unknown_slot"));
     const inSlot = isMultiSlot(slot) ? (c.clips[slot] ?? []).map((x) => x.file) : c.media[slot] ? [c.media[slot]!] : [];
-    if (file !== undefined && !inSlot.includes(file)) return fail(404, "그 칸에 없는 파일이에요");
+    if (file !== undefined && !inSlot.includes(file)) return fail(404, t("say.ch_file_not_in_slot"));
     const gone = file !== undefined ? [file] : inSlot;
     if (!gone.length) return { status: 200, body: { character: this.view().characters.find((x) => x.id === id) } };
     const media = { ...c.media };
@@ -613,7 +614,7 @@ export class CharacterStore {
       if (left.length) clips[slot] = left; else { delete clips[slot]; delete frames[slot]; }
     } else { delete media[slot]; delete frames[slot]; }
     const next = { ...c, media, clips, frames, updated: this.now().toISOString() };
-    try { this.saveUser(next); } catch (e: any) { return fail(500, `지우지 못했어요(${e?.code ?? "오류"})`); }
+    try { this.saveUser(next); } catch (e: any) { return fail(500, t("say.ch_delete_fail", { code: e?.code ?? t("say.ch_error") })); }
     // 목록에서는 이미 뺐다. 파일은 지워 보고, 못 지우면(Windows 에서 재생 중이라 잠김) 남겨 둔다 — 목록에 없는 파일은 쓰지도 내주지도 않는다
     for (const f of gone) try { rmSync(join(this.dir, id, f), { force: true, ...RM_RETRY }); } catch { /* 다음에 켤 때 치운다 */ }
     this.users.set(id, next);

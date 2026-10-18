@@ -30,6 +30,7 @@ import type { Bubble } from "./bus.ts";
 import { PERMISSION_TTL_MS, type PermDecision, type PermOrigin, type PermRequest, type RuleSpec } from "./permissions.ts";
 import { MERGE_TYPE, type MergeInfo } from "./merge-request.ts";
 import { serverOptions } from "./mcp.ts";
+import { t, t as tr } from "./i18n.ts"; // tr: 지역 변수 t(동작 종류)가 가리는 곳
 
 export const ACTION_TTL_MS = 30 * 60e3;
 export const MAX_PER_TURN = 3;
@@ -90,45 +91,45 @@ export function cardLine(c: ActionCard): string {
 export function actionStatusLine(a: Pick<PendingAction, "status" | "result"> & { type?: string }): string {
   if (a.type === MERGE_TYPE) {
     switch (a.status) {
-      case "pending": return "머지 승인 대기 — [✓ 머지]를 눌러야 머지돼요";
-      case "running": return "⏳ 머지하는 중…";
-      case "done": return `🎉 ${a.result?.message ?? "머지했어요"}`;
-      case "failed": return `⚠️ ${a.result?.message ?? "머지하지 못했어요"}`;
-      case "cancelled": return "✗ 머지 안 함 — PR은 열어 뒀어요";
-      case "expired": return a.result?.message ?? "⌛ 만료됐어요";
+      case "pending": return t("say.act_merge_pending");
+      case "running": return t("say.act_merge_running");
+      case "done": return `🎉 ${a.result?.message ?? t("say.act_merged")}`;
+      case "failed": return `⚠️ ${a.result?.message ?? t("say.act_merge_failed")}`;
+      case "cancelled": return t("say.act_merge_cancelled");
+      case "expired": return a.result?.message ?? t("say.act_expired");
     }
   }
   if (a.type === PERMISSION) {
     switch (a.status) {
-      case "pending": return "승인 대기 — [허용]을 눌러야 실행돼요 (10분 뒤 자동 거부)";
-      case "done": return `✅ ${a.result?.message ?? "허용했어요"}`;
-      case "cancelled": return "✗ 거부했어요 — 실행하지 않았어요";
-      case "expired": return `⌛ ${a.result?.message ?? "응답이 없어 취소했어요"} — 실행하지 않았어요`;
+      case "pending": return t("say.act_perm_pending");
+      case "done": return `✅ ${a.result?.message ?? t("say.act_allowed")}`;
+      case "cancelled": return t("say.act_perm_denied");
+      case "expired": return t("say.act_perm_expired", { why: a.result?.message ?? t("say.act_no_answer") });
       default: return a.result?.message ?? a.status;
     }
   }
   switch (a.status) {
-    case "pending": return "확인 대기 — [실행]을 눌러야 보내요 (30분 뒤 만료)";
-    case "running": return "⏳ 보내는 중…";
-    case "done": return `✅ ${a.result?.message ?? "보냈어요"}`;
-    case "failed": return `⚠️ ${a.result?.message ?? "실패했어요"}`;
-    case "cancelled": return "✗ 취소했어요 — 보내지 않았어요";
-    case "expired": return "⌛ 30분이 지나 만료됐어요 — 보내지 않았어요";
+    case "pending": return t("say.act_pending");
+    case "running": return t("say.act_running");
+    case "done": return `✅ ${a.result?.message ?? t("say.act_sent")}`;
+    case "failed": return `⚠️ ${a.result?.message ?? t("say.act_failed")}`;
+    case "cancelled": return t("say.act_cancelled");
+    case "expired": return t("say.act_expired_30");
   }
 }
 
 // 카드가 어디서 났든(패널 채팅·캐릭터 대화·할 일 팝오버·Slack DM) 캐릭터 말풍선 하나(id `action:<id>`).
 // 기다리는 동안은 버튼 말풍선(안 사라짐 — 결정·만료 때까지), 결정되면 같은 id 가 결과 한 줄로 바뀐다.
 // 버튼은 오버레이가 사용자 클릭으로만 누른다(메인 IPC → POST /actions/:id/confirm|cancel)
-const VIA_HINT: Record<ActionVia, string> = { chat: "패널 채팅", hover: "", todo: "할 일", slack: "Slack DM" };
+const VIA_HINT: Record<ActionVia, string> = { chat: "say.via_chat", hover: "", todo: "say.todo", slack: "say.via_slack" };
 export function actionBubbleOf(a: PendingAction): Bubble {
   const id = `action:${a.id}`;
   const perm = a.type === PERMISSION;
   if (a.status === "pending") {
     const lines = perm
       ? [...(a.card.fields ?? []).slice(0, 4).map((f) => `${f.label}: ${f.value}`), a.card.body ? a.card.body.split("\n").slice(0, 4).join("\n") : ""]
-      : [a.card.comment ? `메모: ${a.card.comment}` : ""];
-    if (VIA_HINT[a.via]) lines.push(`(${VIA_HINT[a.via]}에서 온 요청)`);
+      : [a.card.comment ? t("say.act_memo", { text: a.card.comment }) : ""];
+    if (VIA_HINT[a.via]) lines.push(t("say.act_from", { via: t(VIA_HINT[a.via]) }));
     const detail = lines.filter(Boolean).join("\n").slice(0, 1000);
     const open = a.via === "chat" && a.threadId ? { section: "chat" as const, id: a.threadId }
       : a.via === "todo" && a.todoId ? { section: "todos" as const, id: a.todoId } : undefined;
@@ -139,7 +140,7 @@ export function actionBubbleOf(a: PendingAction): Bubble {
       ...(detail ? { detail } : {}), ...(open ? { open } : {}),
     };
   }
-  if (a.status === "running") return { id, text: `${a.card.icon} ${a.card.title} ${a.card.verb} 보내는 중…`, kind: "info", ttlMs: 60e3 };
+  if (a.status === "running") return { id, text: t("say.act_card_running", { icon: a.card.icon, title: a.card.title, verb: a.card.verb }), kind: "info", ttlMs: 60e3 };
   return { id, text: `${actionStatusLine(a)} — ${a.card.title}`, kind: a.status === "done" ? "done" : a.status === "failed" ? "error" : "info", ttlMs: 8e3 };
 }
 
@@ -281,12 +282,12 @@ export class Actions {
     for (const [n, t] of EXTRA_COLS) if (!cols.has(n)) store.db.exec(`ALTER TABLE pending_actions ADD COLUMN ${n} ${t}`);
     // 도구 승인은 기다리던 호출이 데몬과 같이 사라졌다 → 만료로(실행된 적 없음)
     store.db.prepare("UPDATE pending_actions SET status = 'expired', decided = ?, result = ? WHERE status = 'pending' AND type = ?")
-      .run(new Date().toISOString(), JSON.stringify({ ok: false, message: "데몬이 다시 켜져서 취소됐어요" }), PERMISSION);
+      .run(new Date().toISOString(), JSON.stringify({ ok: false, message: t("say.act_restart_cancelled") }), PERMISSION);
     // 데몬이 실행 중에 꺼졌으면: 보냈는지 모른다 → 실패로 두고 알린다(다시 보내지 않는다)
     store.db.prepare("UPDATE pending_actions SET status = 'failed', result = ? WHERE status = 'running' AND type = ?")
-      .run(JSON.stringify({ ok: false, message: "데몬이 다시 켜져서 결과를 못 받았어요 — GitHub에서 머지됐는지 확인해 주세요" }), MERGE_TYPE);
+      .run(JSON.stringify({ ok: false, message: t("say.act_restart_merge") }), MERGE_TYPE);
     store.db.prepare("UPDATE pending_actions SET status = 'failed', result = ? WHERE status = 'running'")
-      .run(JSON.stringify({ ok: false, message: "데몬이 다시 켜져서 결과를 못 받았어요 — 결과를 직접 확인해 주세요" }));
+      .run(JSON.stringify({ ok: false, message: t("say.act_restart_result") }));
   }
 
   private row(id: string): any { return this.store.db.prepare("SELECT * FROM pending_actions WHERE id = ?").get(id); }
@@ -338,10 +339,10 @@ export class Actions {
     const seen = new Set<string>();
     for (const raw of raws.slice(0, MAX_PER_TURN)) {
       const p = parseProposal(raw);
-      if (!p.ok) { errors.push(`요청한 동작은 준비하지 못했어요: ${p.error}`); continue; }
+      if (!p.ok) { errors.push(tr("say.act_prepare_fail", { why: p.error })); continue; }
       const now = this.deps.now();
       const v = await p.value.type.verify(p.value.params, { cfg: this.cfg, store: this.store, now });
-      if (!v.ok) { errors.push(`요청한 동작은 준비하지 못했어요: ${v.error}`); continue; }
+      if (!v.ok) { errors.push(tr("say.act_prepare_fail", { why: v.error })); continue; }
       const t = p.value.type, payload = v.value;
       const key = JSON.stringify(t.call(payload));
       if (seen.has(key)) continue;
@@ -353,7 +354,7 @@ export class Actions {
           now.toISOString(), new Date(now.getTime() + ACTION_TTL_MS).toISOString());
       created.push(this.changed(id)!);
     }
-    if (raws.length > MAX_PER_TURN) errors.push(`한 번에 ${MAX_PER_TURN}개까지만 준비해요`);
+    if (raws.length > MAX_PER_TURN) errors.push(t("say.act_max", { n: MAX_PER_TURN }));
     return { created, errors };
   }
 
@@ -384,9 +385,9 @@ export class Actions {
       }
     };
     if (ev.state === "merging") set(["pending", "failed"], "running");
-    else if (ev.state === "merged") set(["pending", "running", "failed"], "done", { ok: true, message: "머지했어요", ...(ev.commitUrl ? { link: ev.commitUrl } : {}) });
-    else if (ev.state === "declined") set(["pending", "failed"], "cancelled", { ok: false, message: "머지 안 함" });
-    else if (ev.state === "failed") set(["pending", "running"], "failed", { ok: false, message: `머지 실패: ${ev.error ?? "알 수 없는 오류"}` });
+    else if (ev.state === "merged") set(["pending", "running", "failed"], "done", { ok: true, message: t("say.act_merged"), ...(ev.commitUrl ? { link: ev.commitUrl } : {}) });
+    else if (ev.state === "declined") set(["pending", "failed"], "cancelled", { ok: false, message: t("say.merge_declined_short") });
+    else if (ev.state === "failed") set(["pending", "running"], "failed", { ok: false, message: t("say.act_merge_fail_why", { why: ev.error ?? t("say.unknown_error") }) });
   }
 
   private async decideMerge(r: any, decision: "merge" | "decline"): Promise<ConfirmOut> {
@@ -397,12 +398,12 @@ export class Actions {
       return same ? { ok: true, action: a, already: true } : { ok: false, status: 409, error: `already ${a.status}`, action: a };
     }
     if (decision === "merge" && a.card.merge?.blocked) return { ok: false, status: 409, error: a.card.merge.blocked, action: a };
-    if (!this.merge) return { ok: false, status: 409, error: "머지 경로가 없어요", action: a };
+    if (!this.merge) return { ok: false, status: 409, error: t("say.merge_no_route"), action: a };
     const mergeId = JSON.parse(r.payload)?.mergeId;
     const out = await this.merge.decide(String(mergeId ?? ""), decision);
     const now = this.get(id)!;
     if (out.ok) return { ok: true, action: now };
-    return { ok: false, status: out.status === 404 ? 404 : 409, error: out.error ?? "머지하지 못했어요", action: now };
+    return { ok: false, status: out.status === 404 ? 404 : 409, error: out.error ?? t("say.act_merge_failed"), action: now };
   }
 
   // ✗(안 함)는 머지 상태 기계에서 바로(동기) 끝난다 — 결과는 카드 상태로 읽는다
@@ -410,7 +411,7 @@ export class Actions {
     const a = this.shape(r);
     if (a.status === "cancelled") return { ok: true, action: a, already: true };
     if (a.status !== "pending" && a.status !== "failed") return { ok: false, status: 409, error: `already ${a.status}`, action: a };
-    if (!this.merge) return { ok: false, status: 409, error: "머지 경로가 없어요", action: a };
+    if (!this.merge) return { ok: false, status: 409, error: t("say.merge_no_route"), action: a };
     this.merge.decide(String(JSON.parse(r.payload)?.mergeId ?? ""), "decline").catch(() => {});
     const now = this.get(a.id)!;
     return now.status === "cancelled" ? { ok: true, action: now } : { ok: false, status: 409, error: `already ${now.status}`, action: now };
@@ -444,7 +445,7 @@ export class Actions {
     this.store.db.prepare("INSERT INTO pending_actions (id, type, payload, summary, card, via, thread_id, msg_n, created, expires, status, extra) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'pending', ?)")
       .run(id, PERMISSION, "{}", cardLine(card).slice(0, 600), JSON.stringify(card), o.via, o.threadId ?? null,
         now.toISOString(), new Date(now.getTime() + PERMISSION_TTL_MS).toISOString(), JSON.stringify(extra));
-    signal?.addEventListener("abort", () => this.settle(id, "cancelled", { ok: false, message: "대화가 멈춰서 취소됐어요" }), { once: true });
+    signal?.addEventListener("abort", () => this.settle(id, "cancelled", { ok: false, message: t("say.act_chat_stopped") }), { once: true });
     return { action: this.changed(id)!, decision };
   }
 
@@ -470,7 +471,7 @@ export class Actions {
       return same ? { ok: true, action: this.shape(r), already: true } : { ok: false, status: 409, error: `already ${r.status}`, action: this.shape(r) };
     }
     const rule = this.extra(r).rule;
-    const msg = allow ? (always && rule ? `항상 허용으로 저장했어요 — ${rule.label}` : "허용했어요") : "거부했어요";
+    const msg = allow ? (always && rule ? t("say.act_always_saved", { label: rule.label }) : t("say.act_allowed")) : t("say.act_denied");
     this.settle(id, allow ? "done" : "cancelled", { ok: allow, message: msg }, allow && always && !!rule);
     return { ok: true, action: this.get(id)! };
   }
@@ -486,11 +487,11 @@ export class Actions {
     const out: PendingAction[] = [];
     for (const id of ids) {
       if (this.row(id)?.type === PERMISSION) {
-        if (this.settle(id, "expired", { ok: false, message: "응답이 없어 취소했어요" })) { const a = this.get(id); if (a) out.push(a); }
+        if (this.settle(id, "expired", { ok: false, message: t("say.act_no_answer") })) { const a = this.get(id); if (a) out.push(a); }
         continue;
       }
       const r = this.store.db.prepare("UPDATE pending_actions SET status = 'expired', decided = ?, result = ? WHERE id = ? AND status = 'pending'")
-        .run(now, JSON.stringify({ ok: false, message: "30분이 지나 만료됐어요 — 다시 말해 주세요" }), id);
+        .run(now, JSON.stringify({ ok: false, message: t("say.act_expired_again") }), id);
       if (r.changes) { const a = this.changed(id); if (a) out.push(a); }
     }
     return out;
@@ -504,7 +505,7 @@ export class Actions {
     if (r.type === MERGE_TYPE) return this.declineMerge(r);
     if (r.status === "cancelled") return { ok: true, action: this.shape(r), already: true };
     const u = this.store.db.prepare("UPDATE pending_actions SET status = 'cancelled', decided = ?, result = ? WHERE id = ? AND status = 'pending'")
-      .run(this.deps.now().toISOString(), JSON.stringify({ ok: false, message: "취소했어요" }), id);
+      .run(this.deps.now().toISOString(), JSON.stringify({ ok: false, message: t("say.act_cancelled_short") }), id);
     if (!u.changes) return { ok: false, status: 409, error: `already ${this.row(id).status}`, action: this.get(id) };
     return { ok: true, action: this.changed(id)! };
   }
@@ -545,16 +546,16 @@ export class Actions {
     let res: { ok: boolean; message: string };
     try {
       const origin = this.originOf(id);
-      res = await withRun({ kind: "action", title: `실행: ${cardLine(t.card(payload)).replace(/\*\*/g, "").slice(0, 100)}`, model: this.cfg.models.light, ref: id, ...(origin ? { origin } : {}) }, async (run) => {
-        run.log({ type: "system", text: `승인된 호출: ${JSON.stringify(call)}` });
+      res = await withRun({ kind: "action", title: tr("say.act_run_title", { what: cardLine(t.card(payload)).replace(/\*\*/g, "").slice(0, 100) }), model: this.cfg.models.light, ref: id, ...(origin ? { origin } : {}) }, async (run) => {
+        run.log({ type: "system", text: tr("say.act_call", { call: JSON.stringify(call) }) });
         const out = await this.deps.execute(this.cfg, call, run);
-        if (!out.called) return { ok: false, message: out.error ? `보내지 못했어요: ${out.error}` : "응답 도구가 호출되지 않았어요 — 보내지 않았어요" };
+        if (!out.called) return { ok: false, message: out.error ? tr("say.act_send_fail", { why: out.error }) : tr("say.act_not_called") };
         const r = t.result(out.raw, payload);
-        run.log({ type: "system", text: `결과: ${r.ok ? "성공" : "실패"} — ${r.message}` });
+        run.log({ type: "system", text: tr(r.ok ? "say.act_result_ok" : "say.act_result_fail", { message: r.message }) });
         return r;
       }, this.deps.runs);
     } catch (e: any) {
-      res = { ok: false, message: `실행 오류: ${String(e?.message ?? e).slice(0, 200)}` };
+      res = { ok: false, message: tr("say.act_exec_error", { why: String(e?.message ?? e).slice(0, 200) }) };
     }
     this.store.db.prepare("UPDATE pending_actions SET status = ?, result = ? WHERE id = ? AND status = 'running'")
       .run(res.ok ? "done" : "failed", JSON.stringify(res), id);

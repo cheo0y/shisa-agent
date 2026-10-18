@@ -8,6 +8,7 @@ import { HOME_DIR, type Config } from "./config.ts";
 import { promptInput, type ContentBlock } from "./attachments.ts";
 import { langRule } from "./lang.ts";
 import { redact, resultText, type Run, type RunEvent, type RunRegistry } from "./runs.ts";
+import { t as tr } from "./i18n.ts";
 
 export const BTW_LIMITS = { events: 40, text: 400, input: 200, output: 300, context: 9000, answer: 8000 };
 
@@ -102,9 +103,9 @@ export async function askBtw(d: BtwDeps, runId: string, question: string, model?
   const call: BtwCall = { system, prompt: att ? `${prompt}\n\n${att.note}` : prompt, model: m, options: btwOptions(m, system), ...(att?.blocks.length ? { blocks: att.blocks } : {}) };
   try {
     const answer = resultText(await (d.complete ?? sdkComplete)(call)).trim();
-    if (!answer) return { ok: false, status: 502, error: "빈 답이 왔어요" };
+    if (!answer) return { ok: false, status: 502, error: tr("say.btw_empty") };
     return { ok: true, answer: redact(answer).slice(0, BTW_LIMITS.answer), model: m };
   } catch (e: any) {
-    return { ok: false, status: 502, error: `곁질문 실패: ${String(e?.message ?? e).slice(0, 200)}` };
+    return { ok: false, status: 502, error: tr("say.btw_fail", { why: String(e?.message ?? e).slice(0, 200) }) };
   }
 }

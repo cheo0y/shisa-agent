@@ -13,6 +13,7 @@ import { TODO_OPS_SCHEMA, type TodoOp } from "./todos.ts";
 import { listRules, rulesContext, RULE_SCHEMA, RULE_GUIDE } from "./todo-rules.ts";
 import { guidelinesFor } from "./guidelines.ts";
 import { meetingsContext } from "./actions.ts";
+import { t } from "./i18n.ts";
 
 export type AskReply = { reply: string; todo_ops: TodoOp[]; rule?: unknown; actions?: unknown[] }; // rule: 지속 규칙 제안(검증 전) · actions: 예전 회의 응답 제안(스키마엔 없음)
 export type AskTodo = (cfg: Config, store: Store, todo: Todo, text: string) => Promise<AskReply>;
@@ -81,7 +82,7 @@ export function askPrompt(store: Store, todo: Todo, text: string, opts: { now?: 
 
 export async function askTodo(cfg: Config, store: Store, todo: Todo, text: string): Promise<AskReply> {
   const r = await ask<AskReply>(cfg, askPrompt(store, todo, text, { selfId: cfg.slackUserId }), ASK_SCHEMA, undefined, {
-    system: ASK_SYSTEM, run: { kind: "chat", title: `할 일 묻기: ${text.split("\n")[0].slice(0, 60)}`, ref: todo.id },
+    system: ASK_SYSTEM, run: { kind: "chat", title: t("say.run_todo_ask", { text: text.split("\n")[0].slice(0, 60) }), ref: todo.id },
     interactive: { origin: { via: "todo", todoId: todo.id, ...(store.todoThread(todo.id) ? { threadId: store.todoThread(todo.id)!.id } : {}) } },
   });
   return { reply: typeof r?.reply === "string" ? r.reply : "", todo_ops: Array.isArray(r?.todo_ops) ? r.todo_ops : [], rule: r?.rule ?? null, actions: Array.isArray(r?.actions) ? r.actions : [] };

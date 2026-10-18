@@ -12,6 +12,8 @@ import { permalinkOf } from "./ingest/slack.ts";
 import { trackQuery, withRun } from "./runs.ts";
 import { codexStructured, featureBrain, skipQuietly, usesCodex, type CodexDeps } from "./feature-brain.ts";
 import type { AutoEvidence, Store, Todo } from "./store.ts";
+import { t, t as tr } from "./i18n.ts";
+import { withLang } from "./lang-prompt.ts";
 
 export type Completion = { id: string; reason: string; evidence: AutoEvidence; confidence: number; rule: "reply" | "model"; target?: string };
 export type AutoApplier = { autoCompleteTodos(items: Completion[]): Promise<Todo[]> };
@@ -117,7 +119,7 @@ export function deterministicCompletions(store: Store, todos = store.autoCandida
     const permalink = permalinkFor(teamUrl, m.props);
     out.push({
       id: t.id, rule: "reply", confidence: 1, target: `message:${ref.channel}:${ref.ts}`,
-      reason: `Slack ${m.props.isDM ? "DM" : "스레드"}에서 내가 답장함`,
+      reason: tr(m.props.isDM ? "say.auto_replied_dm" : "say.auto_replied_thread"),
       evidence: { ids: [m.id], ...(permalink ? { permalink } : {}) },
     });
   }
@@ -339,8 +341,8 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
   const cwd = join(HOME_DIR, "todo-auto"); // HOME_DIR 아래 → 세션 수집에서 빠진다
   mkdirSync(cwd, { recursive: true });
   if (usesCodex(cfg)) {
-    return withRun({ kind: "todo-auto", title: "끝난 할 일 판정", model: "codex", cwd }, async () => {
-      const { out } = await codexStructured({ system: DETECT_SYSTEM, prompt, schema: DETECT_SCHEMA }, codex);
+    return withRun({ kind: "todo-auto", title: t("say.run_todo_auto"), model: "codex", cwd }, async () => {
+      const { out } = await codexStructured({ system: withLang(DETECT_SYSTEM), prompt, schema: DETECT_SCHEMA }, codex);
       return { out };
     });
   }
@@ -349,7 +351,7 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
     options: {
       cwd,
       model: cfg.models.general,
-      systemPrompt: DETECT_SYSTEM,
+      systemPrompt: withLang(DETECT_SYSTEM), // 이유 글이 패널에 보인다 — 지금 언어로
       tools: [],
       allowedTools: [],
       settingSources: [],
@@ -359,7 +361,7 @@ async function callModel(cfg: Config, q: typeof sdkQuery, prompt: string, codex?
     },
   });
   // 세션 창 기록(프롬프트엔 Slack 본문이 있어 남기지 않는다)
-  return withRun({ kind: "todo-auto", title: "끝난 할 일 판정", model: cfg.models.general, cwd }, async (run) => {
+  return withRun({ kind: "todo-auto", title: t("say.run_todo_auto"), model: cfg.models.general, cwd }, async (run) => {
     for await (const m of trackQuery(run, it as AsyncIterable<any>)) {
       if (m.type === "result") {
         if (m.subtype !== "success") throw new Error(`todo-auto: 판정 실패 ${m.subtype}`);

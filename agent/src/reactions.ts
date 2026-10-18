@@ -9,9 +9,10 @@ import type { Bubble, BubbleImage } from "./bus.ts";
 import type { Config } from "./config.ts";
 import { localDate as kstDate, localMinutes as kstMinutes } from "./calendar.ts"; // 이 맥의 시간대 기준(이름은 예전 그대로)
 import { voice, tone } from "./voice.ts";
-import { PRIO_LABEL } from "./local-mode.ts";
+import { prioLabel } from "./local-mode.ts";
 import { phrase, phraseVoice, customPhrase } from "./phrases.ts";
 import { mergeDetail, mergeQuestion, type MergeInfo } from "./merge-request.ts";
+import { t } from "./i18n.ts";
 
 export type ReactionBus = { bubble(b: Bubble): string; clear(id: string): void };
 export type TodoLike = { id: string; title: string; source?: string; priority?: number; status?: string; created?: string; updated?: string; description?: string };
@@ -72,13 +73,13 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 export function todoListMd(items: TodoLike[], via: string, max = 6): string {
   const cell = (s: string) => s.replace(/\s+/g, " ").replace(/\|/g, "/").trim();
   const shown = items.slice(0, max);
-  const more = items.length > max ? `\n\n…외 ${items.length - max}개` : "";
+  const more = items.length > max ? t("say.list_more", { n: items.length - max }) : "";
   if (shown.length >= 4) {
-    const rows = shown.map((t) => `| ${t.priority ? `**${PRIO_LABEL[t.priority] ?? t.priority}**` : "—"} | ${cell(clip(t.title, 34))} | ${cell(t.source ?? via)} |`);
-    return ["| | 할 일 | 출처 |", "|---|---|---|", ...rows].join("\n") + more;
+    const rows = shown.map((t) => `| ${t.priority ? `**${prioLabel(t.priority) ?? t.priority}**` : "—"} | ${cell(clip(t.title, 34))} | ${cell(t.source ?? via)} |`);
+    return [t("say.list_head"), "|---|---|---|", ...rows].join("\n") + more;
   }
   return shown.map((t) => {
-    const head = `- ${t.priority ? `**[${PRIO_LABEL[t.priority] ?? t.priority}]** ` : ""}${cell(clip(t.title, 40))} · ${cell(t.source ?? via)}`;
+    const head = `- ${t.priority ? `**[${prioLabel(t.priority) ?? t.priority}]** ` : ""}${cell(clip(t.title, 40))} · ${cell(t.source ?? via)}`;
     const why = t.description?.trim() ? `\n  ${cell(clip(t.description.trim(), 60))}` : "";
     return head + why;
   }).join("\n") + more;
@@ -301,7 +302,7 @@ export class Reactions {
     this.bus.bubble({
       id, image: "lots", kind: "todo", ttlMs: 25e3,
       text: customPhrase("lots") || customPhrase(tail) ? text : voice(text, id, { mood: "busy" }), // 고친 문구에는 양념을 치지 않는다
-      detail: todoListMd(open.filter((t) => (t.status ?? "open") === "open" && (t.priority ?? 2) <= 2).sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2)), "할 일"),
+      detail: todoListMd(open.filter((t) => (t.status ?? "open") === "open" && (t.priority ?? 2) <= 2).sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2)), t("say.todo")),
       open: { section: "todos" },
     });
     return true;
@@ -363,27 +364,27 @@ export class Reactions {
     const running = this.inflight.get(id);
     if (running) {
       return decision === "merge" ? running.then((r) => (r.ok ? { ...r, already: true } : r))
-        : Promise.resolve({ ok: false, state: "merging", already: true, error: "벌써 머지하는 중이에요", status: 409 });
+        : Promise.resolve({ ok: false, state: "merging", already: true, error: t("say.merge_busy"), status: 409 });
     }
     const rec = this.merge(id);
-    if (!rec) return Promise.resolve({ ok: false, error: "머지할 PR을 못 찾았어요", status: 404 });
+    if (!rec) return Promise.resolve({ ok: false, error: t("say.merge_no_pr"), status: 404 });
     if (!this.log.merges[id]) this.log.merges[id] = rec; // lookup 으로 찾은 건 이제부터 기록
     if (rec.state === "merged") {
-      return Promise.resolve(decision === "merge" ? { ok: true, state: "merged", already: true, message: "이미 머지했어요" }
-        : { ok: false, state: "merged", already: true, error: "이미 머지했어요", status: 409 });
+      return Promise.resolve(decision === "merge" ? { ok: true, state: "merged", already: true, message: t("say.merge_already") }
+        : { ok: false, state: "merged", already: true, error: t("say.merge_already"), status: 409 });
     }
     if (rec.state === "declined") {
-      return Promise.resolve(decision === "decline" ? { ok: true, state: "declined", already: true, message: "이미 안 하기로 했어요" }
-        : { ok: false, state: "declined", already: true, error: "이미 머지 안 하기로 했어요", status: 409 });
+      return Promise.resolve(decision === "decline" ? { ok: true, state: "declined", already: true, message: t("say.merge_already_declined_short") }
+        : { ok: false, state: "declined", already: true, error: t("say.merge_already_declined"), status: 409 });
     }
     if (decision === "decline") {
       rec.state = "declined";
       rec.at = this.now().toISOString();
       this.save();
       this.bus.bubble({ id: `merge:${id}`, text: phrase("merge_declined"), kind: "info", ttlMs: 6e3, link: rec.prUrl });
-      this.mergeDeps?.resolved?.(rec, "⏸️ *머지 안 함* — PR은 열어둠", via);
+      this.mergeDeps?.resolved?.(rec, t("say.merge_declined_slack"), via);
       this.emit(rec, { state: "declined" });
-      return Promise.resolve({ ok: true, state: "declined", message: "머지 안 함" });
+      return Promise.resolve({ ok: true, state: "declined", message: t("say.merge_declined_short") });
     }
     // 실패한 검사·충돌·초안이면 ✓ 를 눌러도(어느 화면에서든) 머지하지 않는다
     if (rec.blocked) return Promise.resolve({ ok: false, state: rec.state, error: rec.blocked, status: 409 });
@@ -394,7 +395,7 @@ export class Reactions {
   }
 
   private async doMerge(rec: MergeRec, via: MergeVia): Promise<MergeResult> {
-    if (!this.mergeDeps) return { ok: false, error: "머지 경로가 없어요", status: 500 };
+    if (!this.mergeDeps) return { ok: false, error: t("say.merge_no_route"), status: 500 };
     rec.state = "merging";
     this.save();
     this.bus.bubble({ id: `merge:${rec.id}`, text: phrase("merge_merging"), kind: "info", ttlMs: 120e3, link: rec.prUrl });
@@ -406,21 +407,21 @@ export class Reactions {
       const commitUrl = await this.mergeDeps.commit?.(rec).catch(() => undefined);
       if (commitUrl) rec.commitUrl = commitUrl;
       this.save();
-      const extra = [out && !/^머지 완료$/.test(out) ? clip(out, 300) : "", commitUrl ? `머지 커밋: ${commitUrl}` : ""].filter(Boolean).join("\n") || undefined;
+      const extra = [out && out !== t("say.merge_done_short", undefined, "ko") && out !== t("say.merge_done_short") ? clip(out, 300) : "", commitUrl ? t("say.merge_commit", { url: commitUrl }) : ""].filter(Boolean).join("\n") || undefined;
       this.bus.bubble({
         id: `merge:${rec.id}`, text: phrase("merge_done"), kind: "done", image: "merge_complete", ttlMs: 15e3, link: rec.prUrl,
         ...(extra ? { detail: extra } : {}),
       });
-      this.mergeDeps.resolved?.(rec, "🎉 *머지 완료*", via);
-      this.emit(rec, { state: "merged", message: out || "머지 완료", ...(commitUrl ? { commitUrl } : {}) });
-      return { ok: true, state: "merged", message: out || "머지 완료" };
+      this.mergeDeps.resolved?.(rec, t("say.merge_done_slack"), via);
+      this.emit(rec, { state: "merged", message: out || t("say.merge_done_short"), ...(commitUrl ? { commitUrl } : {}) });
+      return { ok: true, state: "merged", message: out || t("say.merge_done_short") };
     } catch (e: any) {
       rec.state = "asking"; // 다시 시도할 수 있게
       this.save();
       const why = String(e?.stderr ?? e?.message ?? e).trim().split("\n")[0].slice(0, 120);
-      this.askBubble(rec, `머지에 실패했어요 (${why}). 다시 할까요?`);
-      this.emit(rec, { state: "failed", error: why || "머지 실패" });
-      return { ok: false, state: "asking", error: why || "머지 실패", status: 500 };
+      this.askBubble(rec, t("say.merge_failed_ask", { why }));
+      this.emit(rec, { state: "failed", error: why || t("say.merge_failed") });
+      return { ok: false, state: "asking", error: why || t("say.merge_failed"), status: 500 };
     }
   }
 
@@ -440,14 +441,14 @@ export class Reactions {
   // 추가질문: 그 PR 에 대해 한 턴. 답은 같은 말풍선(✓/✗ 유지)으로
   async askMerge(id: string, question: string): Promise<{ ok: true; reply: string } | { ok: false; error: string; status: 404 | 409 | 503 }> {
     const rec = this.merge(id);
-    if (!rec) return { ok: false, error: "그 PR을 못 찾았어요", status: 404 };
-    if (rec.state !== "asking") return { ok: false, error: rec.state === "merged" ? "이미 머지했어요" : rec.state === "declined" ? "이미 머지 안 하기로 했어요" : "머지하는 중이에요", status: 409 };
-    if (!this.mergeDeps?.ask) return { ok: false, error: "추가질문을 못 해요", status: 503 };
+    if (!rec) return { ok: false, error: t("say.merge_that_pr_missing"), status: 404 };
+    if (rec.state !== "asking") return { ok: false, error: rec.state === "merged" ? t("say.merge_already") : rec.state === "declined" ? t("say.merge_already_declined") : t("say.merge_merging_now"), status: 409 };
+    if (!this.mergeDeps?.ask) return { ok: false, error: t("say.merge_no_ask"), status: 503 };
     let reply: string;
     try {
-      reply = (await this.mergeDeps.ask(rec, question)).trim() || "음, 잘 모르겠어요.";
+      reply = (await this.mergeDeps.ask(rec, question)).trim() || t("say.merge_ask_unknown");
     } catch (e: any) {
-      reply = `답하다 막혔어요: ${String(e?.message ?? e).slice(0, 60)}`;
+      reply = t("say.merge_ask_fail", { why: String(e?.message ?? e).slice(0, 60) });
     }
     if (this.merge(id)?.state === "asking") this.askBubble(rec, clip(reply, 400));
     return { ok: true, reply: clip(reply, 400) };
@@ -499,6 +500,6 @@ export function realMergeAsk(cfg: Config) {
 
 // 수정 로그에서 테스트 줄만
 export function testsFromLog(log: string[]): string | undefined {
-  const t = log.filter((s) => /^🧪/.test(s)).map((s) => s.replace(/^🧪\s*/, ""));
-  return t.length ? `${t.join(", ")} 통과` : undefined;
+  const xs = log.filter((s) => /^🧪/.test(s)).map((s) => s.replace(/^🧪\s*/, ""));
+  return xs.length ? t("say.tests_passed", { list: xs.join(", ") }) : undefined;
 }

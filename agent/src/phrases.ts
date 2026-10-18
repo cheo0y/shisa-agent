@@ -4,6 +4,7 @@
 // 기본값은 캐릭터(characters.ts)마다 다르다 — 고친 문구 > 캐릭터 기본 > 아래 default(시사).
 import { character, fallbackShisa } from "./characters.ts";
 import { voice, type Mood, type VoiceKind } from "./voice.ts";
+import { t } from "./i18n.ts";
 
 export type PhraseDef = { key: string; group: string; label: string; vars: readonly string[]; default: readonly string[] };
 
@@ -59,6 +60,10 @@ export const PHRASES = [
 export type PhraseKey = (typeof PHRASES)[number]["key"];
 const DEFS = new Map<string, PhraseDef>(PHRASES.map((p) => [p.key, p]));
 export const phraseDef = (key: string): PhraseDef | undefined => DEFS.get(key);
+// 설정 창 「문구」에 보이는 이름·묶음(지금 언어로). PHRASES 의 label·group 은 한국어 원문
+const GROUP_ID: Record<string, string> = { "캐릭터": "char", "할 일": "todo", "일정": "event", "코드 작업": "code", "머지": "merge" };
+export const phraseLabel = (key: string): string => (DEFS.has(key) ? t(`say.pl_${key}`) : key);
+export const phraseGroup = (group: string): string => (GROUP_ID[group] ? t(`say.pg_${GROUP_ID[group]}`) : group);
 // 지금 캐릭터의 기본 줄들(설정 창이 「기본값」으로 보여 주는 것)
 // 한국어가 아니면 빈 칸은 그 언어 시사 대사(characters.ts fallbackShisa)가 받는다
 export const defaultLines = (key: string): readonly string[] => character().phrases[key] ?? fallbackShisa()?.phrases[key] ?? DEFS.get(key)?.default ?? [key];

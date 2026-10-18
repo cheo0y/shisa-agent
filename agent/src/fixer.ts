@@ -16,12 +16,13 @@ import { loadInstructions } from "./instructions.ts";
 import { codeGuidelines } from "./guidelines.ts";
 import { isSubagentTool, subagentCall, SUBAGENT_SDK_OPTIONS, subagentEnv } from "./subagents.ts";
 import { runs, trackQuery, type RunRegistry, type RunHandle, type Run, type StartRun } from "./runs.ts";
-import { RunInbox, injectedPrompt, MaxTurnsError, MAX_TURNS_NOTE } from "./run-inbox.ts";
+import { RunInbox, injectedPrompt, MaxTurnsError, maxTurnsNote } from "./run-inbox.ts";
 import { cleanupWorktree } from "./worktree-keep.ts";
 import { repoGit, shAsync } from "./git-mutex.ts";
 import { WorktreeIsolation } from "./agent-worktrees.ts";
 import { IS_WIN, pathWithin, spawnSpec, type Plat, type SpawnSpec } from "./plat.ts";
 import { configSetsAlias, isGitName, shellSegments, shellWordsNorm, shellWrapper, substsOf } from "./permissions.ts";
+import { t } from "./i18n.ts";
 
 export type FixResult = {
   ok: boolean; summary: string; prUrl?: string; branch?: string; log: string[];
@@ -39,15 +40,15 @@ function sh(cmd: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): 
 // repoRoots 밖이거나 git 레포가 아니면 거절
 export function resolveRepo(cfg: Pick<Config, "repoRoots">, repo: string): string {
   const abs = resolve(repo);
-  if (!existsSync(abs)) throw new Error(`레포 경로가 없어요: ${repo}`);
+  if (!existsSync(abs)) throw new Error(t("say.fix_no_repo", { repo }));
   if (IS_WIN) { // Windows: 대소문자·8.3 이름 무시(realpath.native + pathWithin)
     const real = realpathSync.native(abs);
-    if (!cfg.repoRoots.some((r) => { try { return pathWithin(real, realpathSync.native(resolve(r))); } catch { return false; } })) throw new Error(`허용된 레포 루트 밖이에요: ${repo}`);
+    if (!cfg.repoRoots.some((r) => { try { return pathWithin(real, realpathSync.native(resolve(r))); } catch { return false; } })) throw new Error(t("say.fix_outside_roots", { repo }));
     return sh("git", ["rev-parse", "--show-toplevel"], real);
   }
   const real = realpathSync(abs);
   const inside = cfg.repoRoots.some((r) => { const root = realpathSync(resolve(r)); return real === root || real.startsWith(root + sep); });
-  if (!inside) throw new Error(`허용된 레포 루트 밖이에요: ${repo}`);
+  if (!inside) throw new Error(t("say.fix_outside_roots", { repo }));
   return sh("git", ["rev-parse", "--show-toplevel"], real);
 }
 
@@ -261,7 +262,7 @@ function openSession(reg: RunRegistry, spec: Omit<StartRun, "control">, step: (s
         inbox.add(id, text, o.clientId); // 기록 먼저(대기 중)
         sent.add(id);
         input.push(injectedPrompt(text), id); // 먼저 짧게 답하고 이어 가라고 감싼다(기록엔 쓴 글 그대로)
-        step(`💬 사용자 메시지: ${text.split("\n")[0].slice(0, 60)}`);
+        step(t("say.fix_user_msg", { text: text.split("\n")[0].slice(0, 60) }));
         return { msgId: id, logged: true };
       },
       // 아직 안 닿은 말 빼기: 시작 전이면 입력 큐에서, 도는 중이면 CLI 큐에서(cancel_async_message). 이미 모델에 넘어갔으면 409
@@ -282,8 +283,8 @@ function openSession(reg: RunRegistry, spec: Omit<StartRun, "control">, step: (s
         if (input.toFront(msgId)) return; // 아직 시작 전: 맨 앞으로
         st.nowFor!.add(msgId);
         if (!st.q || !st.inTurn) return;
-        run.log({ type: "system", text: "지금 보내기 — 하던 도구·턴을 멈추고 이 말을 바로 전달해요" });
-        step("⏩ 지금 보내기 — 하던 걸 멈춤");
+        run.log({ type: "system", text: t("say.fix_send_now_log") });
+        step(t("say.fix_send_now_step"));
         await st.q.interrupt();
       },
       // 시작 전(수정 큐 대기)이면 시작할 때 이 모델로, 도는 중이면 다음 턴부터
@@ -339,14 +340,14 @@ async function drive(s: Session, sdkQuery: typeof query, options: Record<string,
         if (m.subtype === "error_max_turns") {
           // 실패가 아니라 멈춤: 뒤따르는 CLI 종료(exit code 1)도 충돌로 보지 않는다
           st.maxTurns = true;
-          run.log({ type: "system", text: MAX_TURNS_NOTE });
+          run.log({ type: "system", text: maxTurnsNote() });
         }
         if (m.subtype === "success" && (m as any).structured_output) out = (m as any).structured_output;
         if (st.stopped) break;
         if (input.pending > 0) continue; // 보낸 메시지가 다음 턴으로 이어진다
         if (st.interrupted) {
           // 중단: 사용자가 이어서 말할 때까지 기다린다(안 오면 정지)
-          run.log({ type: "system", text: "중단됨 — 메시지를 보내면 이어서 할게요" });
+          run.log({ type: "system", text: t("say.fix_interrupted") });
           st.idleTimer = setTimeout(() => { st.stopped = true; s.finishInput(); }, deps.awaitAfterInterruptMs ?? 10 * 60e3);
           continue;
         }
@@ -365,7 +366,7 @@ async function drive(s: Session, sdkQuery: typeof query, options: Record<string,
   }
   if (st.stopped) return undefined;
   if (!out && st.maxTurns) throw new MaxTurnsError();
-  if (!out) throw new Error(lastSubtype && lastSubtype !== "success" ? `수정 에이전트 실패: ${lastSubtype}` : "수정 에이전트가 결과를 보고하지 않았어요");
+  if (!out) throw new Error(lastSubtype && lastSubtype !== "success" ? t("say.fix_agent_fail", { why: lastSubtype }) : t("say.fix_agent_no_result"));
   return out;
 }
 
@@ -452,10 +453,10 @@ async function ship(cfg: Config, s: Session, out: any, sp: ShipSpec, reg: RunReg
   const { wt, branch } = sp;
   const author = { GIT_AUTHOR_NAME: cfg.gitAuthor.name, GIT_AUTHOR_EMAIL: cfg.gitAuthor.email, GIT_COMMITTER_NAME: cfg.gitAuthor.name, GIT_COMMITTER_EMAIL: cfg.gitAuthor.email };
   const fail = (summary: string) => { run.end("failed", { error: summary.split("\n")[0] }); return { ok: false, summary, branch, log, pushed: false, runId: run.id }; };
-  if (!sh("git", ["status", "--porcelain"], wt)) return fail(`바뀐 파일이 없어요.\n${out.summary}`);
+  if (!sh("git", ["status", "--porcelain"], wt)) return fail(t("say.fix_no_changes", { summary: out.summary }));
   const guard = deps.beforeCommit?.(wt);
   if (guard?.warn) { step(`⚠️ ${guard.warn}`); run.log({ type: "system", text: `⚠️ ${guard.warn}` }); }
-  if (guard?.block) return fail(`${guard.block} — 커밋 안 함.`);
+  if (guard?.block) return fail(t("say.fix_blocked", { why: guard.block }));
 
   const testsRan: string[] = [];
   const testCmd = deps.testCommands?.length ? undefined : detectTestCommand(wt, mainCheckout(wt));
@@ -463,16 +464,16 @@ async function ship(cfg: Config, s: Session, out: any, sp: ShipSpec, reg: RunReg
   const runTest = deps.runTest ?? runInUserShell;
   const tryTest = async (label: string, cmd: string[], dir: string): Promise<string | undefined> => {
     try { await runTest(cmd, dir); return undefined; } catch {}
-    const again = "🧪 다시 돌림(불안정한 실패일 수 있어요)";
+    const again = t("say.fix_test_again");
     step(again);
     run.log({ type: "system", text: `${again} — ${label}` });
     try { await runTest(cmd, dir); return undefined; } catch (e: any) {
       const tail = testTail(e);
-      run.log({ type: "system", text: `❌ 테스트 실패(${label}) — 출력 끝 ${TEST_TAIL_LINES}줄:\n${tail}` });
+      run.log({ type: "system", text: t("say.fix_test_fail_log", { label, n: TEST_TAIL_LINES, tail }) });
       return tail;
     }
   };
-  const failed = (label: string, tail: string) => fail(`테스트 실패(${label}) — 두 번 돌려도 실패해서 커밋 안 함.\n\`\`\`\n${tail.slice(-4000)}\n\`\`\``);
+  const failed = (label: string, tail: string) => fail(t("say.fix_test_fail", { label, tail: tail.slice(-4000) }));
   for (const t of deps.testCommands ?? []) {
     step(`🧪 ${t.label}`);
     run.log({ type: "system", text: `🧪 ${t.label}` });
@@ -486,25 +487,25 @@ async function ship(cfg: Config, s: Session, out: any, sp: ShipSpec, reg: RunReg
     const tail = await tryTest(testCmd.join(" "), testCmd, wt);
     if (tail !== undefined) return failed(testCmd.join(" "), tail);
   } else if (!out.tests_passed && out.tests_ran) {
-    return fail(`에이전트 테스트(${out.tests_ran}) 실패 — 커밋 안 함.\n${out.summary}`);
+    return fail(t("say.fix_agent_test_fail", { tests: out.tests_ran, summary: out.summary }));
   }
-  if (st.stopped) { run.end("stopped"); return { ok: false, summary: "사용자가 정지했어요 — 커밋 안 함.", branch, log, pushed: false }; }
+  if (st.stopped) { run.end("stopped"); return { ok: false, summary: t("say.fix_user_stopped"), branch, log, pushed: false }; }
 
   await shAsync("git", ["add", "-A"], wt);
   await shAsync("git", ["commit", "-q", "-m", `${out.commit_message.trim()}\n\n${sp.trailer}${deps.trailer ? `\n${deps.trailer}` : ""}`], wt, author);
   const headOid = await shAsync("git", ["rev-parse", "HEAD"], wt).catch(() => "");
   await repoGit(wt, () => shAsync("git", ["push", "-q", "-u", "origin", branch], wt)); // 원격 추적 참조를 바꾼다 — 같은 레포 git 줄
-  step("🚀 푸시 완료");
-  run.log({ type: "system", text: `🚀 ${branch} 푸시 완료` });
+  step(t("say.fix_pushed_step"));
+  run.log({ type: "system", text: t("say.fix_pushed_log", { branch }) });
   let prUrl: string | undefined = sp.existingPr;
   if (prUrl) {
-    run.log({ type: "system", text: `PR 갱신 ${prUrl}` });
+    run.log({ type: "system", text: t("say.fix_pr_updated", { url: prUrl }) });
   } else {
     try {
       const gh = deps.gh ?? ((args: string[], cwd: string) => shAsync("gh", args, cwd));
       prUrl = await gh(["pr", "create", "--base", sp.base, "--head", branch, "--title", out.commit_message.split("\n")[0],
-        "--body", `${out.summary}\n\n- ${sp.planLine}\n- 테스트: ${testsRan.join(" · ") || testCmd?.join(" ") || out.tests_ran || "없음"}\n\n_${deps.prNote ?? "cy-agent가 자동 생성 — 머지는 사용자 승인 뒤"}_`], wt) || undefined;
-    } catch (e: any) { step(`⚠️ PR 생성 실패: ${String(e.stderr ?? e.message).slice(0, 200)}`); }
+        "--body", `${out.summary}\n\n- ${sp.planLine}\n- ${t("say.fix_pr_tests", { tests: testsRan.join(" · ") || testCmd?.join(" ") || out.tests_ran || t("say.fix_none") })}\n\n_${deps.prNote ?? t("say.fix_pr_note")}_`], wt) || undefined;
+    } catch (e: any) { step(t("say.fix_pr_fail", { why: String(e.stderr ?? e.message).slice(0, 200) })); }
     if (prUrl) run.log({ type: "system", text: `PR ${prUrl}` });
   }
   if (prUrl) reg.update(run.id, { prUrl });
@@ -526,14 +527,14 @@ export function validBranchName(b: string): boolean {
 // 안 정했으면 origin/HEAD(없으면 main)
 // 부르는 쪽이 repoGit(같은 레포 git 줄) 안에서 부른다(fetch 가 원격 추적 참조를 바꾼다)
 export async function pickBase(repo: string, want: string | undefined, step: (s: string) => void): Promise<string> {
-  try { await shAsync("git", ["fetch", "-q", "origin"], repo); } catch { step("⚠️ fetch 실패 — 로컬 기준으로 진행"); }
+  try { await shAsync("git", ["fetch", "-q", "origin"], repo); } catch { step(t("say.fix_fetch_fail")); }
   const b = normalizeBase(want);
   if (!b) {
     try { return sh("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo).replace(/^origin\//, ""); } catch { return "main"; }
   }
-  if (!validBranchName(b)) throw new Error(`PR 대상 브랜치 이름이 이상해요: ${b}`);
+  if (!validBranchName(b)) throw new Error(t("say.fix_bad_base", { base: b }));
   try { sh("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${b}^{commit}`], repo); }
-  catch { throw new Error(`origin 에 ${b} 브랜치가 없어요 — PR 대상 브랜치를 확인해 주세요(기본 브랜치로 대신 올리지 않았어요)`); }
+  catch { throw new Error(t("say.fix_no_base", { base: b })); }
   return b;
 }
 
@@ -553,8 +554,8 @@ export async function runFix(cfg: Config, p: Proposal, onStep: (s: string) => vo
     await shAsync("git", ["worktree", "add", "-q", "-b", branch, wt, `origin/${b}`], repo);
     return b;
   });
-  step(`🌿 워크트리 ${branch} (기준 ${base}${p.base ? " — PR 대상" : ""})`);
-  try { deps.prepareWorktree?.(wt, repo); } catch (e: any) { step(`⚠️ 워크트리 준비 실패: ${String(e?.message ?? e).slice(0, 160)}`); }
+  step(t(p.base ? "say.fix_wt_base_pr" : "say.fix_wt_base", { branch, base }));
+  try { deps.prepareWorktree?.(wt, repo); } catch (e: any) { step(t("say.fix_wt_prep_fail", { why: String(e?.message ?? e).slice(0, 160) })); }
 
   // 세션 창용 run: 돌고 있는 동안 메시지·중단·정지를 받는다
   // 원래 화면: 그 제안(채팅에서 나왔으면 그 대화). 이어서 한 run 은 앞선 run 의 것을 물려받는다(runs.startRun)
@@ -571,13 +572,13 @@ export async function runFix(cfg: Config, p: Proposal, onStep: (s: string) => vo
   try {
     const out = await drive(s, deps.query ?? (coding.provider === "codex" ? codexQuery : query), sdkOptions(cfg, wt, { model: coding.model }, deps.hooks?.(wt), iso), deps, step);
     await iso.closeAll();
-    if (!out) { s.run.end("stopped"); return { ok: false, summary: "사용자가 정지했어요 — 커밋 안 함.", branch, log, runId: s.run.id }; }
-    const r = await ship(cfg, s, out, { wt, branch, base, trailer: `Requested-via: cy-agent (proposal ${p.id})`, planLine: `계획: ${p.plan}` }, reg, step, log, deps);
+    if (!out) { s.run.end("stopped"); return { ok: false, summary: t("say.fix_user_stopped"), branch, log, runId: s.run.id }; }
+    const r = await ship(cfg, s, out, { wt, branch, base, trailer: `Requested-via: cy-agent (proposal ${p.id})`, planLine: t("say.fix_plan_line", { plan: p.plan }) }, reg, step, log, deps);
     pushed = r.pushed;
     const { pushed: _p, ...res } = r;
     return res;
   } catch (e: any) {
-    if (e instanceof MaxTurnsError) { s.run.end("stopped", { error: MAX_TURNS_NOTE }); return { ok: false, summary: `${MAX_TURNS_NOTE} — 이어서 하기로 마저 할 수 있어요.`, branch, log }; }
+    if (e instanceof MaxTurnsError) { s.run.end("stopped", { error: maxTurnsNote() }); return { ok: false, summary: t("say.fix_max_turns", { note: maxTurnsNote() }), branch, log }; }
     s.run.end("failed", { error: String(e?.message ?? e) });
     throw e;
   } finally {
@@ -594,7 +595,7 @@ export async function runFix(cfg: Config, p: Proposal, onStep: (s: string) => vo
 }
 
 export const fixBranch = (p: Pick<Proposal, "id" | "title">) => `cy/${slugify(p.title)}-${p.id.slice(0, 6)}`;
-export const continueTitle = (title: string) => `${title.replace(/(?:\s·\s이어서)+$/, "")} · 이어서`;
+export const continueTitle = (title: string) => `${title.replace(/(?:\s·\s(?:이어서|続き))+$/, "")} · ${t("say.fix_continue_suffix")}`;
 
 // ── 이어서 하기: 끝난 수정 run 에 이어서 말하면 새 run(앞선 run 에 연결)
 export type ContinueSpec = {
@@ -631,12 +632,12 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
   if (coding.model && spec.model === coding.model) s.st.model = coding.model;
   const run = s.run;
   run.log({ type: "user", text: spec.text, injected: true });
-  run.log({ type: "system", text: `이전 작업 "${parent.title}" 을 이어서 해요` });
-  reg.logEvent(parent.id, { type: "system", text: `이어서 하기 → "${continueTitle(parent.title)}"`, childId: run.id });
+  run.log({ type: "system", text: t("say.fix_continue_from", { title: parent.title }) });
+  reg.logEvent(parent.id, { type: "system", text: t("say.fix_continue_to", { title: continueTitle(parent.title) }), childId: run.id });
 
   const start = async (cb: (s: string) => void): Promise<FixResult> => {
     onStep = cb;
-    if (s.st.stopped) { run.end("stopped"); return { ok: false, summary: "시작 전에 정지했어요.", log }; }
+    if (s.st.stopped) { run.end("stopped"); return { ok: false, summary: t("say.fix_stopped_before"), log }; }
     let repo: string, wt = "", branch = spec.branch, pushed = false, created = false;
     let iso: WorktreeIsolation | undefined;
     try {
@@ -655,10 +656,11 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
       mkdirSync(wtDir, { recursive: true });
       if (remote && !(pr && (pr.state === "MERGED" || pr.state === "CLOSED"))) {
         await repoGit(src, () => shAsync("git", ["worktree", "add", "-q", "-B", branch, wt, `origin/${branch}`], src));
-        step(`🌿 워크트리 ${branch} (앞선 작업 브랜치 이어서)`);
-        run.log({ type: "system", text: `🌿 ${branch} 에서 이어서 해요${existingPr ? ` — PR ${existingPr} 에 올라가요` : ""}` });
+        step(t("say.fix_wt_continue", { branch }));
+        run.log({ type: "system", text: t("say.fix_continue_on", { branch, pr: existingPr ? t("say.fix_continue_pr", { url: existingPr }) : "" }) });
       } else {
         const why = pr && pr.state === "MERGED" ? "PR 이 이미 머지돼서" : pr && pr.state === "CLOSED" ? "PR 이 닫혀서" : "브랜치가 원격에 없어서";
+        const whyKey = pr && pr.state === "MERGED" ? "say.fix_why_merged" : pr && pr.state === "CLOSED" ? "say.fix_why_closed" : "say.fix_why_no_remote";
         const old = branch;
         branch = `cy/${slugify(parent.title)}-${run.id.slice(0, 6)}`;
         existingPr = undefined;
@@ -666,8 +668,8 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
         created = true;
         reg.update(run.id, { branch, prUrl: "" });
         note = `참고: 앞선 작업 브랜치(${old})는 ${why} ${baseLabel}(${base})에서 새 브랜치로 시작한다. 앞선 변경이 이미 들어가 있을 수도(머지됨) 없을 수도 있으니 파일을 먼저 확인해.`;
-        step(`🌿 워크트리 ${branch} (기준 ${base})`);
-        run.log({ type: "system", text: `⚠️ 앞선 브랜치 ${old} 는 ${why} ${base} 에서 새 브랜치 ${branch} 로 시작해요` });
+        step(t("say.fix_wt_base", { branch, base }));
+        run.log({ type: "system", text: t("say.fix_new_branch", { old, why: t(whyKey), base, branch }) });
       }
       reg.update(run.id, { cwd: wt });
 
@@ -677,23 +679,23 @@ export function prepareContinue(cfg: Config, spec: ContinueSpec, deps: FixDeps =
       // resume 은 같은 실행기의 세션만(Codex 세션은 ephemeral 이라 이어 쓰지 않는다)
       const canResume = coding.provider === "claude-code" && !sid?.startsWith("codex:") && !!(reuse && sid && await exists(sid, wt).catch(() => false));
       const prompt = canResume ? continuePrompt(spec.text, { note }) : continuePrompt(spec.text, { summary: spec.summary, note });
-      run.log({ type: "system", text: canResume ? `↩︎ 이전 세션 이어서(resume ${sid!.slice(0, 8)}…)` : "📝 이전 세션을 열 수 없어 앞선 기록 요약을 넣고 새로 시작해요" });
+      run.log({ type: "system", text: canResume ? t("say.fix_resume", { sid: sid!.slice(0, 8) }) : t("say.fix_no_resume") });
       s.input.push(prompt, undefined, true); // 시작 전에 보낸 메시지보다 앞에
 
       iso = new WorktreeIsolation({ roots: [wt], author: cfg.gitAuthor, worktreesDir: wtDir, log: (ev) => run.log(ev) });
       const out = await drive(s, deps.query ?? (coding.provider === "codex" ? codexQuery : query), sdkOptions(cfg, wt, { model: coding.model, ...(canResume ? { resume: sid, forkSession: true } : {}) }, [], iso), deps, step);
       await iso.closeAll();
-      if (!out) { run.end("stopped"); return { ok: false, summary: "사용자가 정지했어요 — 커밋 안 함.", branch, log }; }
+      if (!out) { run.end("stopped"); return { ok: false, summary: t("say.fix_user_stopped"), branch, log }; }
       const r = await ship(cfg, s, out, {
         wt, branch, base, existingPr,
         trailer: `Requested-via: cy-agent (continue of run ${parent.id}${spec.proposalId ? `, proposal ${spec.proposalId}` : ""})`,
-        planLine: `이어서: ${spec.text.split("\n")[0].slice(0, 200)}`,
+        planLine: t("say.fix_continue_line", { text: spec.text.split("\n")[0].slice(0, 200) }),
       }, reg, step, log, deps);
       pushed = r.pushed;
       const { pushed: _p, ...res } = r;
       return res;
     } catch (e: any) {
-      if (e instanceof MaxTurnsError) { run.end("stopped", { error: MAX_TURNS_NOTE }); return { ok: false, summary: `${MAX_TURNS_NOTE} — 이어서 하기로 마저 할 수 있어요.`, branch, log }; }
+      if (e instanceof MaxTurnsError) { run.end("stopped", { error: maxTurnsNote() }); return { ok: false, summary: t("say.fix_max_turns", { note: maxTurnsNote() }), branch, log }; }
       run.end("failed", { error: String(e?.message ?? e) });
       throw e;
     } finally {
@@ -725,5 +727,5 @@ async function defaultSessionExists(sessionId: string, cwd: string): Promise<boo
 // 비동기로(execFileSync 는 머지하는 동안 데몬 전체가 멈췄다). headOid 를 주면 PR head 가 그 커밋일 때만 gh 가 머지한다
 export async function mergePr(prUrl: string, headOid?: string, run: typeof shAsync = shAsync): Promise<string> {
   const pin = headOid && /^[0-9a-f]{40,64}$/.test(headOid) ? ["--match-head-commit", headOid] : [];
-  return (await run("gh", ["pr", "merge", prUrl, "--squash", "--delete-branch", ...pin], process.cwd())) || "머지 완료";
+  return (await run("gh", ["pr", "merge", prUrl, "--squash", "--delete-branch", ...pin], process.cwd())) || t("say.merge_done_short");
 }

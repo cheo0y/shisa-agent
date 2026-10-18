@@ -15,6 +15,7 @@ import { repoOf } from "./code-read.ts";
 import { repoGit, shAsync } from "./git-mutex.ts";
 import { cleanupWorktree } from "./worktree-keep.ts";
 import type { RunEventInput } from "./runs.ts";
+import { t as tr } from "./i18n.ts";
 
 export type AgentWorktree = { wt: string; branch: string; base: string; source: string; label: string };
 export type AgentWorktreeDone = { kept: boolean; commit?: string; files: number; error?: string };
@@ -64,15 +65,15 @@ export async function finishAgentWorktree(w: AgentWorktree, o: { author: GitAuth
         cleanupWorktree(w.source, w.wt, { shipped: true });
         try { await shAsync("git", ["branch", "-D", w.branch], w.source); } catch {}
       });
-      log({ type: "system", text: `🌿 워크트리 ${w.branch} — 바뀐 게 없어 지웠어요` });
+      log({ type: "system", text: tr("say.aw_removed", { branch: w.branch }) });
       return { kept: false, files: 0 };
     }
     const commit = await shAsync("git", ["rev-parse", "--short", "HEAD"], w.wt);
-    log({ type: "system", text: `🌿 워크트리를 남겼어요(브랜치 ${w.branch}, 커밋 ${commit}): ${w.wt}`, worktree: w.wt });
+    log({ type: "system", text: tr("say.aw_kept", { branch: w.branch, commit, path: w.wt }), worktree: w.wt });
     return { kept: true, commit, files };
   } catch (e: any) {
     const error = String(e?.stderr || e?.message || e).split("\n")[0].slice(0, 200);
-    log({ type: "system", text: `🌿 워크트리 정리 중 오류라 남겨 뒀어요(${error}): ${w.wt}`, worktree: w.wt });
+    log({ type: "system", text: tr("say.aw_error_kept", { why: error, path: w.wt }), worktree: w.wt });
     return { kept: true, files: -1, error };
   }
 }
@@ -106,16 +107,16 @@ export const worktreeRecords = new WorktreeRecords();
 export const WORKTREE_SUMMARY_HEAD = "🌿 워크트리";
 export function worktreeSummary(items: { title: string; branch?: string }[]): string {
   if (!items.length) return "";
-  const one = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, 80) || "작업";
-  return [`${WORKTREE_SUMMARY_HEAD} ${items.length}개 만들었어요`, ...items.map((i) => `- ${one(i.title)}${i.branch ? ` — \`${i.branch}\`` : ""}`)].join("\n");
+  const one = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 80) || tr("say.task");
+  return [tr("say.aw_summary", { n: items.length }), ...items.map((i) => `- ${one(i.title)}${i.branch ? ` — \`${i.branch}\`` : ""}`)].join("\n");
 }
 
 // 부른 쪽에 돌려줄 글(결과 뒤에 붙는다)
 export function worktreeNote(w: AgentWorktree, d: AgentWorktreeDone): string {
-  if (!d.kept) return `🌿 워크트리 ${w.branch}: 바뀐 파일이 없어 지웠어요.`;
-  if (!d.commit) return `🌿 워크트리 ${w.wt} (브랜치 ${w.branch}) 정리 중 오류라 그대로 남겨 뒀어요${d.error ? ` — ${d.error}` : ""}.`;
+  if (!d.kept) return tr("say.aw_note_removed", { branch: w.branch });
+  if (!d.commit) return tr("say.aw_note_error", { path: w.wt, branch: w.branch, why: d.error ? ` — ${d.error}` : "" });
   return [
-    `🌿 워크트리 ${w.wt} — 브랜치 ${w.branch} 에 커밋 ${d.commit}(기준 ${w.base.slice(0, 7)})로 남겼어요.`,
+    tr("say.aw_note_kept", { path: w.wt, branch: w.branch, commit: d.commit, base: w.base.slice(0, 7) }),
     `가져오려면: 이 작업 폴더에서 \`git cherry-pick -n ${w.base.slice(0, 7)}..${w.branch}\`(커밋 없이 변경만) · 따로 PR 로 내려면 proposals 하나에 「브랜치 ${w.branch} 의 변경을 cherry-pick 해서」를 계획으로.`,
   ].join("\n");
 }
