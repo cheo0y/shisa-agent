@@ -86,3 +86,11 @@ test('HTML 정적 글(data-i18n·data-i18n-title·placeholder·aria-label, {who}
   assert.equal(doc.getElementById('b').getAttribute('title'), '今日');
   assert.equal(doc.documentElement.getAttribute('lang'), 'ja');
 });
+
+test('용어 통일: 일본어 표에 イシュー·別名을 쓰지 않는다(課題·表示名)', async () => {
+  const fs = await import('node:fs');
+  for (const f of fs.readdirSync(new URL('../src/i18n/', import.meta.url))) {
+    const s = fs.readFileSync(new URL(`../src/i18n/${f}`, import.meta.url), 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    assert.doesNotMatch(s, /イシュー|別名/, f);
+  }
+});

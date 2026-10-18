@@ -182,11 +182,16 @@ export function sanitizeCanned(raw) {
   return out;
 }
 
+// 캐릭터·언어에 맞는 기본 말(사용자가 고친 말 빼고): 그 캐릭터 말 → 시사 말. 모델 탭 「정해진 답」 편집 칸도 이걸 보여 준다
+export function defaultCannedLines(key, character) {
+  const byChar = Object.hasOwn(CHARACTER_CANNED, character ?? '') ? CHARACTER_CANNED[character][key] : null;
+  return byChar?.length ? byChar : (CANNED_DEFAULTS[key] || fallback());
+}
+
 function linesFor(key, override, character) {
   const own = override?.[key];
   if (Array.isArray(own) && own.length) return own;
-  const byChar = Object.hasOwn(CHARACTER_CANNED, character ?? '') ? CHARACTER_CANNED[character][key] : null;
-  return byChar?.length ? byChar : (CANNED_DEFAULTS[key] || fallback());
+  return defaultCannedLines(key, character);
 }
 
 function usable(pool, c) {

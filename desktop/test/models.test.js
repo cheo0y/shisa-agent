@@ -157,3 +157,17 @@ test('cannedOverrideOf: 기본값과 다른 칸만 남긴다', () => {
   assert.deepEqual(cannedOverrideOf({ tired }, {}), { tired });
   assert.deepEqual(cannedOverrideOf({ tired: [...CANNED_DEFAULTS.tired] }, {}), {});
 });
+
+test('정해진 답 편집 칸: 기본 말은 지금 캐릭터·언어 것, 그와 같으면 저장하지 않는다', async () => {
+  const { applyCharacters, staticCharacters } = await import('../src/character-registry.js');
+  const { defaultCannedLines } = await import('../src/canned.js');
+  try {
+    applyCharacters(staticCharacters('ja'));
+    const ja = defaultCannedLines('today:e', 'shisa');
+    assert.ok(ja.length && ja.every((l) => !/[가-힣]/.test(l)), '일본어면 시사 기본 말도 일본어');
+    assert.deepEqual(cannedOverrideOf({ 'today:e': [...ja] }, {}, 'shisa'), {}, '일본어 기본 말 그대로면 저장할 것 없음');
+    const usagi = defaultCannedLines('cheer', 'usagi');
+    assert.ok(usagi.length && usagi.every((l) => !/[가-힣]/.test(l)));
+  } finally { applyCharacters(null); }
+  assert.deepEqual(defaultCannedLines('tired', 'shisa'), CANNED_DEFAULTS.tired, '한국어 시사는 코드 기본값');
+});

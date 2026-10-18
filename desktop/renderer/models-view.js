@@ -4,7 +4,7 @@
 
 import { t } from '../src/i18n.js';
 import { who } from './who.js';
-import { CANNED, CANNED_CATALOG, CANNED_DEFAULTS } from '../src/canned.js';
+import { CANNED, CANNED_CATALOG, defaultCannedLines } from '../src/canned.js';
 import { brainDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { createUi } from './ui-kit.js';
 
@@ -41,18 +41,20 @@ function sameLines(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function cannedOverrideOf(draft, stored) {
+// 기본값(지금 캐릭터·언어의 말)과 같은 칸은 저장하지 않는다. 그래야 언어를 바꿔도 기본 말이 그 언어로 나온다
+export function cannedOverrideOf(draft, stored, character) {
   const out = {};
   for (const g of CANNED_CATALOG) {
-    const lines = (draft?.[g.key] ?? stored?.[g.key] ?? CANNED_DEFAULTS[g.key])
+    const def = defaultCannedLines(g.key, character);
+    const lines = (draft?.[g.key] ?? stored?.[g.key] ?? def)
       .map((s) => String(s ?? '').replace(/\r\n/g, '\n').trim())
       .filter(Boolean);
-    if (lines.length && !sameLines(lines, CANNED_DEFAULTS[g.key])) out[g.key] = lines;
+    if (lines.length && !sameLines(lines, def)) out[g.key] = lines;
   }
   return out;
 }
 
-export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
+export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup, getCharacter = () => 'shisa' }) {
   const lists = {};
   let note = '';
   let busy = false;
@@ -65,7 +67,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
   function linesOf(key) {
     if (cannedDraft?.[key]) return cannedDraft[key];
     const own = getSisa().canned?.[key];
-    return Array.isArray(own) && own.length ? own : [...CANNED_DEFAULTS[key]];
+    return Array.isArray(own) && own.length ? own : [...defaultCannedLines(key, getCharacter())];
   }
 
   function setLine(key, i, value) {
@@ -192,8 +194,8 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
       h('h2', { text: t('setup.models_cannedcard_text_3') }),
       ...groups,
       h('div.voice-acts', null,
-        h('button.ghost', { type: 'button', text: t('setup.models_cannedcard_text_2'), disabled: busy, onclick: () => { cannedDraft = Object.fromEntries(CANNED_CATALOG.map((g) => [g.key, [...g.lines]])); render(); } }),
-        h('button.primary', { type: 'button', text: t('setup.models_cannedcard_text'), disabled: busy, onclick: () => saveVoice({ canned: cannedOverrideOf(cannedDraft, getSisa().canned) }) })));
+        h('button.ghost', { type: 'button', text: t('setup.models_cannedcard_text_2'), disabled: busy, onclick: () => { cannedDraft = Object.fromEntries(CANNED_CATALOG.map((g) => [g.key, [...defaultCannedLines(g.key, getCharacter())]])); render(); } }),
+        h('button.primary', { type: 'button', text: t('setup.models_cannedcard_text'), disabled: busy, onclick: () => saveVoice({ canned: cannedOverrideOf(cannedDraft, getSisa().canned, getCharacter()) }) })));
   }
 
   // 이 컴퓨터에서 로그인을 찾았지만 아직 안 쓰는 Claude Code·Codex: 한 줄씩(이름 · 확인됨 · [연결])

@@ -66,6 +66,7 @@ function setBrand(id) {
   BRAND_SRCS = [a.retina ? a.open.replace(/\.png$/, '@2x.png') : a.open, ...a.stills.slice(1)];
   brandAt = 0;
   brand.src = BRAND_SRCS[0];
+  try { modelsView.update(); } catch { /* 처음 켤 때는 아직 없다(아래에서 만든다) */ } // 「정해진 답」 기본 말이 캐릭터를 따른다
 }
 brand.addEventListener('error', () => { if (brandAt < BRAND_SRCS.length - 1) brand.src = BRAND_SRCS[++brandAt]; });
 setBrand('shisa');
@@ -3381,7 +3382,7 @@ cy.onSisa?.((v) => {
   if (section === 'setup') { setupKey = ''; renderSetupView(false); }
   loadCalendars(); // 설정 창에서 캘린더를 뺐을 수도 있다
 });
-const modelsView = mountModels({ section: $('sec-models'), h, cy, getSisa: () => sisa, onSisa: applySisa, gotoSetup: () => openSetup() });
+const modelsView = mountModels({ section: $('sec-models'), h, cy, getSisa: () => sisa, onSisa: applySisa, gotoSetup: () => openSetup(), getCharacter: () => character });
 
 // 언어가 바뀜(설정 창 「언어」 → main 'lang'): 머리·사이드바·탭 이름·모든 탭을 그 언어로 다시 그린다(입력 중인 글은 그대로)
 function relang() {

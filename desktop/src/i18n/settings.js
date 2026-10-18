@@ -726,7 +726,7 @@ export default {
     gl_added: '指針に追加しました。次の会話から従います',
     cap_calendar: 'カレンダー',
     cap_mail: 'メール',
-    cap_issues: 'イシュー',
+    cap_issues: '課題',
     brain_claude_key: 'Claude APIキー',
     dc_ask: '{title}の接続を解除しますか？',
     dc_cli_what: 'シーサーで{title}を使わなくなります。{title}のログインはこのMacにそのまま残ります。',
