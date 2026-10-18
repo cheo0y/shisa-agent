@@ -178,7 +178,7 @@ type Bubble = {
   - `manualProjects[]`: 직접 만든 프로젝트(아래 「직접 만든 프로젝트」, 진행 중 먼저)
   - `todos[]`(아래), `recentDone[]`, `proposals[]`, `today{date,asked,items}`
   - `connectors[]{cap,label,mode,ready,detail,doc,sync?}`, `meetings[]{id,subject,start,end,link?}`, `todoRules[]`
-  - `sync`는 연결된 캘린더 줄에만 붙는다: `{ phase: pending|ok|failed, at?, meetings?, reason? }`. 패널 연결 카드는 이걸로 「연결됨 · 일정 가져오는 중」·「연결됨 · 일정을 못 가져옴」(+ 이유)을 보인다.
+  - `sync`는 연결된 캘린더 줄에만 붙는다: `{ phase: pending|ok|failed, at?, meetings?, reason?, calendars? }`. `calendars`는 ICS 캘린더마다 `{ id, name, phase: ok|failed|off, meetings?, events?, reason? }`(name = 별칭). 패널 연결 카드는 이걸로 「연결됨 · 일정 가져오는 중」·「연결됨 · 일정을 못 가져옴」(+ 이유)을 보인다.
   - 메일이 `imap` 모드면 메일 줄에 `account`·`preset`(첫 계정의 주소·서비스 `gmail|naver|daum|custom`), `accounts[{ id, user, preset, ready }]`, `sync{ phase, at?, count?, reason?, accounts[{ id, user, phase, at?, count?, reason? }] }`가 붙는다. `sync.phase`는 하나라도 가져왔으면 `ok`, `sync.reason`은 못 가져온 계정이 있으면(일부여도) 채운다. 비밀번호는 어떤 응답에도 넣지 않는다.
 
 ### 메일(앱 비밀번호, `mail-imap.ts`·`mail-sync.ts`·`mail-connect.ts`)
@@ -198,7 +198,10 @@ type Bubble = {
 
 ### 캘린더 동기화 상태(`calendar-state.ts`)
 
-- `CalendarSync`가 가져올 때마다 `cy.db`의 `calendar_state` 한 줄에 남긴다: `phase`(`off|pending|ok|failed`), `mode`, `key`(연결 설정의 해시. 설정이 바뀌면 예전 결과를 쓰지 않는다), `at`, `lastOkAt`, `meetings`, `events`, `reason`, `code`(`http|html|network|tls|timeout|url|mcp|brain|other`).
+- `GET /connectors/calendar`: 200 `{ phase, calendars[] }`. 저장된 ICS 캘린더마다 `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason? }`. 주소는 없다
+- `POST /connectors/calendar`: 본문 `{ url, name? }`(헤더 규칙은 POST 와 같다). 그 캘린더만 시험으로 읽어 보고 되면 `calendars`에 붙여 저장한 뒤 다시 읽어 전체를 가져온다 → 200 `{ ok, id, name, events, calendars }`. 못 읽으면 400 `{ error, code }`(저장 안 함), 같은 주소면 409 `{ error, code: "duplicate" }`. 별칭을 비우면 ICS 이름, 그것도 없으면 「캘린더 N」. 개수 상한 없음
+- `CalendarSync`가 가져올 때마다 `cy.db`의 `calendar_state` 한 줄에 남긴다: `phase`(`off|pending|ok|failed`), `mode`, `key`(연결 설정의 해시. 설정이 바뀌면 예전 결과를 쓰지 않는다), `at`, `lastOkAt`, `meetings`, `events`, `reason`, `code`(`http|html|network|tls|timeout|url|mcp|brain|other`), `calendars`(ICS 캘린더마다 별칭·결과, 위 `sync.calendars`와 같은 모양).
+- ICS 캘린더는 `connectors.calendar.calendars[]`(`{ id, name, url, enabled }`)다. 예전 `icsUrl`·`icsUrls`(별칭 없음)도 같은 목록으로 읽는다. `enabled: false` 인 캘린더는 읽지 않고 그 일정을 `meetings`에서 뺀다. 일정은 캘린더마다 바꾼다: 받은 캘린더는 새로, 못 받은 캘린더는 예전 것을 두고, 꺼 두었거나 뺀 캘린더 것은 지운다. 실패 이유는 「별칭: 이유」. `meetings`에 `calendar`(별칭, 캘린더가 여럿이거나 별칭이 있을 때)·`cal_id`가 있고, 일정 알림 `{where}`와 AI 맥락(「캘린더: 회사」)에 별칭을 붙인다.
 - ICS 실패 이유는 사람이 알 수 있는 말로 남긴다. 예: 구글 「공개 주소」(`/public/`)면 「iCal 형식의 비공개 주소」를 넣으라고, 웹 페이지가 오면 .ics 주소를 넣으라고, 인증서 오류면 프록시·백신을 보라고. 비밀 주소는 이유에 넣지 않는다. 못 가져온 동기화는 실행 기록(`kind: calendar`)도 `failed`다.
 - MCP 캘린더인데 뇌가 Claude Code가 아니면 부르지 않고 `phase: failed`, `code: brain`으로 그 까닭을 남긴다.
 - 연결 설정이 바뀌면(`POST /connectors/reload`에서 캘린더가 바뀜) 데몬을 다시 켜지 않고 원천을 바꾼 뒤 곧바로 한 번 가져온다. 응답에 `applied: true`가 붙고, 다른 연결도 바뀌었을 때만 예전처럼 다시 켠다(`restarting`). 뇌(`brain`)를 바꾸거나 설치 마법사를 마쳐도 바로 한 번 가져온다. 데몬이 켜질 때도 버스가 뜨자마자 가져온다.

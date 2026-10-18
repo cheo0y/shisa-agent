@@ -227,7 +227,7 @@ AI 없이 쓰는 중에 캐릭터를 두 번 누르면 「오늘 할 일 얼마�
 
 1. 이름: 뭐라고 부를지 정합니다.
 2. 뇌 고르기(선택): 이 맥에 로그인된 Claude Code나 Codex가 있으면 「찾았어요 ✓」로 떠서 바로 고를 수 있습니다. Gemini·OpenAI·Claude API 키를 붙여 넣어도 됩니다. AI 없이 쓰려면 「AI 없이 쓰기」를 고르세요. 할 일, 오늘 할 일 표, 캘린더(ICS) 회의 알림, 인사와 응원은 그대로 되고, 마법사도 다음 단계로 그대로 이어집니다. AI는 나중에 설정에서 언제든 연결할 수 있습니다.
-3. 더 연결하기: 구글·Outlook 캘린더 ICS 주소, Slack, 레포 폴더를 연결합니다. 캘린더는 「캘린더 하나 더 추가」로 여러 개를 연결할 수 있고, 연결된 캘린더 목록에서 하나씩 뺄 수도 있습니다.
+3. 더 연결하기: 구글·Outlook 캘린더 ICS 주소, Slack, 레포 폴더를 연결합니다. 캘린더는 「＋ 캘린더 추가」로 별칭(회사·개인 등)과 주소를 짝지어 여러 개 넣을 수 있고, 줄마다 켜고 끄거나 별칭을 고치거나 뺄 수 있습니다.
 4. 끝: 「사용법 둘러보기」를 누르면 캐릭터가 다섯 장면으로 하나씩 보여 줍니다.
 
 | 뇌 고르기 | 더 연결하기 | 사용법 둘러보기 |
@@ -383,7 +383,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 ```json
 {
   "connectors": {
-    "calendar": { "mode": "api", "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics", "email": "me@example.com" },
+    "calendar": { "mode": "api", "calendars": [{ "name": "회사", "url": "https://calendar.google.com/calendar/ical/.../basic.ics" }], "email": "me@example.com" },
     "slack": { "mode": "api", "userToken": "xoxp-..." },
     "mail": { "mode": "imap", "accounts": [{ "preset": "gmail", "user": "me@gmail.com", "password": "YOUR_APP_PASSWORD" }] },
     "issues": { "mode": "mcp", "preset": "github" }
