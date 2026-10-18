@@ -10,6 +10,7 @@ import { icsSource, type CalEvent, type CalendarPart, type Meeting } from "./cal
 import { fetchIcsText, tzOffsetMs, type FetchText } from "./ics.ts";
 import { draftFromEvent, type NewProject } from "./manual-projects.ts";
 import type { CalendarState } from "./calendar-state.ts";
+import { t } from "./i18n.ts";
 
 // 팔레트(화면이 이름마다 라이트·다크 색을 정한다). 저장값은 이 이름 중 하나
 export const CAL_COLORS = ["blue", "green", "orange", "purple", "red", "teal", "pink", "brown"] as const;
@@ -74,7 +75,7 @@ export function viewEvent(e: CalEvent, calId: string, tz: string): ViewEvent | n
   const s = Date.parse(e.start), en = Date.parse(e.end);
   if (Number.isNaN(s)) return null;
   const end = Number.isNaN(en) || en < s ? s : en;
-  const out: ViewEvent = { id: `${calId}:${e.id}`, calId, title: e.subject || "(제목 없음)", start: new Date(s).toISOString(), end: new Date(end).toISOString(), allDay: !!e.allDay, draft: draftFromEvent(e) };
+  const out: ViewEvent = { id: `${calId}:${e.id}`, calId, title: e.subject || t("status.no_title"), start: new Date(s).toISOString(), end: new Date(end).toISOString(), allDay: !!e.allDay, draft: draftFromEvent(e) };
   if (e.allDay) {
     const sd = dayIn(s, tz);
     let ed = dayIn(end, tz);
@@ -151,7 +152,7 @@ export class CalendarView {
       const calendars: ViewCalendar[] = conn.calendars.map((c, i) => {
         const p = parts.get(c.id);
         const known = st.calendars?.find((x) => x.id === c.id)?.name;
-        const name = c.name || (p && !/^캘린더( \d+)?$/.test(p.name) ? p.name : "") || (known && !/^캘린더( \d+)?$/.test(known) ? known : "") || `캘린더 ${i + 1}`;
+        const name = c.name || (p && !/^(캘린더|カレンダー)( \d+)?$/.test(p.name) ? p.name : "") || (known && !/^(캘린더|カレンダー)( \d+)?$/.test(known) ? known : "") || t("status.cal_n", { n: i + 1 });
         const phase = !c.enabled ? "off" : p && !p.ok ? "failed" : "ok";
         return { id: c.id, name, color: colors.get(c.id)!, colorSet: okCalColor(saved.get(c.id)), enabled: c.enabled, phase, ...(phase === "failed" && p?.reason ? { reason: p.reason } : {}) };
       });
@@ -166,18 +167,18 @@ export class CalendarView {
         events.push(v);
       }
       events.sort((a, b) => a.start.localeCompare(b.start) || b.end.localeCompare(a.end));
-      return { connected: true, ok: r.ok, mode: "api", ...base, timeZone: tz, calendars, events, ...(r.ok ? {} : { reason: r.reason ?? "캘린더를 가져오지 못했어요" }) };
+      return { connected: true, ok: r.ok, mode: "api", ...base, timeZone: tz, calendars, events, ...(r.ok ? {} : { reason: r.reason ?? t("status.cal_fetch_failed") }) };
     }
     if (conn.mode === "mcp" && conn.cap === "calendar") {
       // 캘린더 이름마다 한 칸(이름 없는 건 「캘린더」)
       const tz = "Asia/Seoul";
       const ms = this.deps.meetings(range.from, range.to);
-      const names = [...new Set(ms.map((m) => m.calendar || "캘린더"))];
+      const names = [...new Set(ms.map((m) => m.calendar || t("status.cal_default")))];
       const idOf = (n: string) => `mcp-${hashIndex(n)}-${n}`.slice(0, 80);
       const saved = this.savedColors();
       const colors = calendarColors(names.map((n) => ({ id: idOf(n), color: saved.get(idOf(n)) })));
       const calendars: ViewCalendar[] = names.map((n) => ({ id: idOf(n), name: n, color: colors.get(idOf(n))!, colorSet: false, enabled: true, phase: st.phase === "failed" ? "failed" : "ok" }));
-      const events = ms.map((m) => viewEvent(meetingEvent(m), idOf(m.calendar || "캘린더"), tz)).filter((x): x is ViewEvent => !!x);
+      const events = ms.map((m) => viewEvent(meetingEvent(m), idOf(m.calendar || t("status.cal_default")), tz)).filter((x): x is ViewEvent => !!x);
       return { connected: true, ok: st.phase !== "failed", mode: "mcp", ...base, timeZone: tz, calendars, events, ...(st.phase === "failed" && st.reason ? { reason: st.reason } : {}) };
     }
     return { connected: false, ok: false, ...base, timeZone: conn.mode === "api" && conn.cap === "calendar" ? conn.timeZone : "Asia/Seoul", calendars: [], events: [] };

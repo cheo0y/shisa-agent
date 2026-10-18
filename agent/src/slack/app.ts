@@ -3,6 +3,7 @@ import bolt from "@slack/bolt";
 import type { Config } from "../config.ts";
 import type { Agent, SlackPort } from "../core.ts";
 import { compactResolvedBlocks, parseTodoEditView, replaceTodoLine, resolvedBlocks, revertedAutoLine, todoEditModal, todoRefFromBlock, type TodoMenuOp } from "./blocks.ts";
+import { t as tr } from "../i18n.ts";
 
 const { App, LogLevel } = bolt;
 
@@ -30,7 +31,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
     const text = String(m.text ?? "").trim();
     if (!text) return;
     if (/^(브리핑|briefing|뭐\s*해야)/i.test(text)) {
-      await say({ text: "브리핑 돌릴게요 ⏳", thread_ts: m.ts });
+      await say({ text: tr("status.sl_briefing_go"), thread_ts: m.ts });
       await agent().runBriefing();
       return;
     }
@@ -38,7 +39,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
     try {
       await agent().handleRequest(text, m.ts);
     } catch (e: any) {
-      await say({ text: `⚠️ 처리하다 막혔어요: ${String(e?.message ?? e).slice(0, 500)}`, thread_ts: m.ts });
+      await say({ text: tr("status.sl_stuck", { msg: String(e?.message ?? e).slice(0, 500) }), thread_ts: m.ts });
     }
   });
 
@@ -69,9 +70,9 @@ export function createSlack(cfg: Config, agent: () => Agent) {
     if (!owner(body)) return;
     try {
       await agent().merge((action as any).value);
-      await resolveClicked(body, "🎉 *머지 완료*");
+      await resolveClicked(body, tr("status.sl_merged"));
     } catch (e: any) {
-      await resolveClicked(body, `⚠️ 머지 실패: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}`);
+      await resolveClicked(body, tr("status.sl_merge_fail", { msg: String(e?.stderr ?? e?.message ?? e).slice(0, 300) }));
     }
   });
   // 확인 카드(회의 응답): 내 클릭만. 메시지 갱신은 core(onActionChange)가 한다. 실행은 버튼을 눌렀을 때만
@@ -107,7 +108,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
     const op = a.selected_option?.value as TodoMenuOp;
     const ref = todoRefFromBlock(a.block_id);
     const t = ref ? agent().todoByRef(ref) : undefined;
-    if (!t) return updateLine(body, a.block_id, { deleted: "이미 없는 할 일" });
+    if (!t) return updateLine(body, a.block_id, { deleted: tr("status.sl_gone") });
     if (op === "edit") {
       await app.client.views.open({ trigger_id: b.trigger_id, view: todoEditModal(t, { channel: b.channel?.id, ts: b.message?.ts, blockId: a.block_id }) });
       return;
@@ -117,7 +118,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
       return updateLine(body, a.block_id, { done: t.title });
     }
     if (op === "delete") {
-      agent().deleteTodo(t.id, "Slack에서 삭제"); // 휴지통으로
+      agent().deleteTodo(t.id, tr("status.sl_deleted_from")); // 휴지통으로
       return updateLine(body, a.block_id, { trashed: t.title });
     }
     if (op === "up" || op === "down" || op === "backlog") {
@@ -145,7 +146,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
     try {
       const h = await app.client.conversations.history({ channel: r.channel, latest: r.ts, inclusive: true, limit: 1 });
       const msg = h.messages?.find((m) => m.ts === r.ts);
-      if (msg?.blocks) await app.client.chat.update({ channel: r.channel, ts: r.ts, blocks: replaceTodoLine(msg.blocks, r.blockId, { todo: after }), text: msg.text ?? "브리핑" });
+      if (msg?.blocks) await app.client.chat.update({ channel: r.channel, ts: r.ts, blocks: replaceTodoLine(msg.blocks, r.blockId, { todo: after }), text: msg.text ?? tr("status.sl_briefing") });
     } catch (e: any) {
       console.warn("[slack] 할 일 줄 갱신 실패:", e?.data?.error ?? e?.message ?? e);
     }
@@ -154,7 +155,7 @@ export function createSlack(cfg: Config, agent: () => Agent) {
   async function updateLine(body: any, blockId: string, next: Parameters<typeof replaceTodoLine>[2]) {
     const msg = body.message, channel = body.channel?.id;
     if (!msg?.ts || !channel) return;
-    await app.client.chat.update({ channel, ts: msg.ts, blocks: replaceTodoLine(msg.blocks ?? [], blockId, next), text: msg.text ?? "브리핑" })
+    await app.client.chat.update({ channel, ts: msg.ts, blocks: replaceTodoLine(msg.blocks ?? [], blockId, next), text: msg.text ?? tr("status.sl_briefing") })
       .catch((e: any) => console.warn("[slack] 할 일 줄 갱신 실패:", e?.data?.error ?? e?.message ?? e));
   }
 
@@ -168,10 +169,10 @@ export async function handleRevertAuto(
 ): Promise<string> {
   const t = agent.todoByRef(String(action?.value ?? ""));
   const r = t ? agent.revertAutoTodo(t.id) : "missing";
-  const ack = r === "missing" ? "⚠️ 이미 없는 할 일이에요" : r === "not_auto" ? "ℹ️ 이미 다시 열렸거나 직접 처리한 할 일이에요" : "↩️ *되돌렸어요* — 다시 열린 할 일로 돌려놨고, 이건 앞으로 자동으로 끝내지 않을게요";
+  const ack = r === "missing" ? tr("status.sl_rev_missing") : r === "not_auto" ? tr("status.sl_rev_not_auto") : tr("status.sl_rev_done");
   const msg = body?.message, channel = body?.channel?.id;
   if (msg?.ts && channel) {
-    await update(channel, msg.ts, revertedAutoLine(msg.blocks ?? [], action?.block_id, ack), msg.text ?? "자동 완료")
+    await update(channel, msg.ts, revertedAutoLine(msg.blocks ?? [], action?.block_id, ack), msg.text ?? tr("status.sl_auto_done"))
       .catch((e: any) => console.warn("[slack] 되돌리기 줄 갱신 실패:", e?.data?.error ?? e?.message ?? e));
   }
   return ack;

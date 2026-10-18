@@ -6,6 +6,8 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
+import { t } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 type Raw = Record<string, unknown>;
 const obj = (x: unknown): Raw | undefined => (x && typeof x === "object" && !Array.isArray(x) ? (x as Raw) : undefined);
@@ -55,4 +57,5 @@ export const sessionsAllowed = (cfg: { onboarded?: boolean; readSessions?: boole
 // 레포 폴더의 git 커밋을 읽어도 되나(폴더는 사용자가 고른 것만: repoRoots)
 export const gitAllowed = (cfg: { onboarded?: boolean; repoRoots?: string[] }): boolean => cfg.onboarded !== false && (cfg.repoRoots?.length ?? 0) > 0;
 
-export const WAIT_SETUP = "처음 설정을 마치면 시작해요. 패널의 「설치」에서 이어서 할 수 있어요";
+export let WAIT_SETUP = t("status.wait_setup");
+onLanguage(() => { WAIT_SETUP = t("status.wait_setup"); }); // 살아 있는 바인딩

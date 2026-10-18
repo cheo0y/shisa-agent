@@ -52,6 +52,7 @@ export const KR_HOLIDAYS: Record<string, string> = {
   "2027-12-25": "성탄절",
   "2027-12-27": "대체공휴일(성탄절)",
 };
+import { weekdayName } from "./i18n.ts";
 
 const KST = 9 * 3600e3;
 const DAY = 24 * 3600e3;
@@ -117,7 +118,7 @@ export function msUntilNext(hh: number, mm: number, now: Date = new Date(), extr
   throw new Error("40일 안에 영업일이 없음 — 공휴일 목록 확인");
 }
 
-const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+// 요일 이름(지금 언어로: 「목」 · 「木」)
 export function weekdayKo(ymd: string): string {
-  return WEEKDAYS[new Date(`${ymd}T00:00:00Z`).getUTCDay()];
+  return weekdayName(new Date(`${ymd}T00:00:00Z`).getUTCDay());
 }

@@ -4,6 +4,7 @@
 //   뇌를 바꿔도 다른 뇌의 값을 덮어쓰지 않는다. 값이 없으면 그 뇌의 기본(undefined)
 // - modelFits: 그 뇌에 보내도 되는 이름인가(Codex 에 claude-… 이름을 넘기지 않게)
 import { BRAIN_PROVIDERS, DEFAULT_GENERAL_MODEL, type BrainProvider, type Config } from "./config.ts";
+import { t as tr } from "./i18n.ts";
 
 export type ModelChoice = { id: string; label: string; role: "code" | "general" | "light" };
 // 채팅·가벼운 일의 역할(코드 작업 AI·모델은 coding.ts)
@@ -12,7 +13,7 @@ export const CHAT_ROLES: readonly ChatRole[] = ["quick", "general", "light"];
 export const MODEL_ID = /^[A-Za-z0-9._:/-]{1,100}$/;
 
 export const BRAIN_LABEL: Record<BrainProvider, string> = {
-  "claude-code": "Claude Code", codex: "Codex", anthropic: "Claude API", gemini: "Gemini", openai: "OpenAI", genspark: "Genspark", local: "AI 없이",
+  "claude-code": "Claude Code", codex: "Codex", anthropic: "Claude API", gemini: "Gemini", openai: "OpenAI", genspark: "Genspark", get local() { return tr("status.brain_none"); },
 };
 // 채팅에서 고를 수 있는 뇌(로컬 뇌는 채팅에 답하지 못한다)
 export const CHAT_PROVIDERS = BRAIN_PROVIDERS.filter((p) => p !== "local") as Exclude<BrainProvider, "local">[];

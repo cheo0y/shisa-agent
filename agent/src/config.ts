@@ -15,6 +15,7 @@ import { calendarAlertOf, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { workHoursOf } from "./work-hours.ts";
 import { weatherOf, type WeatherConfig } from "./weather.ts";
 import { stripBom } from "./fs-atomic.ts";
+import { t as tr } from "./i18n.ts";
 
 export const HOME_DIR = process.env.CY_AGENT_HOME ?? join(homedir(), ".cy-agent");
 
@@ -122,7 +123,7 @@ function nonempty(v: unknown): string | undefined {
 
 // provider 오타에 키를 넣은 경우에도 문장에 키를 남기지 않는다
 function safeLabel(raw: string): string {
-  if (raw.length > 40 || /sk-|gsk-|AIza|key-|bearer/i.test(raw)) return "(값은 숨겼어요)";
+  if (raw.length > 40 || /sk-|gsk-|AIza|key-|bearer/i.test(raw)) return tr("status.value_hidden");
   return raw;
 }
 
@@ -132,7 +133,7 @@ export function pickBrain(env: NodeJS.ProcessEnv, file: Record<string, unknown>,
   // 새 설치(onboarded 키가 있음)는 마법사에서 고르기 전까지 "아직 안 고름" = local(모델 없음). 예전 설정은 claude-code
   let providerRaw = nonempty(env.CY_AGENT_BRAIN) ?? nonempty(rawBrain.provider) ?? (isNewStyle(file) ? "local" : "claude-code");
   if (!(BRAIN_PROVIDERS as readonly string[]).includes(providerRaw)) {
-    const note = `알 수 없는 뇌(brain.provider: ${safeLabel(providerRaw)})라서 로컬로 켰어요. 설정에서 뇌를 다시 골라 주세요`;
+    const note = tr("status.unknown_brain", { v: safeLabel(providerRaw) });
     console.warn(`[config] ${note}`);
     notes.push(note);
     providerRaw = "local";
@@ -200,10 +201,11 @@ export const CONFIG_ERROR = Symbol("configError");
 type FileConfig = Partial<Config> & Record<string, unknown> & { [CONFIG_ERROR]?: string };
 
 // JSON.parse 오류 글에서 줄·칸만 뽑아 사람이 읽을 한 줄로(내용은 넣지 않는다 — 토큰이 섞여 있을 수 있다)
-export function configErrorText(e: unknown): string {
+// when: safe = 안전 모드로 켬(읽을 때) · save = 저장하지 못함(설정 창에서 쓸 때)
+export function configErrorText(e: unknown, when: "safe" | "save" = "safe"): string {
   const m = /line (\d+) column (\d+)/.exec(String((e as Error)?.message ?? e));
-  const at = m ? ` (${m[1]}번째 줄 ${m[2]}번째 칸 근처)` : "";
-  return `설정 파일(config.json)에 문법 오류가 있어${at} 안전 모드로 켰어요. 파일을 고친 뒤 데몬을 다시 켜 주세요`;
+  const at = m ? tr("status.cfg_at", { line: m[1], col: m[2] }) : "";
+  return tr(when === "save" ? "status.cfg_syntax_save" : "status.cfg_syntax_safe", { at });
 }
 
 // 글 → 설정 객체. 비었으면 {}(새 설치), 문법 오류·객체가 아니면 CONFIG_ERROR 표시만 단 {}
@@ -212,7 +214,7 @@ export function parseConfigText(text: string): FileConfig {
   if (!raw.trim()) return {};
   let v: unknown;
   try { v = JSON.parse(raw); } catch (e) { return { [CONFIG_ERROR]: configErrorText(e) }; }
-  if (!v || typeof v !== "object" || Array.isArray(v)) return { [CONFIG_ERROR]: "설정 파일(config.json)이 { … } 모양이 아니라서 안전 모드로 켰어요. 파일을 고친 뒤 데몬을 다시 켜 주세요" };
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { [CONFIG_ERROR]: tr("status.cfg_not_obj_safe") };
   return v as FileConfig;
 }
 
@@ -221,7 +223,7 @@ export function readFileConfig(path = join(HOME_DIR, "config.json")): FileConfig
   let raw: string;
   try { raw = readFileSync(path, "utf8"); } catch (e: any) {
     if (e?.code === "ENOENT") return {}; // 아직 없음(새 설치)
-    return { [CONFIG_ERROR]: `설정 파일(config.json)을 읽지 못해(${e?.code ?? "오류"}) 안전 모드로 켰어요. 파일 권한을 확인한 뒤 데몬을 다시 켜 주세요` };
+    return { [CONFIG_ERROR]: tr("status.cfg_read_fail", { code: e?.code ?? tr("status.error") }) };
   }
   return parseConfigText(raw);
 }
@@ -232,7 +234,7 @@ export function minutesOf(key: string, raw: unknown, def: number, notes: string[
   if (raw === undefined || raw === null) return def;
   const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
   if (Number.isFinite(n) && (n >= 1 || (opts.allowZero && n === 0))) return n;
-  notes.push(`${key} 값이 이상해서(1분 이상의 숫자여야 해요) 기본값 ${def}분으로 돌려요`);
+  notes.push(tr("status.bad_minutes", { key, def }));
   return def;
 }
 
@@ -241,7 +243,7 @@ export function portOf(raw: unknown, def: number, notes: string[]): number {
   if (raw === undefined || raw === null || raw === "") return def;
   const n = Number(raw);
   if (Number.isInteger(n) && n >= 1 && n <= 65535) return n;
-  notes.push(`port 값이 숫자가 아니라서 기본 포트 ${def}을 써요`);
+  notes.push(tr("status.bad_port", { def }));
   return def;
 }
 
@@ -249,12 +251,12 @@ export function portOf(raw: unknown, def: number, notes: string[]): number {
 export function repoRootsOf(raw: unknown, notes: string[]): string[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   const list = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : null;
-  if (!list) { notes.push("repoRoots 는 폴더 경로 목록이어야 해서 비워 뒀어요"); return []; }
+  if (!list) { notes.push(tr("status.bad_roots")); return []; }
   const out: string[] = [];
   for (const x of list) {
     const p = typeof x === "string" ? x.trim() : "";
     // Windows: 드라이브 절대 경로(C:\…)만, 드라이브 맨 위(C:\)·UNC 는 안 됨
-    if (!p || !isAbsolute(p) || resolve(p) === "/" || (IS_WIN && (!isAbsPath(p) || isFsRoot(p)))) { notes.push(`repoRoots 에서 쓸 수 없는 값(${typeof x === "string" ? x.slice(0, 80) : typeof x})을 뺐어요. 「/」로 시작하는 폴더 경로만, 디스크 맨 위(/)는 안 돼요`); continue; }
+    if (!p || !isAbsolute(p) || resolve(p) === "/" || (IS_WIN && (!isAbsPath(p) || isFsRoot(p)))) { notes.push(tr("status.bad_root", { x: typeof x === "string" ? x.slice(0, 80) : typeof x })); continue; }
     const r = resolve(p);
     if (!out.includes(r)) out.push(r);
   }

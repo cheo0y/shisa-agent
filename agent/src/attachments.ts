@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameS
 import { extname, join, resolve, sep } from "node:path";
 import { HOME_DIR } from "./config.ts";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { t as tr } from "./i18n.ts";
 
 export const ATTACH_DIR = join(HOME_DIR, "attachments");
 export type AttachKind = "image" | "pdf" | "text" | "file";
@@ -25,10 +26,10 @@ export const ATTACH_LIMITS = {
   textTotal: 400 * 1024,
 } as const;
 export const ATTACH_ERR = {
-  empty: "빈 파일은 붙일 수 없어요",
-  missing: "첨부 파일을 찾지 못했어요 — 다시 붙여 주세요",
-  badName: "파일 이름이 없어요",
-} as const;
+  get empty() { return tr("status.att_empty"); },
+  get missing() { return tr("status.att_missing"); },
+  get badName() { return tr("status.att_no_name"); },
+};
 
 export const ATTACH_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const THREAD_ID = /^[\w-]{1,64}$/;

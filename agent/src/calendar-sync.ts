@@ -19,6 +19,8 @@ import { calendarName, eventsInWindow, fetchIcsText, type FetchText } from "./ic
 import { phrase } from "./phrases.ts";
 import { calendarAlertOf } from "./calendar-alert.ts";
 import { readCalendarState, writeCalendarState, type CalendarPartState, type CalendarState } from "./calendar-state.ts";
+import { t } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 export const SYNC_EVERY_MS = 30 * 60e3;   // 30분마다 다시 가져온다
 export const DANCE_MS = 8000;
@@ -75,10 +77,10 @@ export function extractLocation(it: any): { rooms: string[]; url?: string } {
 }
 
 export function parseCalendarView(data: any): { events: CalEvent[]; cursor: string | null } | { error: string } {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return { error: "응답 없음" };
+  if (!data || typeof data !== "object" || Array.isArray(data)) return { error: t("status.no_response") };
   if (data.error || data.ok === false) return { error: String(data.error ?? "ok=false").slice(0, 200) };
   const items = Array.isArray(data.items) ? data.items : Array.isArray(data.value) ? data.value : null;
-  if (!items) return { error: "일정 목록 모양이 아님" };
+  if (!items) return { error: t("status.cal_bad_list") };
   const events: CalEvent[] = [];
   for (const it of items) {
     const id = unwrap(it?.id), start = toIso(it?.start), end = toIso(it?.end);
@@ -87,7 +89,7 @@ export function parseCalendarView(data: any): { events: CalEvent[]; cursor: stri
     const join = httpUrl(unwrap(it?.onlineMeeting?.joinUrl) || unwrap(it?.onlineMeetingUrl)) ?? loc.url;
     const web = httpUrl(unwrap(it?.webLink));
     const ev: CalEvent = {
-      id, subject: unwrap(it?.subject) || "(제목 없음)", start, end,
+      id, subject: unwrap(it?.subject) || t("status.no_title"), start, end,
       allDay: it?.isAllDay === true, cancelled: it?.isCancelled === true,
       showAs: unwrap(it?.showAs).toLowerCase() || "unknown",
       response: unwrap(it?.responseStatus?.response).toLowerCase() || "none",
@@ -203,24 +205,24 @@ export function icsFailReason(e: any, url: string): { code: string; reason: stri
   const msg = String(e?.message ?? e ?? "");
   const cause = String(e?.cause?.code ?? e?.code ?? "");
   let host = "", path = "";
-  try { const u = new URL(url.replace(/^webcal:\/\//i, "https://")); host = u.hostname.toLowerCase(); path = u.pathname; } catch { return { code: "url", reason: "캘린더 주소 모양이 올바르지 않아요. iCal 형식 비공개 주소를 다시 복사해 넣어 주세요." }; }
+  try { const u = new URL(url.replace(/^webcal:\/\//i, "https://")); host = u.hostname.toLowerCase(); path = u.pathname; } catch { return { code: "url", reason: t("status.ics_bad_url") }; }
   const google = host === "calendar.google.com";
   const http = /ICS HTTP (\d{3})/.exec(msg);
   if (http) {
     const st = Number(http[1]);
     if (st === 404 || st === 401 || st === 403 || st === 410) {
-      if (google && /\/public\//.test(path)) return { code: "http", reason: `구글 캘린더의 「공개 주소」를 넣으셨어요(HTTP ${st}). 캘린더 설정 → 캘린더 통합의 「iCal 형식의 비공개 주소」를 넣어 주세요.` };
-      if (google) return { code: "http", reason: `구글 캘린더가 이 주소를 찾지 못했어요(HTTP ${st}). 「iCal 형식의 비공개 주소」를 다시 복사해 넣어 주세요. 비공개 주소를 재설정했다면 새 주소가 필요해요.` };
-      return { code: "http", reason: `캘린더 서버가 이 주소를 찾지 못했어요(HTTP ${st}). 게시한 ICS 주소를 다시 복사해 넣어 주세요.` };
+      if (google && /\/public\//.test(path)) return { code: "http", reason: t("status.ics_google_public", { st }) };
+      if (google) return { code: "http", reason: t("status.ics_google_404", { st }) };
+      return { code: "http", reason: t("status.ics_404", { st }) };
     }
-    return { code: "http", reason: `캘린더 서버가 오류로 답했어요(HTTP ${st}). 잠시 뒤에 다시 가져올게요.` };
+    return { code: "http", reason: t("status.ics_5xx", { st }) };
   }
-  if (/ICS 형식이 아님/.test(msg)) return { code: "html", reason: "캘린더가 아니라 웹 페이지가 왔어요. 캘린더 화면 주소 말고 「iCal 형식의 비공개 주소」(.ics)를 넣어 주세요." };
-  if (e?.name === "TimeoutError" || e?.name === "AbortError" || /timeout|timed out/i.test(msg)) return { code: "timeout", reason: "캘린더 서버가 20초 안에 답하지 않았어요. 인터넷 연결을 확인해 주세요. 잠시 뒤에 다시 가져올게요." };
-  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/i.test(cause)) return { code: "tls", reason: "보안 연결(인증서)을 확인하지 못했어요. 회사 프록시나 백신이 HTTPS 를 가로채고 있는지 확인해 주세요." };
-  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT/i.test(cause) || /fetch failed/i.test(msg)) return { code: "network", reason: `캘린더 서버(${host})에 닿지 못했어요. 인터넷이나 회사 프록시 연결을 확인해 주세요.` };
-  if (/ERR_INVALID_URL|Failed to parse URL|Invalid URL/i.test(`${cause} ${msg}`)) return { code: "url", reason: "캘린더 주소 모양이 올바르지 않아요. iCal 형식 비공개 주소를 다시 복사해 넣어 주세요." };
-  return { code: "other", reason: `캘린더를 읽지 못했어요(${msg.slice(0, 60) || "알 수 없는 오류"}).` };
+  if (/ICS 형식이 아님/.test(msg)) return { code: "html", reason: t("status.ics_html") };
+  if (e?.name === "TimeoutError" || e?.name === "AbortError" || /timeout|timed out/i.test(msg)) return { code: "timeout", reason: t("status.ics_timeout") };
+  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/i.test(cause)) return { code: "tls", reason: t("status.ics_tls") };
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT/i.test(cause) || /fetch failed/i.test(msg)) return { code: "network", reason: t("status.ics_network", { host }) };
+  if (/ERR_INVALID_URL|Failed to parse URL|Invalid URL/i.test(`${cause} ${msg}`)) return { code: "url", reason: t("status.ics_bad_url") };
+  return { code: "other", reason: t("status.ics_other", { msg: msg.slice(0, 60) || t("status.unknown_error") }) };
 }
 
 // 캘린더 하나의 가져오기 결과(ICS). off = 꺼 둔 캘린더(가져오지 않음). name = 화면·맥락에 쓰는 이름(별칭 → X-WR-CALNAME → 「캘린더 N」)
@@ -239,21 +241,21 @@ export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?:
     let errors = 0;
     let fail: { code: string; reason: string } | undefined;
     for (const c of cals) {
-      const fallback = c.name || (cals.length > 1 ? `캘린더 ${c.n}` : "");
-      if (!c.enabled) { parts.push({ id: c.id, name: fallback || "캘린더", ok: true, off: true, events: 0 }); continue; }
+      const fallback = c.name || (cals.length > 1 ? t("status.cal_n", { n: c.n }) : "");
+      if (!c.enabled) { parts.push({ id: c.id, name: fallback || t("status.cal_default"), ok: true, off: true, events: 0 }); continue; }
       try {
         const text = await fetchText(c.url);
         const name = c.name || calendarName(text) || fallback;
         const got = eventsInWindow(text, Date.parse(w.from), Date.parse(w.to), opts).map((e) => ({ ...e, calId: c.id, ...(name ? { calendar: name } : {}), ...(name && (c.name || cals.length > 1) ? { tag: name } : {}) }));
         events.push(...got);
-        parts.push({ id: c.id, name: name || "캘린더", ok: true, events: got.length });
+        parts.push({ id: c.id, name: name || t("status.cal_default"), ok: true, events: got.length });
       }
       catch (e: any) {
         errors++;
         const r = icsFailReason(e, c.url);
-        const label = c.name || (cals.length > 1 ? `${c.n}번째 캘린더` : "");
+        const label = c.name || (cals.length > 1 ? t("status.cal_nth", { n: c.n }) : "");
         fail ??= label ? { code: r.code, reason: `${label}: ${r.reason}` } : r;
-        parts.push({ id: c.id, name: fallback || "캘린더", ok: false, events: 0, reason: r.reason, code: r.code });
+        parts.push({ id: c.id, name: fallback || t("status.cal_default"), ok: false, events: 0, reason: r.reason, code: r.code });
         console.warn(`[calendar] ICS 실패(${c.n}/${cals.length}, ${r.code}):`, String(e?.message ?? e).slice(0, 80), e?.cause?.code ? `(${e.cause.code})` : "");
       }
     }
@@ -300,7 +302,8 @@ const MCP_EVENTS_SCHEMA = {
   },
 } as const;
 
-export const MCP_BRAIN_REASON = "MCP 로 연결한 캘린더는 뇌(AI)가 Claude Code 일 때만 읽어요. 지금 뇌로 일정을 보려면 캘린더를 「iCal 형식의 비공개 주소」로 연결해 주세요.";
+export let MCP_BRAIN_REASON = t("status.cal_mcp_brain");
+onLanguage(() => { MCP_BRAIN_REASON = t("status.cal_mcp_brain"); }); // 살아 있는 바인딩
 
 // mcp: 경량 모델이 매핑된 목록 도구(listEvents)만 부르고, 결과를 우리 모양으로 옮겨 준다(서버마다 응답 모양이 달라서)
 export function mcpCalendarSource(conn: Extract<Conn, { mode: "mcp" }>, q: typeof sdkQuery = sdkQuery): CalendarSource {
@@ -311,7 +314,7 @@ export function mcpCalendarSource(conn: Extract<Conn, { mode: "mcp" }>, q: typeo
       skipQuietly("calendar", cfg, console.log, NEEDS_CLAUDE_MCP);
       return { ok: false, events: [], calls: 0, errors: 0, costUsd: 0, code: "brain", reason: MCP_BRAIN_REASON };
     }
-    if (!tool || isWriteName(tool)) return { ok: false, events: [], calls: 0, errors: 1, costUsd: 0, code: "mcp", reason: "캘린더 MCP 에 일정 목록 도구(listEvents)가 정해져 있지 않아요." };
+    if (!tool || isWriteName(tool)) return { ok: false, events: [], calls: 0, errors: 1, costUsd: 0, code: "mcp", reason: t("status.cal_mcp_no_tool") };
     const full = mcpTool(conn.server, tool);
     let calls = 0;
     const pre: HookCallback = async (input) => {
@@ -343,7 +346,7 @@ export function mcpCalendarSource(conn: Extract<Conn, { mode: "mcp" }>, q: typeo
     } catch { errors++; }
     const events = mcpEventsToCal(out?.events);
     const ok = !!out?.ok && calls > 0 && !errors;
-    return { ok, events, calls, errors, costUsd, ...(ok ? {} : { code: "mcp", reason: calls ? "캘린더 MCP 도구가 일정을 돌려주지 않았어요. Claude Code 에서 캘린더 MCP 로그인을 확인해 주세요." : "캘린더 MCP 도구를 부르지 못했어요. claude mcp list 에서 캘린더 서버가 연결됨인지 확인해 주세요." }) };
+    return { ok, events, calls, errors, costUsd, ...(ok ? {} : { code: "mcp", reason: calls ? t("status.cal_mcp_empty") : t("status.cal_mcp_no_call") }) };
   };
 }
 
@@ -354,7 +357,7 @@ export function mcpEventsToCal(list: unknown): CalEvent[] {
     if (typeof e?.id !== "string" || !Number.isFinite(start) || !Number.isFinite(end)) continue;
     const join = typeof e.joinUrl === "string" && /^https:\/\//.test(e.joinUrl) ? e.joinUrl : undefined;
     const ev: CalEvent = {
-      id: e.id, subject: String(e.subject || "(제목 없음)"), start: new Date(start).toISOString(), end: new Date(end).toISOString(),
+      id: e.id, subject: String(e.subject || t("status.no_title")), start: new Date(start).toISOString(), end: new Date(end).toISOString(),
       allDay: !!e.allDay, cancelled: !!e.cancelled, showAs: e.free ? "free" : "busy", response: e.declined ? "declined" : "none", online: !!e.online || !!join,
     };
     if (join) ev.joinUrl = join;
@@ -509,11 +512,11 @@ export class CalendarSync {
     const once = async () => {
       r = await src(this.cfg, w);
       // 못 가져왔으면 실행 기록도 실패로(「마지막 성공」으로 보이지 않게). 이유는 r 에 남는다
-      if (!r.ok) throw new Error(r.reason ?? "캘린더를 가져오지 못했어요");
+      if (!r.ok) throw new Error(r.reason ?? t("status.cal_fetch_failed"));
       return r;
     };
     try { await (this.deps.wrapRun ? this.deps.wrapRun(once) : once()); }
-    catch (e: any) { r ??= { ok: false, events: [], calls: 0, errors: 1, costUsd: 0, code: "other", reason: `캘린더를 읽지 못했어요(${String(e?.message ?? e).slice(0, 60)}).` }; }
+    catch (e: any) { r ??= { ok: false, events: [], calls: 0, errors: 1, costUsd: 0, code: "other", reason: t("status.ics_other", { msg: String(e?.message ?? e).slice(0, 60) }) }; }
     return this.finish(w, gen, r!);
   }
 
@@ -522,7 +525,7 @@ export class CalendarSync {
     const skipped: Record<string, number> = {};
     for (const e of events) { const x = skipReason(e); if (x) skipped[x] = (skipped[x] ?? 0) + 1; }
     const meetings = toMeetings(events);
-    const out = { events: events.length, meetings: meetings.length, calls: r.calls, errors: r.errors, costUsd: r.costUsd, skipped, ...(ok ? {} : { reason: r.reason ?? "캘린더를 가져오지 못했어요" }) };
+    const out = { events: events.length, meetings: meetings.length, calls: r.calls, errors: r.errors, costUsd: r.costUsd, skipped, ...(ok ? {} : { reason: r.reason ?? t("status.cal_fetch_failed") }) };
     if (gen !== this.gen) return out; // 그사이 연결이 바뀌었다(끊었거나 다른 주소): 예전 설정의 결과는 버린다
     // 한 번이라도 받았고 오류가 없을 때만 그 창을 통째로 바꾼다(취소된 회의가 사라지게). 실패면 예전 것 유지.
     // ICS 캘린더별 결과(parts)가 있으면 캘린더마다: 받은 캘린더는 바꾸고, 못 받은 캘린더는 예전 것 유지, 꺼 두었거나 빠진 캘린더 것은 지운다
@@ -534,7 +537,7 @@ export class CalendarSync {
     const kept = r.parts ? this.countWindow(w) : undefined; // 실패한 캘린더의 예전 일정까지 지금 남은 회의 수
     this.setState(ok
       ? { phase: "ok", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, lastOkAt: at, meetings: meetings.length, events: events.length, ...(calendars ? { calendars } : {}) }
-      : { phase: "failed", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, ...(prev.lastOkAt ? { lastOkAt: prev.lastOkAt, meetings: kept ?? prev.meetings, events: prev.events } : {}), reason: r.reason ?? "캘린더를 가져오지 못했어요", ...(r.code ? { code: r.code } : {}), ...(calendars ? { calendars } : {}) });
+      : { phase: "failed", ...(prev.mode ? { mode: prev.mode } : {}), ...(prev.key ? { key: prev.key } : {}), at, ...(prev.lastOkAt ? { lastOkAt: prev.lastOkAt, meetings: kept ?? prev.meetings, events: prev.events } : {}), reason: r.reason ?? t("status.cal_fetch_failed"), ...(r.code ? { code: r.code } : {}), ...(calendars ? { calendars } : {}) });
     this.lastSync = this.deps.now().getTime();
     this.onChange?.();
     this.check();
@@ -545,9 +548,9 @@ export class CalendarSync {
   private partStates(parts: CalendarPart[], prev: CalendarState, meetings: Meeting[]): CalendarPartState[] {
     return parts.map((p) => {
       const old = prev.calendars?.find((c) => c.id === p.id);
-      const name = !p.ok && old?.name && /^캘린더( \d+)?$/.test(p.name) ? old.name : p.name;
+      const name = !p.ok && old?.name && /^(캘린더|カレンダー)( \d+)?$/.test(p.name) ? old.name : p.name;
       if (p.off) return { id: p.id, name, phase: "off" as const };
-      if (!p.ok) return { id: p.id, name, phase: "failed" as const, reason: p.reason ?? "캘린더를 가져오지 못했어요", ...(p.code ? { code: p.code } : {}) };
+      if (!p.ok) return { id: p.id, name, phase: "failed" as const, reason: p.reason ?? t("status.cal_fetch_failed"), ...(p.code ? { code: p.code } : {}) };
       return { id: p.id, name, phase: "ok" as const, meetings: meetings.filter((m) => m.calId === p.id).length, events: p.events };
     });
   }

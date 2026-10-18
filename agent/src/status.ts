@@ -12,6 +12,7 @@ import { NEEDS_CODER, featureBrain, type FeatureBrain } from "./feature-brain.ts
 import { WAIT_SETUP } from "./onboarding.ts";
 import { codexCodingReady, codingProvider, codingReady } from "./coding.ts";
 import type { CodingProvider } from "./config.ts";
+import { t } from "./i18n.ts";
 
 export type BrainStatus = {
   provider: string;
@@ -57,15 +58,15 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
   const noCredit = !!keyReady && !badKey && brainCreditNeeded(cfg, env); // 키는 맞는데 크레딧이 없다고 받음(Genspark 무료 플랜)
   const ready = provider === "claude-code" ? (claude === undefined ? null : claude) : !!keyReady && !badKey && !noCredit;
   const label = BRAIN_LABEL[provider] ?? provider;
-  const detail = provider === "local" ? "로컬 — 할 일 읽기·정해진 말만"
-    : ready === null ? `${label} — 확인 중`
-    : ready ? `${label} 연결됨`
+  const detail = provider === "local" ? t("status.brain_local_detail")
+    : ready === null ? t("status.brain_checking", { label })
+    : ready ? t("status.brain_connected", { label })
     : badKey ? authFailText(provider as KeyProvider)
     : noCredit ? creditFailText(provider as KeyProvider)
-    : provider === "genspark" ? "Genspark 키가 없어요(gsk login 을 하거나 키를 붙여 넣어 주세요)"
-    : provider === "claude-code" ? "Claude Code 로그인이 필요해요"
-    : provider === "codex" ? "Codex 를 찾을 수 없어요"
-    : `${KEY_LABEL[provider] ?? label} API 키가 없어요`;
+    : provider === "genspark" ? t("status.genspark_no_key")
+    : provider === "claude-code" ? t("status.claude_login_needed")
+    : provider === "codex" ? t("status.codex_not_found")
+    : t("status.api_key_missing", { label: KEY_LABEL[provider] ?? label });
   const local = provider === "local";
   const conns = cfg.connectors ?? CONNECTORS;
   const st = connectorStatus(conns, deps.hasServer);
@@ -73,9 +74,9 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
   const avail = { claude: claude ?? null, codex: codex && codexCodingReady(env) };
   const by = featureBrain(cfg, () => codex);
   const background: Features["background"] = by === "claude-code"
-    ? { by, ready: claude === undefined ? null : claude, detail: claude === false ? "Claude Code 로그인이 필요해요" : "Claude Code 로 돌아요" }
-    : by === "codex" ? { by, ready: true, detail: "Codex 로 돌아요" }
-    : { by: null, ready: false, detail: cfg.onboarded === false ? WAIT_SETUP : provider === "codex" ? "Codex 를 찾을 수 없어요" : NEEDS_CODER };
+    ? { by, ready: claude === undefined ? null : claude, detail: claude === false ? t("status.claude_login_needed") : t("status.runs_on_claude") }
+    : by === "codex" ? { by, ready: true, detail: t("status.runs_on_codex") }
+    : { by: null, ready: false, detail: cfg.onboarded === false ? WAIT_SETUP : provider === "codex" ? t("status.codex_not_found") : NEEDS_CODER };
   const mcp = provider === "claude-code";
   return {
     brain: { provider, label, ready, local, detail },

@@ -7,6 +7,7 @@
 //    기록은 근무 시간과 같은 lunch.json(work-hours.ts WorkAlerts — 키 weatherMorning·weatherLeave·weather@HH:MM)
 import { isHhmm, minutesOf, isWorkDay, type WorkHours } from "./work-hours.ts";
 import { language, type Lang } from "./lang.ts";
+import { t as tr } from "./i18n.ts";
 
 // ---- 설정(config.json weather) ----
 export type WeatherPlace = { name: string; label: string; latitude: number; longitude: number; timezone: string };
@@ -15,7 +16,7 @@ export const WEATHER_DEFAULTS: Readonly<WeatherConfig> = Object.freeze({ place: 
 export const LEAVE_WEATHER_MIN = 20; // 퇴근 몇 분 전에 날씨를 알릴지(퇴근 10분 전 인사와 따로)
 export const TIME_SPAN_MIN = 60; // 사용자가 정한 시각부터 이만큼 안에 한 번(앱이 그 시각에 꺼져 있었을 때)
 export const MORNING_WAIT_MS = 90e3; // 출근 인사 뒤 브리핑이 없으면 이만큼 기다렸다가
-export const ATTRIBUTION = { label: "날씨: Open-Meteo", url: "https://open-meteo.com/", license: "CC BY 4.0" } as const;
+export const ATTRIBUTION = { get label() { return tr("status.weather_attr"); }, url: "https://open-meteo.com/", license: "CC BY 4.0" } as const;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const oneLine = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
@@ -49,7 +50,7 @@ export function validateWeather(v: unknown): WeatherPatch {
     if (v.place === null) out.place = null;
     else {
       const p = placeOf(v.place);
-      if (!p) throw new Error("지역은 이름과 위도·경도가 있어야 해요");
+      if (!p) throw new Error(tr("status.weather_bad_place"));
       out.place = p;
     }
   }
@@ -60,7 +61,7 @@ export function validateWeather(v: unknown): WeatherPatch {
   }
   if (v.times !== undefined) {
     const t = cleanTimes(v.times);
-    if (!t) throw new Error("날씨 알림 시각은 HH:MM(예: 08:30) 목록이어야 해요");
+    if (!t) throw new Error(tr("status.weather_bad_times"));
     out.times = t;
   }
   return out;
@@ -219,10 +220,10 @@ export type SearchResult = { ok: true; items: GeoCandidate[] } | { ok: false; er
 const placeKey = (p: WeatherPlace) => `${p.latitude},${p.longitude},${p.timezone}`;
 function failText(e: unknown): string {
   const m = String((e as { message?: unknown })?.message ?? e ?? "");
-  if ((e as { name?: string })?.name === "TimeoutError" || /timeout|aborted/i.test(m)) return "Open-Meteo 가 제때 답하지 않았어요";
-  if (/^HTTP \d+/.test(m)) return `Open-Meteo 가 ${m.replace("HTTP ", "")} 로 답했어요`;
-  if (/모양/.test(m)) return m;
-  return "Open-Meteo 에 연결하지 못했어요(인터넷 연결을 확인해 주세요)";
+  if ((e as { name?: string })?.name === "TimeoutError" || /timeout|aborted/i.test(m)) return tr("status.om_timeout");
+  if (/^HTTP \d+/.test(m)) return tr("status.om_http", { code: m.replace("HTTP ", "") });
+  if (/모양/.test(m) || m === tr("status.forecast_shape")) return m;
+  return tr("status.om_net");
 }
 
 export class Weather {
@@ -270,7 +271,7 @@ export class Weather {
       this.searches.set(key, items);
       return { ok: true, items };
     } catch (e) {
-      return { ok: false, error: `지역을 찾지 못했어요. ${failText(e)}` };
+      return { ok: false, error: tr("status.place_not_found", { why: failText(e) }) };
     }
   }
 
@@ -286,7 +287,7 @@ export class Weather {
     const run = (async () => {
       try {
         const f = parseForecast(await this.getJson(forecastUrl(p)), this.now());
-        if (!f) throw new Error("예보 모양이 예상과 달라요");
+        if (!f) throw new Error(tr("status.forecast_shape"));
         this.fc = { key, f, ms: this.now().getTime() };
         this.fail = undefined;
         return f;

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { Proposal, Todo, TodoPatch } from "../store.ts";
 import { parsePatch } from "../todos.ts";
 import { actionStatusLine, PERMISSION, type PendingAction } from "../actions.ts";
+import { t as tr } from "../i18n.ts";
 
 const SECTION_LIMIT = 2900;
 const MARKDOWN_LIMIT = 11800;
@@ -30,7 +31,7 @@ export function splitText(text: string, limit = SECTION_LIMIT): string[] {
 const PRIO = ["", "🔴", "🟡", "⚪️", "🗂"];
 
 // 패널 전용 문법을 Slack 마크다운으로: 글자색 :red[x]·형광펜 ==x== 는 굵게, 콜아웃 > [!WARNING] 은 이모지 제목 인용
-const SLACK_CALLOUT: Record<string, string> = { NOTE: "📝 참고", TIP: "💡 팁", IMPORTANT: "📌 중요", WARNING: "⚠️ 주의", CAUTION: "🚨 위험" };
+const SLACK_CALLOUT: Record<string, string> = { get NOTE() { return tr("status.callout_note"); }, get TIP() { return tr("status.callout_tip"); }, get IMPORTANT() { return tr("status.callout_important"); }, get WARNING() { return tr("status.callout_warning"); }, get CAUTION() { return tr("status.callout_caution"); } };
 export function toSlackMarkdown(md: string): string {
   return md
     .replace(/^([ \t]*>[ \t]*)\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*/gim, (_, q: string, k: string) => `${q}**${SLACK_CALLOUT[k.toUpperCase()]}** `)
@@ -65,11 +66,11 @@ export function todoLine(t: Todo): Block {
   const mark = t.userEdited?.some((f) => f !== "status") ? "  ✏️" : "";
   const note = t.note ? `\n> ${escapeMrkdwn(t.note.replace(/\s+/g, " ").slice(0, 200))}` : "";
   const options = [
-    opt("완료", "done"), opt("수정", "edit"),
-    t.priority > 1 ? opt("우선순위 올리기", "up") : null,
-    t.priority < 3 ? opt("우선순위 내리기", "down") : null,
-    t.priority < 4 ? opt("백로그로", "backlog") : null,
-    opt("삭제", "delete"),
+    opt(tr("status.menu_done"), "done"), opt(tr("status.menu_edit"), "edit"),
+    t.priority > 1 ? opt(tr("status.menu_up"), "up") : null,
+    t.priority < 3 ? opt(tr("status.menu_down"), "down") : null,
+    t.priority < 4 ? opt(tr("status.menu_backlog"), "backlog") : null,
+    opt(tr("status.menu_delete"), "delete"),
   ].filter(Boolean);
   return {
     type: "section",
@@ -85,14 +86,14 @@ export function replaceTodoLine(blocks: Block[], blockId: string, next: { todo: 
   return blocks.map((b) => {
     if (b.block_id !== blockId) return b;
     if ("todo" in next) return todoLine(next.todo);
-    const [title, mark] = "done" in next ? [next.done, "✅"] : "trashed" in next ? [next.trashed, "🗑 휴지통으로 옮겼어요"] : [next.deleted, "🗑️ 삭제함"];
+    const [title, mark] = "done" in next ? [next.done, "✅"] : "trashed" in next ? [next.trashed, tr("status.line_trashed")] : [next.deleted, tr("status.line_deleted")];
     return { type: "section", block_id: blockId, text: { type: "mrkdwn", text: `~${escapeMrkdwn(title)}~ ${mark}`.slice(0, SECTION_LIMIT) } };
   });
 }
 
 // 수정 모달. private_metadata에 대상·원래 메시지 위치를 담는다
 export function todoEditModal(t: Todo, where: { channel?: string; ts?: string; blockId?: string } = {}): Block {
-  const prio = (p: number) => ({ text: { type: "plain_text", text: ["", "🔴 P1 오늘 꼭", "🟡 P2 이번 주", "⚪️ P3 참고", "🗂 P4 언젠가·백로그"][p] }, value: String(p) });
+  const prio = (p: number) => ({ text: { type: "plain_text", text: ["", tr("status.prio1"), tr("status.prio2"), tr("status.prio3"), tr("status.prio4")][p] }, value: String(p) });
   const text = (block_id: string, label: string, initial: string | undefined, o: { multiline?: boolean; optional?: boolean; max?: number } = {}) => ({
     type: "input", block_id, optional: !!o.optional, label: { type: "plain_text", text: label },
     element: { type: "plain_text_input", action_id: "v", multiline: !!o.multiline, ...(o.max ? { max_length: o.max } : {}), ...(initial ? { initial_value: initial } : {}) },
@@ -101,17 +102,17 @@ export function todoEditModal(t: Todo, where: { channel?: string; ts?: string; b
     type: "modal",
     callback_id: "cy_todo_edit",
     private_metadata: JSON.stringify({ id: t.id, ...where }).slice(0, 3000),
-    title: { type: "plain_text", text: "할 일 수정" },
-    submit: { type: "plain_text", text: "저장" },
-    close: { type: "plain_text", text: "취소" },
+    title: { type: "plain_text", text: tr("status.modal_title") },
+    submit: { type: "plain_text", text: tr("status.modal_save") },
+    close: { type: "plain_text", text: tr("status.modal_cancel") },
     blocks: [
-      text("title", "제목", t.title, { max: 300 }),
+      text("title", tr("status.f_title"), t.title, { max: 300 }),
       {
-        type: "input", block_id: "priority", label: { type: "plain_text", text: "우선순위" },
+        type: "input", block_id: "priority", label: { type: "plain_text", text: tr("status.f_priority") },
         element: { type: "static_select", action_id: "v", options: [1, 2, 3, 4].map(prio), initial_option: prio([1, 2, 3, 4].includes(t.priority) ? t.priority : 2) },
       },
-      text("link", "링크", t.link, { optional: true, max: 2000 }),
-      text("note", "메모", t.note, { optional: true, multiline: true, max: 2000 }),
+      text("link", tr("status.f_link"), t.link, { optional: true, max: 2000 }),
+      text("note", tr("status.f_note"), t.note, { optional: true, multiline: true, max: 2000 }),
     ],
   };
 }
@@ -122,9 +123,9 @@ export function parseTodoEditView(view: any, lookup?: (id: string) => Todo | und
   | { ok: false; errors: Record<string, string> } {
   let meta: any = {};
   try { meta = JSON.parse(view?.private_metadata ?? "{}"); } catch {}
-  if (typeof meta.id !== "string" || !meta.id) return { ok: false, errors: { title: "어떤 할 일인지 모르겠어요" } };
+  if (typeof meta.id !== "string" || !meta.id) return { ok: false, errors: { title: tr("status.err_which") } };
   const before = lookup?.(meta.id);
-  if (lookup && !before) return { ok: false, errors: { title: "이미 지워진 할 일이에요" } };
+  if (lookup && !before) return { ok: false, errors: { title: tr("status.err_gone") } };
   const v = view?.state?.values ?? {};
   const val = (b: string) => v[b]?.v?.value ?? "";
   const body: Record<string, unknown> = {
@@ -136,7 +137,7 @@ export function parseTodoEditView(view: any, lookup?: (id: string) => Todo | und
   const p = parsePatch(body);
   if (!p.ok) {
     const field = ["title", "priority", "link", "note"].find((f) => p.error.startsWith(f)) ?? "title";
-    const msg: Record<string, string> = { title: "제목을 입력해 주세요(300자 이내)", priority: "우선순위를 골라 주세요", link: "http(s) 또는 slack 링크만 돼요", note: "메모가 너무 길어요" };
+    const msg: Record<string, string> = { title: tr("status.err_title"), priority: tr("status.err_priority"), link: tr("status.err_link"), note: tr("status.err_note") };
     return { ok: false, errors: { [field]: msg[field] } };
   }
   // 그대로인 필드는 빼서 '직접 수정' 표시가 필요한 것만 남긴다
@@ -152,18 +153,18 @@ export type AutoDoneItem = { todo: Todo; reason: string; permalink?: string };
 export function autoDoneLine(i: AutoDoneItem): Block {
   const ref = todoRef(i.todo.id);
   const title = i.todo.link ? `<${i.todo.link}|${escapeMrkdwn(i.todo.title)}>` : escapeMrkdwn(i.todo.title);
-  const proof = i.permalink ? `  <${i.permalink}|근거 메시지>` : "";
+  const proof = i.permalink ? `  <${i.permalink}|${tr("status.proof")}>` : "";
   return {
     type: "section",
     block_id: AUTO_BLOCK + ref,
     text: { type: "mrkdwn", text: `✅ ~${title}~\n_${escapeMrkdwn(i.reason.replace(/\s+/g, " ").slice(0, 200))}_${proof}`.slice(0, SECTION_LIMIT) },
-    accessory: { type: "button", action_id: "cy_todo:revert_auto", text: { type: "plain_text", text: "되돌리기" }, value: ref },
+    accessory: { type: "button", action_id: "cy_todo:revert_auto", text: { type: "plain_text", text: tr("status.revert") }, value: ref },
   };
 }
 export function autoDoneBlocks(items: AutoDoneItem[]): Block[] {
-  const head = items.length === 1 ? "Slack 대화를 보니 이건 끝난 것 같아서 완료로 옮겼어요." : `Slack 대화를 보니 ${items.length}개가 끝난 것 같아서 완료로 옮겼어요.`;
+  const head = items.length === 1 ? tr("status.auto_one") : tr("status.auto_many", { n: items.length });
   return [
-    { type: "section", text: { type: "mrkdwn", text: `🤖 ${head} 아니면 [되돌리기]를 눌러 주세요.` } },
+    { type: "section", text: { type: "mrkdwn", text: `🤖 ${tr("status.auto_tail", { head })}` } },
     ...items.slice(0, 40).map(autoDoneLine),
   ];
 }
@@ -178,16 +179,16 @@ export function revertedAutoLine(blocks: Block[], blockId: string, ack: string):
 }
 
 export function proposalBlocks(p: Proposal, explicit = false): Block[] {
-  const head = explicit ? "🛠️ *요청 받은 작업*" : "💡 *UI 수정 제안*";
+  const head = explicit ? tr("status.prop_explicit") : tr("status.prop_ui");
   return [
-    { type: "section", text: { type: "mrkdwn", text: `${head}  ${escapeMrkdwn(p.title)}\n\`${p.repo}\`${p.base ? ` → PR 대상 \`${p.base}\`` : ""}` } },
+    { type: "section", text: { type: "mrkdwn", text: `${head}  ${escapeMrkdwn(p.title)}\n\`${p.repo}\`${p.base ? tr("status.prop_pr_base", { base: p.base }) : ""}` } },
     ...splitText(p.plan, SECTION_LIMIT).map((t) => ({ type: "section", text: { type: "mrkdwn", text: t } })),
     {
       type: "actions",
       block_id: `cy_proposal_actions:${p.id}`,
       elements: [
-        { type: "button", text: { type: "plain_text", text: explicit ? "실행" : "승인" }, style: "primary", action_id: "cy_proposal:approve", value: p.id },
-        { type: "button", text: { type: "plain_text", text: "보류" }, action_id: "cy_proposal:hold", value: p.id },
+        { type: "button", text: { type: "plain_text", text: explicit ? tr("status.btn_run") : tr("status.btn_approve") }, style: "primary", action_id: "cy_proposal:approve", value: p.id },
+        { type: "button", text: { type: "plain_text", text: tr("status.btn_hold") }, action_id: "cy_proposal:hold", value: p.id },
       ],
     },
   ];
@@ -199,18 +200,18 @@ export function actionBlocks(a: PendingAction): Block[] {
   const c = a.card;
   const head = `${c.icon} *${escapeMrkdwn(c.title)}*${c.when ? ` (${escapeMrkdwn(c.when)})` : ""}`;
   const q = `${c.question.replace(/\*\*([^*]+)\*\*/g, "*$1*")} ${c.notice}`;
-  const comment = c.comment ? `\n> 메모: ${escapeMrkdwn(c.comment.replace(/\s+/g, " "))}` : "";
+  const comment = c.comment ? `\n> ${tr("status.memo", { text: escapeMrkdwn(c.comment.replace(/\s+/g, " ")) })}` : "";
   const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: `${head}\n${q}${comment}`.slice(0, SECTION_LIMIT) } }];
   if (a.status === "pending") {
     blocks.push({
       type: "actions",
       block_id: `cy_action_actions:${a.id}`,
       elements: [
-        { type: "button", text: { type: "plain_text", text: "실행" }, style: "primary", action_id: "cy_action:confirm", value: a.id },
-        { type: "button", text: { type: "plain_text", text: "취소" }, action_id: "cy_action:cancel", value: a.id },
+        { type: "button", text: { type: "plain_text", text: tr("status.btn_run") }, style: "primary", action_id: "cy_action:confirm", value: a.id },
+        { type: "button", text: { type: "plain_text", text: tr("status.btn_cancel") }, action_id: "cy_action:cancel", value: a.id },
       ],
     });
-    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "실행을 눌러야 보내요 · 30분 뒤 만료" }] });
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: tr("status.action_hint") }] });
   } else {
     blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: escapeMrkdwn(actionStatusLine(a)).slice(0, 300) }] });
   }
@@ -224,18 +225,18 @@ export function permissionBlocks(a: PendingAction): Block[] {
   const q = `${c.question.replace(/\*\*([^*]+)\*\*/g, "*$1*")} ${c.notice}`;
   const fields = (c.fields ?? []).slice(0, 8).map((f) => `• ${escapeMrkdwn(f.label)}: ${escapeMrkdwn(f.value)}`).join("\n");
   const body = c.body ? `\n\`\`\`${c.body.replace(/\`\`\`/g, "ˋˋˋ").slice(0, 1500)}\`\`\`` : "";
-  const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: `🔐 *승인 요청*  ${head}\n${q}${fields ? `\n${fields}` : ""}${body}`.slice(0, SECTION_LIMIT) } }];
+  const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: `${tr("status.perm_head")}  ${head}\n${q}${fields ? `\n${fields}` : ""}${body}`.slice(0, SECTION_LIMIT) } }];
   if (a.status === "pending") {
     blocks.push({
       type: "actions",
       block_id: `cy_action_actions:${a.id}`,
       elements: [
-        { type: "button", text: { type: "plain_text", text: "허용" }, style: "primary", action_id: "cy_action:confirm", value: a.id },
-        ...(c.always ? [{ type: "button", text: { type: "plain_text", text: "항상 허용" }, action_id: "cy_action:always", value: a.id }] : []),
-        { type: "button", text: { type: "plain_text", text: "거부" }, style: "danger", action_id: "cy_action:cancel", value: a.id },
+        { type: "button", text: { type: "plain_text", text: tr("status.btn_allow") }, style: "primary", action_id: "cy_action:confirm", value: a.id },
+        ...(c.always ? [{ type: "button", text: { type: "plain_text", text: tr("status.btn_always") }, action_id: "cy_action:always", value: a.id }] : []),
+        { type: "button", text: { type: "plain_text", text: tr("status.btn_deny") }, style: "danger", action_id: "cy_action:cancel", value: a.id },
       ],
     });
-    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: escapeMrkdwn(`허용해야 실행돼요 · 10분 뒤 자동 거부${c.always ? ` · 항상 허용: ${c.always}` : ""}`).slice(0, 300) }] });
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: escapeMrkdwn(`${tr("status.perm_hint")}${c.always ? tr("status.perm_always", { v: c.always }) : ""}`).slice(0, 300) }] });
   } else {
     blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: escapeMrkdwn(actionStatusLine(a)).slice(0, 300) }] });
   }
@@ -244,11 +245,11 @@ export function permissionBlocks(a: PendingAction): Block[] {
 
 export function mergeBlocks(proposalId: string, prUrl: string, summary: string): Block[] {
   return [
-    { type: "section", text: { type: "mrkdwn", text: `✅ *완료* — <${prUrl}|PR 열림>\n${summary}`.slice(0, SECTION_LIMIT) } },
+    { type: "section", text: { type: "mrkdwn", text: `${tr("status.merge_done_head", { url: prUrl })}\n${summary}`.slice(0, SECTION_LIMIT) } },
     {
       type: "actions",
       block_id: `cy_merge_actions:${proposalId}`,
-      elements: [{ type: "button", text: { type: "plain_text", text: "머지" }, style: "primary", action_id: "cy_proposal:merge", value: proposalId }],
+      elements: [{ type: "button", text: { type: "plain_text", text: tr("status.btn_merge") }, style: "primary", action_id: "cy_proposal:merge", value: proposalId }],
     },
   ];
 }
@@ -264,7 +265,7 @@ export function resolvedBlocks(message: { blocks?: Block[]; text?: string } | un
 // 원문이 너무 길어 chat.update가 msg_too_long으로 거부될 때: 앞부분 + 결과
 export function compactResolvedBlocks(message: { blocks?: Block[]; text?: string } | undefined, ack: string): Block[] {
   let head = message?.blocks?.find((b) => b.type === "section" && b.text?.text)?.text.text ?? message?.text ?? "";
-  if (head.length > COMPACT_HEAD) head = head.slice(0, COMPACT_HEAD).trimEnd() + "\n…(길어서 앞부분만 남겼어요)";
+  if (head.length > COMPACT_HEAD) head = head.slice(0, COMPACT_HEAD).trimEnd() + `\n${tr("status.compact_cut")}`;
   if ((head.match(/```/g)?.length ?? 0) % 2) head += "\n```";
   const out: Block[] = head.trim() ? [{ type: "section", text: { type: "mrkdwn", text: head } }] : [];
   return [...out, { type: "divider" }, { type: "section", text: { type: "mrkdwn", text: ack.slice(0, SECTION_LIMIT) } }];
@@ -278,10 +279,10 @@ function clampSection(b: Block): Block {
 
 // 진행 로그(도구 호출) — 오래된 줄부터 생략
 export function traceBlocks(steps: string[], done = false, ok = true): Block[] {
-  const head = ok || !done ? "🧰 *작업 내역*" : "⚠️ *작업 내역 (중단됨)*";
+  const head = ok || !done ? tr("status.trace_head") : tr("status.trace_stopped");
   const lines = steps.map((s) => `• ${escapeMrkdwn(s)}`);
-  if (!done) lines.push("⏳ _진행 중…_");
-  else if (!steps.length) lines.push("_도구 호출 없이 끝났어요._");
+  if (!done) lines.push(tr("status.trace_running"));
+  else if (!steps.length) lines.push(tr("status.trace_none"));
   let elided = false;
   while (lines.length > 1 && [head, ...lines].join("\n").length > SECTION_LIMIT) { lines.shift(); elided = true; }
   if (elided) lines.unshift("…");

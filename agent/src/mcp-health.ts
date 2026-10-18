@@ -4,6 +4,7 @@ import { readClaudeJson } from "./mcp.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CAPABILITIES, CONNECTORS, type Connectors } from "./connectors.ts";
+import { t } from "./i18n.ts";
 
 export type McpState = "ok" | "vpn" | "down";
 export type Health = { state: McpState; servers: Record<string, McpState>; checkedAt: string };
@@ -76,7 +77,7 @@ export class McpHealth {
 
 export function healthNote(h: Health): string | undefined {
   const bad = Object.entries(h.servers).filter(([, s]) => s !== "ok").map(([n]) => n);
-  if (h.state === "vpn") return `VPN이 꺼져 있어서 MCP 서버(${bad.join(", ")})에 연결할 수 없어요.`;
-  if (h.state === "down") return `MCP 서버(${bad.join(", ")})에 연결할 수 없어요.`;
+  if (h.state === "vpn") return t("status.mcp_vpn_down", { servers: bad.join(", ") });
+  if (h.state === "down") return t("status.mcp_down", { servers: bad.join(", ") });
   return undefined;
 }

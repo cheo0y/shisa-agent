@@ -13,6 +13,7 @@ import type { ConnectionOptions } from "node:tls";
 import type { MailTarget } from "./connectors.ts";
 import { MAIL_PRESETS } from "./mail-presets.ts";
 import { attachmentsOf, bodyFromParts, parseMail, textParts, type MailAttachment, type MimeNode } from "./mail-mime.ts";
+import { t } from "./i18n.ts";
 
 export const SNIPPET_CHARS = 600;    // 목록 맥락에 넣는 본문 앞부분 글자 수(전체 본문은 body)
 export const TIMEOUT_MS = 20_000;
@@ -52,51 +53,51 @@ export function mailFailure(err: any, c: Pick<MailTarget, "preset" | "host" | "p
   const out = (k: MailFailCode, reason: string) => ({ code: k, reason, ...(detail ? { detail } : {}) });
   if (/Application-specific password|app[- ]?specific|app password/i.test(text)) {
     return out("app-password", gmail
-      ? "Google 계정 비밀번호로는 연결할 수 없어요. 2단계 인증을 켠 뒤 앱 비밀번호 16자리를 만들어 넣어 주세요."
-      : `${name}에서 일반 비밀번호를 받지 않았어요. 앱(애플리케이션) 비밀번호를 만들어 넣어 주세요.`);
+      ? t("status.mail_google_pw")
+      : t("status.mail_need_app_pw", { name }));
   }
   if (/not enabled for IMAP|IMAP (access|use) (is )?(disabled|not enabled)|enable IMAP|IMAP.*(사용|설정)/i.test(text)) {
     return out("imap-off", gmail
-      ? "이 계정은 IMAP 이 꺼져 있어요. Gmail 설정의 「전달 및 POP/IMAP」에서 IMAP 을 켜 주세요. 회사·학교 계정이면 관리자가 막았을 수 있어요."
-      : `${name} 설정에서 IMAP 사용이 꺼져 있어요. 켠 뒤 다시 해 주세요.`);
+      ? t("status.mail_gmail_imap_off")
+      : t("status.mail_imap_off", { name }));
   }
   if (/WEBALERT|web ?browser|log ?in via your web|continue to sign in|ALERT\].*sign/i.test(text)) {
-    return out("web-login", `${name}가 이 로그인을 잠시 막았어요. 브라우저에서 ${name}에 한 번 로그인해 보안 알림을 확인한 뒤 다시 해 주세요.`);
+    return out("web-login", t("status.mail_web_login", { name }));
   }
   if (/administrator|your (domain|organization)|admin(istrator)? (has )?(disabled|blocked)|관리자/i.test(text)) {
-    return out("admin", "회사·학교 계정 관리자가 IMAP 이나 앱 비밀번호를 막아 두었어요. 관리자에게 물어보거나 개인 계정을 써 주세요.");
+    return out("admin", t("status.mail_admin"));
   }
   // 네이버: IMAP 이 꺼져 있어도 비밀번호가 틀려도 같은 답 — 둘 다 짚는다
   if (c.preset === "naver" && /check IMAP\/SMTP settings in the webmail/i.test(text)) {
-    return out("auth", "네이버가 로그인을 받지 않았어요. 먼저 네이버 메일 환경설정 → POP3/IMAP 설정 → 「IMAP/SMTP 설정」 탭에서 IMAP/SMTP 사용을 「사용함」으로 바꾸고 저장했는지 봐 주세요. 켜져 있는데도 안 되면 애플리케이션 비밀번호를 새로 만들어 넣어 주세요.");
+    return out("auth", t("status.mail_naver_auth"));
   }
   if (err?.authenticationFailed || /AUTHENTICATIONFAILED|AUTHENTICATE failed|Invalid credentials|LOGIN failed|authentication failed|incorrect (username|password)|bad credentials|NO \[AUTH/i.test(text)) {
-    const hint = c.preset === "custom" ? "메일 주소와 비밀번호를 다시 확인해 주세요." : MAIL_PRESETS[c.preset].authHint;
-    return out("auth", `메일 주소나 비밀번호가 맞지 않아요. ${hint}`);
+    const hint = c.preset === "custom" ? t("status.mail_check_both") : MAIL_PRESETS[c.preset].authHint;
+    return out("auth", t("status.mail_auth_fail", { hint }));
   }
   if (/READ-ONLY|read[- ]only/i.test(text) || code === "READONLY") {
-    return out("readonly", "받은편지함을 읽기 전용으로 열지 못해서 읽지 않았어요.");
+    return out("readonly", t("status.mail_readonly"));
   }
   if (/timeout|timed out/i.test(code + " " + text) || code === "ETIMEDOUT") {
-    return out("timeout", `${name} 서버가 답하지 않았어요. 인터넷 연결을 확인하고 다시 해 주세요.`);
+    return out("timeout", t("status.mail_timeout", { name }));
   }
   if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS|certificate|ssl|tls/i.test(code + " " + text)) {
-    return out("tls", `${name} 서버의 보안 인증서를 확인하지 못했어요. 회사 네트워크나 백신(메일·HTTPS 검사)이 연결을 가로챘을 수 있어요. 그 프로그램의 메일 검사에서 시사를 예외로 넣어 보세요.`);
+    return out("tls", t("status.mail_tls", { name }));
   }
   if (/ENOTFOUND|EAI_AGAIN/.test(code + " " + text)) {
-    return out("network", `메일 서버(${c.host})를 찾지 못했어요. 인터넷 연결을 확인해 주세요.`);
+    return out("network", t("status.mail_dns", { host: c.host }));
   }
   if (/ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|EPIPE|NoConnection|closed/i.test(code + " " + text)) {
-    return out("network", `메일 서버(${c.host})에 연결하지 못했어요. 인터넷·VPN·회사 방화벽을 확인해 주세요.`);
+    return out("network", t("status.mail_conn", { host: c.host }));
   }
-  return out("unknown", `${name}에서 메일을 읽지 못했어요.`);
+  return out("unknown", t("status.mail_unknown", { name }));
 }
 
 const toIso = (d: unknown) => (d instanceof Date && Number.isFinite(d.getTime()) ? d.toISOString() : typeof d === "string" && Number.isFinite(Date.parse(d)) ? new Date(d).toISOString() : undefined);
 
 // 최근 sinceHours 동안 받은 메일 전부(새 것 먼저). 로그인 시험도 이걸로 한다(LOGIN → EXAMINE INBOX → 읽기)
 export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): Promise<MailFetchResult> {
-  if (!c.password) return { ok: false, code: "config", reason: "메일 비밀번호(앱 비밀번호)가 없어요." };
+  if (!c.password) return { ok: false, code: "config", reason: t("status.mail_no_password2") };
   const now = opts.now ?? new Date();
   const since = new Date(now.getTime() - c.sinceHours * 3600e3);
   const timeout = opts.timeoutMs ?? TIMEOUT_MS;
@@ -174,7 +175,7 @@ export async function fetchRecentMail(c: MailTarget, opts: MailFetchOpts = {}): 
           const attachments = m.structure ? attachmentsOf(m.structure) : [];
           const snippet = body.replace(/\s+/g, " ").trim();
           items.push({
-            uid: m.uid, from: p.from || p.fromAddr || "(보낸 사람 없음)", fromAddr: p.fromAddr, subject: p.subject || "(제목 없음)", date: at,
+            uid: m.uid, from: p.from || p.fromAddr || t("status.no_sender"), fromAddr: p.fromAddr, subject: p.subject || t("status.no_title"), date: at,
             snippet: snippet.length > SNIPPET_CHARS ? `${snippet.slice(0, SNIPPET_CHARS - 1)}…` : snippet,
             body,
             ...(attachments.length ? { attachments } : {}),

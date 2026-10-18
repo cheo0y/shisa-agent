@@ -2,6 +2,7 @@
 // calendar-sync.ts 가 쓰고(store 의 calendar_state 한 줄), 연결 상태 줄(connections.ts)·패널 연결 카드·로컬 답(local-mode.ts)·
 // AI 맥락(actions.ts meetingsContext, brain.ts buildContext)이 읽는다. 「연결됨」인데 일정이 비어 있으면 그 까닭을 같은 말로 전한다.
 import type { Store } from "./store.ts";
+import { t } from "./i18n.ts";
 
 export type CalendarPhase = "off" | "pending" | "ok" | "failed";
 // ICS 캘린더 하나의 결과(별칭 · 오늘·내일 회의 수 · 못 가져온 이유 · 꺼 둠)
@@ -22,8 +23,8 @@ export type CalendarState = {
 // 캘린더마다 한 줄: 「회사: 일정 5개 / 개인: 못 가져옴(이유) / 가족: 꺼 둠」. 캘린더 결과가 없으면 ""
 export function calendarPartsLine(s: Pick<CalendarState, "calendars"> | null | undefined, withReason = true): string {
   const list = s?.calendars ?? [];
-  if (!list.length || (list.length === 1 && list[0].name === "캘린더" && list[0].phase !== "off")) return ""; // 이름 없는 캘린더 하나뿐이면 예전 말 그대로
-  return list.map((c) => `${c.name}: ${c.phase === "off" ? "꺼 둠" : c.phase === "failed" ? `못 가져옴${withReason && c.reason ? `(${c.reason})` : ""}` : `일정 ${c.meetings ?? 0}개`}`).join(" / ");
+  if (!list.length || (list.length === 1 && (list[0].name === "캘린더" || list[0].name === t("status.cal_default")) && list[0].phase !== "off")) return ""; // 이름 없는 캘린더 하나뿐이면 예전 말 그대로
+  return list.map((c) => `${c.name}: ${c.phase === "off" ? t("status.part_off") : c.phase === "failed" ? `${t("status.part_failed")}${withReason && c.reason ? `(${c.reason})` : ""}` : t("status.part_meetings", { n: c.meetings ?? 0 })}`).join(" / ");
 }
 
 const SCHEMA = "CREATE TABLE IF NOT EXISTS calendar_state (k TEXT PRIMARY KEY, v TEXT NOT NULL)";

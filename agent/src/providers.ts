@@ -12,6 +12,8 @@ import { delimiter, join } from "node:path";
 import { findOnPath, spawnSpec } from "./plat.ts";
 import type { ContentBlock } from "./attachments.ts";
 import { DEFAULT_GENERAL_MODEL, type BrainProvider, type Config } from "./config.ts";
+import { t } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 // redirect: 키를 싣는 요청은 "error"(리다이렉트를 따라가 다른 곳에 키를 보내지 않는다)
 // signal: 시간 초과·멈춤(timedFetch 가 붙인다) — 가짜 fetch 도 이걸 따라 끊어야 한다
@@ -45,7 +47,7 @@ export type ProviderDeps = {
 export const AI_TIMEOUT_MS = 60_000;
 export const AI_LIST_TIMEOUT_MS = 15_000;
 export class BrainTimeoutError extends Error {}
-export const STOPPED_MSG = "멈췄어요";
+export let STOPPED_MSG = t("status.stopped");
 const nullBody = (status: number) => status === 101 || status === 204 || status === 205 || status === 304;
 
 // 요청 하나를 ms 안에: fetch 와 본문 읽기(res.text())를 같은 signal 로 끊는다(본문이 멈춰도 걸리지 않게).
@@ -80,12 +82,19 @@ export const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash";
 // 출처: https://developers.openai.com/api/docs/models/gpt-4.1-mini — Model ID `gpt-4.1-mini`
 export const OPENAI_DEFAULT_MODEL = "gpt-4.1-mini";
 
-export const MISSING_GEMINI_KEY = "Gemini API 키가 없어요. CY_AGENT_GEMINI_API_KEY, GEMINI_API_KEY, 또는 설정의 brain.geminiApiKey를 넣어 주세요.";
-export const MISSING_OPENAI_KEY = "OpenAI API 키가 없어요. CY_AGENT_OPENAI_API_KEY, OPENAI_API_KEY, 또는 설정의 brain.openaiApiKey를 넣어 주세요.";
-export const MISSING_GENSPARK_KEY = "Genspark 키가 없어요. 터미널에서 gsk login 을 하거나, 설정에서 키를 붙여 넣어 주세요(CY_AGENT_GENSPARK_API_KEY 도 돼요).";
-export const MISSING_ANTHROPIC_KEY = "Claude API 키가 없어요. CY_AGENT_ANTHROPIC_API_KEY, 또는 설정의 brain.anthropicApiKey를 넣어 주세요.";
-export const MISSING_CODEX = "codex 명령을 찾을 수 없어요. Codex CLI를 설치한 뒤 다시 시도해 주세요.";
-export const LOCAL_ONLY = "로컬 뇌는 브리핑·채팅만 답해요.";
+export let MISSING_GEMINI_KEY = t("status.missing_gemini");
+export let MISSING_OPENAI_KEY = t("status.missing_openai");
+export let MISSING_GENSPARK_KEY = t("status.missing_genspark");
+export let MISSING_ANTHROPIC_KEY = t("status.missing_anthropic");
+export let MISSING_CODEX = t("status.missing_codex");
+export let LOCAL_ONLY = t("status.local_only");
+// 언어가 바뀌면(lang.ts) 위 안내 글도 그 언어로(가져다 쓰는 쪽은 살아 있는 바인딩이라 새 글을 본다)
+onLanguage(() => {
+  STOPPED_MSG = t("status.stopped");
+  MISSING_GEMINI_KEY = t("status.missing_gemini"); MISSING_OPENAI_KEY = t("status.missing_openai"); MISSING_GENSPARK_KEY = t("status.missing_genspark");
+  MISSING_ANTHROPIC_KEY = t("status.missing_anthropic"); MISSING_CODEX = t("status.missing_codex"); LOCAL_ONLY = t("status.local_only");
+  GENSPARK_NO_CREDIT = t("status.genspark_no_credit", { url: GENSPARK_PRICING }); GEMINI_TIMEOUT_TEXT = t("status.gemini_timeout");
+});
 
 // 출처: https://ai.google.dev/api/generate-content — POST /v1beta/{model}:generateContent, 헤더 x-goog-api-key
 export const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -197,11 +206,11 @@ const noCredit = new Map<KeyProvider, string>(); // 키는 맞는데 크레딧�
 let onAuthChange: (() => void) | undefined;
 const fingerprint = (key: string) => createHash("sha256").update(key).digest("hex").slice(0, 16);
 export class BrainAuthError extends Error {}
-export const authFailText = (p: KeyProvider) => p === "genspark" ? "Genspark 키가 맞지 않아요(gsk login 을 다시 해 주세요)" : `${KEY_LABEL[p]} API 키가 맞지 않아요. 키를 확인해 주세요`;
+export const authFailText = (p: KeyProvider) => p === "genspark" ? t("status.genspark_bad_key") : t("status.bad_key", { label: KEY_LABEL[p] });
 // 키는 맞지만 쓸 크레딧이 없음(Genspark 는 무료 플랜이면 API·LLM 프록시를 못 쓴다)
 export class BrainCreditError extends Error {}
-export const GENSPARK_NO_CREDIT = `Genspark 크레딧이 필요해요(무료 플랜은 API를 못 써요). 요금제: ${GENSPARK_PRICING}`;
-export const creditFailText = (p: KeyProvider) => p === "genspark" ? "Genspark 키는 맞지만 크레딧이 필요해요" : `${KEY_LABEL[p]} 키는 맞지만 크레딧이 필요해요`;
+export let GENSPARK_NO_CREDIT = t("status.genspark_no_credit", { url: GENSPARK_PRICING });
+export const creditFailText = (p: KeyProvider) => p === "genspark" ? t("status.genspark_credit") : t("status.key_credit", { label: KEY_LABEL[p] });
 // 상태가 바뀌면(키가 틀림 ↔ 다시 됨) 부른다(main 이 SSE status 로 알린다)
 export function onBrainAuthChange(fn: (() => void) | undefined) { onAuthChange = fn; }
 function markIn(map: Map<KeyProvider, string>, p: KeyProvider, key: string, bad: boolean): boolean {
@@ -342,13 +351,13 @@ export function geminiQuota(body: string): { day: boolean; waitMs?: number; limi
 type GeminiFail = { fail: true; status: number; day?: boolean; limit?: number; timeout?: boolean };
 const isFail = (x: Response | GeminiFail): x is GeminiFail => (x as GeminiFail).fail === true;
 
-export const GEMINI_TIMEOUT_TEXT = "Gemini가 붐벼서 답하지 못했어요(응답이 너무 오래 걸려 멈췄어요). 잠시 뒤 다시 보내 주세요";
+export let GEMINI_TIMEOUT_TEXT = t("status.gemini_timeout");
 function geminiFailText(f: { status: number; day?: boolean; limit?: number; timeout?: boolean }): string {
   if (f.timeout) return GEMINI_TIMEOUT_TEXT;
-  if (f.day) return `오늘 쓸 수 있는 Gemini 무료 사용량을 다 썼어요(무료 키는 모델마다 하루 ${f.limit ? `${f.limit}번` : "횟수"}이 정해져 있어요). 내일 다시 쓰거나, 결제를 켠 키를 넣어 주세요`;
-  if (f.status === 503 || f.status === 500) return "Gemini가 지금 붐벼서 답하지 못했어요. 잠시 뒤 다시 보내 주세요";
-  if (f.status === 429) return "Gemini 사용량 한도에 걸렸어요(무료 키는 1분·하루 횟수가 정해져 있어요). 잠시 뒤 다시 보내 주세요";
-  return "Gemini 요청이 실패했어요";
+  if (f.day) return t("status.gemini_day", { limit: f.limit ? t("status.gemini_day_n", { n: f.limit }) : t("status.gemini_day_any") });
+  if (f.status === 503 || f.status === 500) return t("status.gemini_busy");
+  if (f.status === 429) return t("status.gemini_rate");
+  return t("status.req_failed", { label: "Gemini" });
 }
 
 // 하루 한도를 다 쓴 모델 — 키 지문:모델 → 다시 쓸 수 있는 때(ms). 그때까지는 그 모델을 건너뛰고 바로 flash-lite 로(헛걸음 요청을 줄인다)
@@ -385,7 +394,7 @@ export async function geminiJson(
     } catch (e) {
       if (e instanceof BrainTimeoutError) { console.warn(`[gemini] 시간 초과 ${model} ${Date.now() - t0}ms`); return "timeout"; }
       if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
-      throw new Error("Gemini 요청을 보내지 못했어요.");
+      throw new Error(t("status.req_not_sent", { label: "Gemini" }));
     }
   };
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -457,7 +466,7 @@ export async function geminiJson(
   if (!res.ok) return readError(res, geminiFailText({ status: res.status }), { provider: "gemini", key }, geminiReason);
   markAuth("gemini", key, false);
   const raw = await res.text();
-  const data = asRecord(parseModelJson(raw, "Gemini 응답에서 JSON을 읽지 못했어요."));
+  const data = asRecord(parseModelJson(raw, t("status.bad_json", { label: "Gemini" })));
   const cand = (data?.candidates as { content?: { parts?: { text?: string }[] }; finishReason?: string }[] | undefined)?.[0];
   const parts = cand?.content?.parts;
   const text = Array.isArray(parts) ? parts.map((p) => p?.text ?? "").join("") : "";
@@ -465,11 +474,11 @@ export async function geminiJson(
   if (!text.trim()) {
     const block = String(asRecord(data?.promptFeedback)?.blockReason ?? "");
     const why = String(cand?.finishReason ?? "");
-    if (block || /SAFETY|BLOCKLIST|PROHIBITED|SPII|RECITATION/.test(why)) throw new Error("Gemini가 안전 필터로 답을 막았어요. 말을 조금 바꿔서 다시 보내 주세요");
-    if (why === "MAX_TOKENS") throw new Error("Gemini 답이 너무 길어 중간에 끊겼어요. 조금 더 짧게 물어봐 주세요");
-    throw new Error("Gemini가 빈 답을 보냈어요. 잠시 뒤 다시 보내 주세요");
+    if (block || /SAFETY|BLOCKLIST|PROHIBITED|SPII|RECITATION/.test(why)) throw new Error(t("status.gemini_safety"));
+    if (why === "MAX_TOKENS") throw new Error(t("status.gemini_long"));
+    throw new Error(t("status.gemini_empty"));
   }
-  return parseModelJson(text, "Gemini 응답에서 JSON을 읽지 못했어요.");
+  return parseModelJson(text, t("status.bad_json", { label: "Gemini" }));
 }
 
 // Gemini 오류 본문의 이유 한 줄(400 스키마 거절 등). 키는 본문에 없지만 혹시 몰라 키 모양은 지운다
@@ -537,7 +546,7 @@ type ChatSpec = {
 };
 type ChatOpts = { system?: string; blocks?: ContentBlock[]; fetch?: FetchLike; timeoutMs?: number; signal?: AbortSignal };
 // 다른 뇌가 시간 안에 답하지 않았을 때(lite 같은 넘어갈 곳이 없다)
-export const timeoutText = (label: string) => `${label} 응답이 너무 오래 걸려 멈췄어요. 잠시 뒤 다시 보내 주세요`;
+export const timeoutText = (label: string) => t("status.timeout_text", { label });
 async function chatCompletionsText(spec: ChatSpec, prompt: string, schema: unknown, opts: ChatOpts): Promise<string> {
   const fetchImpl = opts.fetch ?? fetch;
   const messages = [
@@ -564,7 +573,7 @@ async function chatCompletionsText(spec: ChatSpec, prompt: string, schema: unkno
         throw new BrainTimeoutError(timeoutText(spec.label));
       }
       if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
-      throw new Error(`${spec.label} 요청을 보내지 못했어요.`);
+      throw new Error(t("status.req_not_sent", { label: spec.label }));
     }
   };
   let res = await send();
@@ -583,11 +592,11 @@ async function chatCompletionsText(spec: ChatSpec, prompt: string, schema: unkno
   if (!res.ok) {
     if (spec.failText && res.status !== 401 && res.status !== 403) {
       const text = failBody ?? await res.text().catch(() => "");
-      throw new Error(`${spec.failText(res.status, text) ?? `${spec.label} 요청이 실패했어요`} (HTTP ${res.status}).`);
+      throw new Error(`${spec.failText(res.status, text) ?? t("status.req_failed", { label: spec.label })} (HTTP ${res.status}).`);
     }
-    return readError(res, `${spec.label} 요청이 실패했어요`, { provider: spec.provider, key: spec.key });
+    return readError(res, t("status.req_failed", { label: spec.label }), { provider: spec.provider, key: spec.key });
   }
-  const data = asRecord(parseModelJson(await res.text(), `${spec.label} 응답에서 JSON을 읽지 못했어요.`));
+  const data = asRecord(parseModelJson(await res.text(), t("status.bad_json", { label: spec.label })));
   const content = (data?.choices as { message?: { content?: unknown } }[] | undefined)?.[0]?.message?.content;
   return typeof content === "string"
     ? content
@@ -604,15 +613,15 @@ export const openaiNoRetry = (status: number, body: string) => status === 429 &&
 // 429 를 이유별로: 크레딧 없음 · 너무 잦음. 400 은 OpenAI 가 준 이유 한 줄(키 모양 글자는 가림)
 export function openaiFailText(status: number, body: string): string | undefined {
   const code = openaiErrorCode(body);
-  if (status === 429 && code === "insufficient_quota") return `OpenAI 크레딧이 없어요. 결제를 켜고 크레딧을 충전한 뒤 다시 보내 주세요(ChatGPT 구독과 API 요금은 따로예요): ${OPENAI_BILLING_URL}`;
-  if (status === 429) return "OpenAI 요청이 너무 잦아요. 잠시 뒤 다시 보내 주세요";
+  if (status === 429 && code === "insufficient_quota") return t("status.openai_no_credit", { url: OPENAI_BILLING_URL });
+  if (status === 429) return t("status.openai_rate");
   if (status === 400) {
     let msg = "";
     try { msg = String(asRecord(asRecord(JSON.parse(body))?.error)?.message ?? ""); } catch { /* 본문이 JSON 이 아니면 이유 없이 */ }
     msg = msg.replace(/sk-[A-Za-z0-9_-]{8,}/g, "…").replace(/\s+/g, " ").trim().slice(0, 200);
-    return msg ? `OpenAI 가 요청을 받지 않았어요: ${msg}` : undefined;
+    return msg ? t("status.openai_rejected", { msg }) : undefined;
   }
-  if (status >= 500) return "OpenAI 가 지금 답하지 못했어요. 잠시 뒤 다시 보내 주세요";
+  if (status >= 500) return t("status.openai_busy");
   return undefined;
 }
 
@@ -626,7 +635,7 @@ export async function openaiJson(
   const model = resolveHttpModel("openai", cfg.models?.general, opts.model);
   const text = await chatCompletionsText({ url: OPENAI_URL, label: "OpenAI", provider: "openai", key, model, failText: openaiFailText, noRetry: openaiNoRetry, retry: { sleep: opts.sleep } }, prompt, schema, opts);
   markAuth("openai", key, false);
-  return openaiUnstrict(parseModelJson(text, "OpenAI 응답에서 JSON을 읽지 못했어요."), schema);
+  return openaiUnstrict(parseModelJson(text, t("status.bad_json", { label: "OpenAI" })), schema);
 }
 
 // ---- Genspark ----
@@ -654,17 +663,17 @@ export async function gensparkModels(key: string, opts: { fetch?: FetchLike; now
   } catch (e) {
     if (e instanceof BrainTimeoutError) {
       console.warn(`[genspark] 시간 초과 (모델 목록) ${Date.now() - t0}ms`);
-      throw new BrainTimeoutError("Genspark 모델 목록이 너무 오래 걸려 멈췄어요. 잠시 뒤 다시 보내 주세요");
+      throw new BrainTimeoutError(t("status.gs_models_timeout"));
     }
     if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
-    throw new Error("Genspark 모델 목록을 받지 못했어요. 인터넷 연결을 확인해 주세요.");
+    throw new Error(t("status.gs_models_net"));
   }
-  if (!res.ok) return readError(res, "Genspark 모델 목록을 받지 못했어요", { provider: "genspark", key });
+  if (!res.ok) return readError(res, t("status.gs_models_fail"), { provider: "genspark", key });
   const data = asRecord(tryParse(await res.text()));
   const ids = (Array.isArray(data?.data) ? data!.data as unknown[] : [])
     .map((m) => asRecord(m)?.id)
     .filter((id): id is string => typeof id === "string" && !!id.trim());
-  if (!ids.length) throw new Error("Genspark 모델 목록이 비어 있어요. 잠시 뒤 다시 해 주세요.");
+  if (!ids.length) throw new Error(t("status.gs_models_empty"));
   gensparkModelCache.set(fp, { ids, at: now });
   return ids;
 }
@@ -676,14 +685,14 @@ export function pickGensparkModel(ids: string[]): string {
 }
 
 function gensparkFailText(status: number, body: string): string | undefined {
-  if (status === 400 && /not allowed/i.test(body)) return "그 모델은 Genspark 에서 못 써요. 모델을 다시 골라 주세요";
+  if (status === 400 && /not allowed/i.test(body)) return t("status.gs_model_not_allowed");
   if (status === 422) {
     const errs = asRecord(tryParse(body))?.errors;
     console.warn(`[genspark] 요청 형식 오류(422): ${redactKeys(JSON.stringify(errs ?? null)).slice(0, 400)}`);
-    return "Genspark 가 요청 형식을 받지 않았어요";
+    return t("status.gs_bad_format");
   }
-  if (status === 429) return "Genspark 사용량 한도에 걸렸어요. 잠시 뒤 다시 보내 주세요";
-  if (status >= 500) return "Genspark 가 지금 답하지 못했어요. 잠시 뒤 다시 보내 주세요";
+  if (status === 429) return t("status.gs_rate");
+  if (status >= 500) return t("status.gs_busy");
   return undefined;
 }
 const redactKeys = (s: string) => s.replace(/\bgsk-[\w-]+/g, "***");
@@ -699,7 +708,7 @@ export async function gensparkJson(
   // 모델: 따로 준 것 > models.general. Claude Code 기본 이름(DEFAULT_GENERAL_MODEL)이면 고른 게 아니라 기본값으로 본다
   const chosen = (opts.model ?? "").trim() || (cfg.models?.general ?? "").trim();
   const asked = chosen && chosen !== DEFAULT_GENERAL_MODEL ? chosen : "";
-  if (asked && !ids.includes(asked)) throw new Error(`그 모델(${asked.slice(0, 60)})은 Genspark 에서 못 써요. 모델 탭에서 목록에 있는 모델을 골라 주세요.`);
+  if (asked && !ids.includes(asked)) throw new Error(t("status.gs_model_unknown", { model: asked.slice(0, 60) }));
   const model = asked || pickGensparkModel(ids);
   const text = await chatCompletionsText(
     { url: `${GENSPARK_URL}/chat/completions`, label: "Genspark", provider: "genspark", key, model, failText: gensparkFailText, retry: { sleep: opts.sleep } },
@@ -711,7 +720,7 @@ export async function gensparkJson(
     throw new BrainCreditError(GENSPARK_NO_CREDIT);
   }
   markAuth("genspark", key, false);
-  return openaiUnstrict(parseModelJson(text, "Genspark 응답에서 JSON을 읽지 못했어요."), schema);
+  return openaiUnstrict(parseModelJson(text, t("status.bad_json", { label: "Genspark" })), schema);
 }
 
 export async function anthropicJson(
@@ -743,15 +752,15 @@ export async function anthropicJson(
       throw new BrainTimeoutError(timeoutText("Claude API"));
     }
     if (opts.signal?.aborted) throw new Error(STOPPED_MSG);
-    throw new Error("Claude API 요청을 보내지 못했어요.");
+    throw new Error(t("status.req_not_sent", { label: "Claude API" }));
   }
-  if (!res.ok) return readError(res, "Claude API 요청이 실패했어요", { provider: "anthropic", key });
+  if (!res.ok) return readError(res, t("status.req_failed", { label: "Claude API" }), { provider: "anthropic", key });
   markAuth("anthropic", key, false);
-  const data = asRecord(parseModelJson(await res.text(), "Claude API 응답에서 JSON을 읽지 못했어요."));
-  if (data?.stop_reason === "refusal") throw new Error("Claude 가 이 요청에는 답하지 않았어요.");
+  const data = asRecord(parseModelJson(await res.text(), t("status.bad_json", { label: "Claude API" })));
+  if (data?.stop_reason === "refusal") throw new Error(t("status.claude_refusal"));
   const content = Array.isArray(data?.content) ? data!.content as unknown[] : [];
   const text = content.map((b) => { const r = asRecord(b); return r?.type === "text" && typeof r.text === "string" ? r.text : ""; }).join("");
-  return parseModelJson(text, "Claude API 응답에서 JSON을 읽지 못했어요.");
+  return parseModelJson(text, t("status.bad_json", { label: "Claude API" }));
 }
 
 // PATH만 본다. codex 바이너리는 실행하지 않는다.
@@ -790,10 +799,10 @@ export function parseCodexStdout(stdout: string): unknown {
     if (text) lastText = text;
     else if ("bubble" in rec || "reply_md" in rec || "reply" in rec) lastObj = rec;
   }
-  if (lastText) return parseModelJson(lastText, "codex 출력에서 JSON을 읽지 못했어요.");
+  if (lastText) return parseModelJson(lastText, t("status.codex_bad_json"));
   if (lastObj) return lastObj;
   if (whole) return whole;
-  return parseModelJson(trimmed, "codex 출력에서 JSON을 읽지 못했어요.");
+  return parseModelJson(trimmed, t("status.codex_bad_json"));
 }
 
 // Windows: cmd.exe 를 죽여도 그 아래 codex 는 남는다 → taskkill /T 로 나무째
@@ -809,13 +818,13 @@ export function defaultExecFile(file: string, args: readonly string[], opts: { i
     const child = spawn(sp.file, sp.args, { cwd: opts.cwd, windowsHide: true, windowsVerbatimArguments: sp.verbatim, stdio: ["pipe", "pipe", "pipe"] });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    const timer = setTimeout(() => { killTree(child.pid); child.kill(); reject(new Error("codex 실행 시간이 초과됐어요.")); }, opts.timeout ?? 120_000);
+    const timer = setTimeout(() => { killTree(child.pid); child.kill(); reject(new Error(t("status.codex_timeout"))); }, opts.timeout ?? 120_000);
     child.stdout.on("data", (d) => out.push(d));
     child.stderr.on("data", (d) => err.push(d));
-    child.on("error", () => { clearTimeout(timer); reject(new Error("codex 실행이 실패했어요.")); });
+    child.on("error", () => { clearTimeout(timer); reject(new Error(t("status.codex_failed"))); });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) reject(new Error("codex 실행이 실패했어요."));
+      if (code !== 0) reject(new Error(t("status.codex_failed")));
       else resolve({ stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
     });
     child.stdin.end(opts.input ?? "");
@@ -862,7 +871,7 @@ export async function codexExec(prompt: string, schema: unknown, opts: CodexOpts
     const result = await exec("codex", codexArgs(opts.model), { input, timeout: opts.timeoutMs ?? CODEX_TIMEOUT_MS, cwd: tmpdir() });
     stdout = result.stdout;
   } catch (e) {
-    throw new Error(/초과/.test(String((e as Error)?.message ?? "")) ? "codex 실행 시간이 초과됐어요." : "codex 실행이 실패했어요.");
+    throw new Error(String((e as Error)?.message ?? "") === t("status.codex_timeout") || /초과/.test(String((e as Error)?.message ?? "")) ? t("status.codex_timeout") : t("status.codex_failed"));
   }
   return { out: parseCodexStdout(stdout), usage: parseCodexUsage(stdout) };
 }

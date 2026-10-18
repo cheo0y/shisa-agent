@@ -2,6 +2,8 @@
 // 머리말 펼치기, 인코딩된 낱말(=?charset?B|Q?…?=), base64·quoted-printable, 문자셋(TextDecoder — euc-kr 등), multipart 나누기, HTML → 텍스트.
 // 원문이 잘려 와도(잘린 base64 도) 깨지지 않게 읽는다. 보통은 원문 전체 대신 구조(BODYSTRUCTURE)를 보고 글 부분만 받아 bodyFromParts 로 푼다(아래).
 
+import { t } from "./i18n.ts";
+
 export type ParsedMail = {
   from: string;          // 「이름 <주소>」 또는 주소
   fromAddr: string;      // 주소만(소문자)
@@ -203,7 +205,7 @@ export function attachmentsOf(root: MimeNode): MailAttachment[] {
     if (!want) return;
     const enc = (n.encoding ?? "").toLowerCase();
     const raw = Number(n.size) || 0;
-    out.push({ name: (decodeWords(name).replace(/\s+/g, " ").trim() || (n.type === "message/rfc822" ? "(전달된 메일)" : "(이름 없음)")).slice(0, 300), type: n.type, size: enc === "base64" ? Math.floor((raw * 57) / 78) : raw });
+    out.push({ name: (decodeWords(name).replace(/\s+/g, " ").trim() || (n.type === "message/rfc822" ? t("status.forwarded_mail") : t("status.no_name"))).slice(0, 300), type: n.type, size: enc === "base64" ? Math.floor((raw * 57) / 78) : raw });
   };
   walk(root, false, 0);
   return out;

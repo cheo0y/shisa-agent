@@ -8,13 +8,14 @@
 //   3) 연결돼 있어도 그 호출이 실패하면(오류 결과·미연결 응답) 말풍선을 띄우지 않는다.
 import { CAP_LABELS, CAPABILITIES, CONNECTORS, mcpTool, type Capability, type Connectors } from "./connectors.ts";
 import { hasUserMcpServer } from "./mcp.ts";
+import { t as tr } from "./i18n.ts";
 
 export type SourceId = Capability;
 const BUBBLE: Record<SourceId, string> = {
-  slack: "슬랙 보는 중이에요…",
-  mail: "메일 확인하는 중이에요…",
-  calendar: "오늘 일정 보는 중이에요…",
-  issues: "이슈 보는 중이에요…",
+  get slack() { return tr("status.bub_slack"); },
+  get mail() { return tr("status.bub_mail"); },
+  get calendar() { return tr("status.bub_calendar"); },
+  get issues() { return tr("status.bub_issues"); },
 };
 // 같은 서버를 여러 기능이 같이 쓰면(예: ms365 = 메일·일정) 도구 이름으로 가른다
 const TOOL_HINT: Record<SourceId, RegExp> = {

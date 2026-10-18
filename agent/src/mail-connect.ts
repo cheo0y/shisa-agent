@@ -11,6 +11,7 @@ import { fetchRecentMail, type MailFetchOpts, type MailFetchResult } from "./mai
 import { guessMailPreset, isMailPreset } from "./mail-presets.ts";
 import { addLogSecret } from "./log.ts";
 import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
+import { t as tr } from "./i18n.ts";
 
 export type MailConnectBody = { preset?: string; user?: string; password?: string; host?: string; port?: number; secure?: boolean; sinceHours?: number };
 // updated: 이미 있던 주소라 그 계정을 바꿨다(새로 붙이지 않음). accounts: 저장한 뒤 계정 수
@@ -30,8 +31,8 @@ export function readConfigObject(path: string): Record<string, unknown> {
   const raw = stripBom(readFileSync(path, "utf8")); // 메모장 BOM
   if (!raw.trim()) return {};
   let v: unknown;
-  try { v = JSON.parse(raw); } catch { throw new Error("config.json 을 읽을 수 없어요(JSON 오류). 덮어쓰지 않았어요"); }
-  if (!obj(v)) throw new Error("config.json 이 객체가 아니에요. 덮어쓰지 않았어요");
+  try { v = JSON.parse(raw); } catch { throw new Error(tr("status.cfg_bad_json")); }
+  if (!obj(v)) throw new Error(tr("status.cfg_not_object"));
   return v as Record<string, unknown>;
 }
 
@@ -59,35 +60,35 @@ export function mailConnectPlan(body: unknown, cur: Conn | undefined, env: NodeJ
   if (!b) return { error: "json object required" };
   for (const k of Object.keys(b)) if (!KEYS.has(k)) return { error: `unknown key: ${k}` };
   const user = typeof b.user === "string" ? b.user.trim() : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user) || user.length > 320) return { error: "메일 주소를 확인해 주세요." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user) || user.length > 320) return { error: tr("status.mail_check_user") };
   const preset = typeof b.preset === "string" && b.preset ? b.preset : guessMailPreset(user) ?? "custom";
-  if (preset !== "custom" && !isMailPreset(preset)) return { error: "모르는 메일 서비스예요." };
-  if (b.password !== undefined && typeof b.password !== "string") return { error: "비밀번호를 확인해 주세요." };
+  if (preset !== "custom" && !isMailPreset(preset)) return { error: tr("status.mail_unknown_svc") };
+  if (b.password !== undefined && typeof b.password !== "string") return { error: tr("status.mail_check_pw") };
   let password = typeof b.password === "string" ? b.password : "";
-  if (password.length > 512) return { error: "비밀번호가 너무 길어요." };
+  if (password.length > 512) return { error: tr("status.mail_pw_long") };
   const now = imapOf(cur);
   const same = now?.accounts.find((a) => a.user.toLowerCase() === user.toLowerCase());
   const envFirst = !!env.CY_AGENT_MAIL_PASSWORD && (!now || now.accounts[0] === same); // 환경변수 비밀번호는 첫 계정 것
   if (!password.trim()) password = same?.password ?? "";
-  if (!password.trim() && !envFirst) return { error: preset === "gmail" ? "앱 비밀번호 16자리를 넣어 주세요." : "비밀번호를 넣어 주세요." };
+  if (!password.trim() && !envFirst) return { error: preset === "gmail" ? tr("status.mail_need_app16") : tr("status.mail_need_pw") };
   const account: Record<string, unknown> = { id: same?.id ?? mailAccountId(user), preset, user };
   if (preset === "custom") {
-    if (typeof b.host !== "string" || !b.host.trim()) return { error: "메일 서버 주소(IMAP)를 넣어 주세요." };
+    if (typeof b.host !== "string" || !b.host.trim()) return { error: tr("status.mail_need_host2") };
     account.host = b.host.trim();
     if (b.port !== undefined) account.port = b.port;
     if (b.secure === false) account.secure = false;
   }
   let sinceHours: number | undefined;
   if (b.sinceHours !== undefined) {
-    if (typeof b.sinceHours !== "number" || !Number.isFinite(b.sinceHours) || b.sinceHours <= 0) return { error: "sinceHours 는 0보다 큰 수예요." };
+    if (typeof b.sinceHours !== "number" || !Number.isFinite(b.sinceHours) || b.sinceHours <= 0) return { error: tr("status.mail_since_bad") };
     sinceHours = b.sinceHours;
   }
   if (password.trim()) account.password = preset === "gmail" ? password.replace(/\s+/g, "") : password.trim();
   // 시험할 연결: 이 계정 하나(기간·거르기는 지금 설정 그대로)
   const test = mailImapConn({ accounts: [account], sinceHours: sinceHours ?? now?.sinceHours, skipPromotions: now?.skipPromotions }, envFirst && !account.password ? env : {});
-  if (test.mode !== "imap") return { error: test.reason?.replace(/^mail: /, "") ?? "메일 설정을 확인해 주세요." };
+  if (test.mode !== "imap") return { error: test.reason?.replace(/^mail: /, "") ?? tr("status.mail_check_cfg") };
   const t = { ...test.accounts[0], sinceHours: test.sinceHours, skipPromotions: test.skipPromotions };
-  if (!t.password) return { error: "비밀번호를 넣어 주세요." };
+  if (!t.password) return { error: tr("status.mail_need_pw") };
   return { account, target: t, ...(sinceHours !== undefined ? { sinceHours } : {}), updated: !!same };
 }
 
@@ -128,7 +129,7 @@ export async function connectMail(body: unknown, deps: {
     if (plan.sinceHours !== undefined) v.sinceHours = plan.sinceHours;
     const value = mailValue(v);
     const next = mailImapConn(value, env);
-    if (next.mode !== "imap") return { ok: false, status: 400, error: next.reason ?? "메일 설정을 확인해 주세요." };
+    if (next.mode !== "imap") return { ok: false, status: 400, error: next.reason ?? tr("status.mail_check_cfg") };
     writeMailConnector(deps.path, value);
     conn = next;
   } catch (e: any) { return { ok: false, status: 500, error: String(e?.message ?? e) }; }
@@ -140,11 +141,11 @@ export async function connectMail(body: unknown, deps: {
 // 계정 하나 빼기: 그 계정(비밀번호까지)을 config.json 에서 지운다. 마지막 계정이면 메일 연결이 꺼진다({ mode: "off" }).
 // apply: 새 연결(또는 off) — 동기화가 그 계정의 가져온 메일을 지운다
 export function removeMailAccount(id: unknown, deps: { path: string; env?: NodeJS.ProcessEnv; apply: (conn: Conn) => void }): MailRemoveResult {
-  if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) return { ok: false, status: 400, error: "계정 id 를 확인해 주세요." };
+  if (typeof id !== "string" || !/^[\w-]{1,64}$/.test(id)) return { ok: false, status: 400, error: tr("status.mail_check_id") };
   try {
     const v = rawMailValue(readConfigObject(deps.path));
     const i = v.accounts.findIndex((a) => a.id === id);
-    if (i < 0) return { ok: false, status: 404, error: "그 메일 계정은 연결돼 있지 않아요." };
+    if (i < 0) return { ok: false, status: 404, error: tr("status.mail_not_connected") };
     const [gone] = v.accounts.splice(i, 1);
     const value = v.accounts.length ? mailValue(v) : { mode: "off" };
     writeMailConnector(deps.path, value);

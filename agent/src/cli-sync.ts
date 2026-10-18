@@ -12,6 +12,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { compactInput, redact, toolDiff, LIMITS, type Run, type RunEventInput, type RunRegistry } from "./runs.ts";
 import type { Store } from "./store.ts";
 import { isAbsPath } from "./plat.ts";
+import { t as tr } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 export const CLI_LIMITS = {
   readPerSync: 8 * 1024 * 1024,   // 한 번에 파일 하나에서 읽는 양
@@ -28,8 +30,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const okSessionId = (sid: unknown): sid is string => typeof sid === "string" && UUID.test(sid);
 const TOOL_ID = /^[\w-]{1,100}$/;
 const AGENT_ID = /^[\w-]{1,64}$/;
-export const HEADER_TEXT = "터미널 Claude Code 에서 이어 간 대화";
-const CAP_TEXT = "터미널 기록이 너무 커서 여기까지만 불러왔어요";
+export let HEADER_TEXT = tr("status.cli_header");
+let CAP_TEXT = tr("status.cli_cap");
+onLanguage(() => { HEADER_TEXT = tr("status.cli_header"); CAP_TEXT = tr("status.cli_cap"); }); // 살아 있는 바인딩
 
 // Claude Code 프로젝트 폴더 이름 — 영숫자 밖은 전부 "-"(desktop/src/resume.js projectDirName 과 같음)
 export const projectDirName = (cwd: string) => String(cwd).replace(/[^a-zA-Z0-9]/g, "-");
@@ -148,7 +151,7 @@ export function taskNotification(text: string): { toolUseId: string; status: str
 export function userText(text: string): { kind: "user" | "system"; text: string } | undefined {
   const t = text.trim();
   if (!t) return undefined;
-  if (/^\[Request interrupted/.test(t)) return { kind: "system", text: "중단됨(Claude Code)" };
+  if (/^\[Request interrupted/.test(t)) return { kind: "system", text: tr("status.cli_interrupted") };
   const cmd = tag(t, "command-name");
   if (cmd) return { kind: "user", text: [cmd, tag(t, "command-args")].filter(Boolean).join(" ") };
   const out = tag(t, "local-command-stdout") ?? tag(t, "bash-stdout");
@@ -172,7 +175,7 @@ export function convertMain(entries: any[]): Converted {
     const base = { via: "cli" as const, ...(at ? { at } : {}) };
     if (j.type === "system") {
       if (j.subtype === "turn_duration" || j.subtype === "stop_hook_summary") flush();
-      if (j.subtype === "compact_boundary") out.events.push({ type: "system", text: "대화를 요약했어요(Claude Code /compact)", ...base });
+      if (j.subtype === "compact_boundary") out.events.push({ type: "system", text: tr("status.cli_compact"), ...base });
       continue;
     }
     const content = j.message?.content;
@@ -326,7 +329,7 @@ export class CliSync {
   sync(runId: string): SyncResult {
     const run = this.d.runs.summary(runId);
     if (!run) return { ok: false, status: 404, error: "no such run" };
-    if (!okSessionId(run.sdkSessionId)) return { ok: false, status: 409, error: "이 세션에는 Claude Code 세션 id 가 없어요" };
+    if (!okSessionId(run.sdkSessionId)) return { ok: false, status: 409, error: tr("status.cli_no_sid") };
     if (this.busy.has(runId)) return { ok: true, imported: 0 };
     this.busy.add(runId);
     try { return this.syncRun(run, run.sdkSessionId); }
@@ -335,7 +338,7 @@ export class CliSync {
 
   private syncRun(run: Run, sid: string): SyncResult {
     const f = findSessionFile(this.claudeDir, sid, run.cwd);
-    if (!f) return { ok: false, status: 404, error: "이 세션 기록을 찾을 수 없어요" };
+    if (!f) return { ok: false, status: 404, error: tr("status.cli_not_found") };
     let budget = CLI_LIMITS.bytesPerRun - this.bytesRead(run.id);
     let imported = 0;
     const log = (ev: RunEventInput) => { if (this.d.runs.logEvent(run.id, ev)) imported++; };
@@ -457,9 +460,9 @@ export class CliSync {
   // Claude Code 세션 id 로 불러오기(세션 창 ⤵): 그 세션 기록을 채팅 run 하나로 세션 창에 넣는다.
   // 이미 그 세션의 run 이 있으면 새로 만들지 않고 그 run 에 새 줄만 불러온다. cwd 는 기록의 cwd 필드(Claude Code에서 열기·↻ 그대로)
   importSession(sid: string): ImportResult {
-    if (!okSessionId(sid)) return { ok: false, status: 400, error: "세션 id 는 UUID 여야 해요" };
+    if (!okSessionId(sid)) return { ok: false, status: 400, error: tr("status.cli_bad_sid") };
     const f = findSessionFile(this.claudeDir, sid);
-    if (!f) return { ok: false, status: 404, error: "이 세션 기록을 찾을 수 없어요" };
+    if (!f) return { ok: false, status: 404, error: tr("status.cli_not_found") };
     const had = this.d.db.prepare("SELECT id FROM runs WHERE sdk_session_id = ? ORDER BY started_at DESC LIMIT 1").get(sid) as any;
     if (had?.id) {
       const r = this.sync(had.id);
@@ -467,7 +470,7 @@ export class CliSync {
     }
     const head = readFrom(f.file, 0, 256 * 1024).lines.map((l) => l.text).join("\n");
     const cwd = sessionCwd(head, f.projectDir);
-    const h = this.d.runs.startRun({ kind: "chat", title: `Claude Code 세션 ${sid.slice(0, 8)}`, ...(cwd ? { cwd } : {}), routine: false });
+    const h = this.d.runs.startRun({ kind: "chat", title: tr("status.cli_session_title", { id: sid.slice(0, 8) }), ...(cwd ? { cwd } : {}), routine: false });
     h.setSession(sid);
     const r = this.sync(h.id);
     const first = this.d.runs.getRun(h.id)?.events.find((e) => e.type === "user" && e.text)?.text?.split("\n")[0].trim();
@@ -479,7 +482,7 @@ export class CliSync {
   // 대화(스레드) 하나의 run 들을 모두(패널 ↻)
   syncThread(threadId: string): SyncResult {
     const list = this.d.runs.runsForThread(threadId);
-    if (!list.length) return { ok: false, status: 404, error: "이 대화에는 Claude Code 세션이 없어요" };
+    if (!list.length) return { ok: false, status: 404, error: tr("status.cli_no_thread") };
     let imported = 0;
     for (const r of list) { const x = this.sync(r.id); if (x.ok) imported += x.imported; }
     return { ok: true, imported };

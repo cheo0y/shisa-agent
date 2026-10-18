@@ -22,12 +22,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { hasUserMcpServer } from "./mcp.ts";
 import { MAIL_PRESETS, isMailPreset, mailHostOk, type MailPresetId } from "./mail-presets.ts";
+import { t } from "./i18n.ts";
 
 export const CAPABILITIES = ["slack", "calendar", "mail", "issues"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type Mode = "mcp" | "api" | "imap" | "off";
 
-export const CAP_LABELS: Record<Capability, string> = { slack: "Slack", calendar: "캘린더", mail: "메일", issues: "이슈" };
+// 화면 이름(지금 언어로 — 읽을 때마다 t())
+export const CAP_LABELS: Record<Capability, string> = { slack: "Slack", get calendar() { return t("status.cap_calendar"); }, get mail() { return t("status.cap_mail"); }, get issues() { return t("status.cap_issues"); } };
 // 기능별로 고를 수 있는 모드(api 는 slack·calendar 만, imap 은 메일만)
 export const MODES: Record<Capability, readonly Mode[]> = {
   slack: ["api", "mcp", "off"],
@@ -115,16 +117,16 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
   const one = (cap: Capability): Conn => {
     const c = raw[cap] && typeof raw[cap] === "object" ? raw[cap] : typeof raw[cap] === "string" ? { mode: raw[cap] } : undefined;
     const mode = str(c?.mode) as Mode | undefined;
-    if (!c || !mode || !MODES[cap].includes(mode)) return { cap, mode: "off", reason: mode && !MODES[cap].includes(mode) ? `${cap}: ${mode} 모드는 지원하지 않아요` : undefined };
+    if (!c || !mode || !MODES[cap].includes(mode)) return { cap, mode: "off", reason: mode && !MODES[cap].includes(mode) ? t("status.conn_bad_mode", { cap, mode }) : undefined };
     if (mode === "off") return { cap, mode: "off" };
     if (mode === "mcp") {
       const presetName = str(c?.preset);
       const preset = presetName ? PRESETS[cap]?.[presetName] : undefined;
-      if (presetName && !preset) return { cap, mode: "off", reason: `${cap}: 모르는 프리셋 "${presetName}"` };
+      if (presetName && !preset) return { cap, mode: "off", reason: t("status.conn_bad_preset", { cap, preset: presetName }) };
       const tools: Record<string, string> = { ...(preset?.tools ?? {}) };
       for (const [role, name] of Object.entries(c?.tools ?? {})) if (ROLES[cap].includes(role) && str(name)) tools[role] = str(name)!;
       const server = str(c?.server) ?? preset?.server;
-      if (!server) return { cap, mode: "off", reason: `${cap}: mcp 모드엔 server(등록한 MCP 서버 이름)가 필요해요` };
+      if (!server) return { cap, mode: "off", reason: t("status.conn_need_server", { cap }) };
       return { cap, mode, server, ...(presetName ? { preset: presetName } : {}), tools };
     }
     if (mode === "imap") return mailImapConn(c, env);
@@ -187,16 +189,16 @@ export function rawMailAccounts(c: Record<string, any> | undefined): Record<stri
 // 계정 하나(원본) → 계정. 프리셋이 서버 주소를 채우고, 그 밖은 host·port 를 직접(암호화 없는 연결은 이 컴퓨터 안 주소만)
 export function mailImapAccount(c: Record<string, any>, envPassword?: string): MailImapAccount | { reason: string } {
   const presetName = str(c?.preset) ?? (str(c?.host) ? "custom" : "gmail");
-  if (presetName !== "custom" && !isMailPreset(presetName)) return { reason: `mail: 모르는 메일 서비스 "${presetName}"` };
+  if (presetName !== "custom" && !isMailPreset(presetName)) return { reason: t("status.mail_bad_preset", { preset: presetName }) };
   const p = presetName === "custom" ? undefined : MAIL_PRESETS[presetName];
   const host = (p ? p.host : str(c?.host))?.toLowerCase();
-  if (!host || !mailHostOk(host)) return { reason: "mail: imap 모드엔 메일 서버 주소(host)가 필요해요" };
+  if (!host || !mailHostOk(host)) return { reason: t("status.mail_need_host") };
   const portRaw = Number(c?.port);
   const port = p ? p.port : Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : 993;
   const loopback = /^(127\.0\.0\.1|localhost|::1)$/.test(host);
   const secure = p ? true : c?.secure === false && loopback ? false : true;
   const user = str(c?.user) ?? "";
-  if (!user) return { reason: "mail: imap 모드엔 메일 주소(user)가 필요해요" };
+  if (!user) return { reason: t("status.mail_need_user") };
   const pw = (v: unknown) => (typeof v === "string" && v.trim() && !/\.\.\.|…|YOUR_/.test(v) ? v : undefined);
   // Gmail 앱 비밀번호는 4글자씩 띄어 보여 준다 — 띄어쓰기를 빼고 쓴다. 다른 서비스 비밀번호는 앞뒤 공백만
   const clean = (v: string | undefined) => (v === undefined ? undefined : presetName === "gmail" ? v.replace(/\s+/g, "") : v.trim());
@@ -223,7 +225,7 @@ export function mailImapConn(c: Record<string, any>, env: NodeJS.ProcessEnv = pr
     seen.add(k);
     accounts.push(a);
   });
-  if (!accounts.length) return { cap: "mail", mode: "off", reason: reason ?? "mail: imap 모드엔 메일 주소(user)가 필요해요" };
+  if (!accounts.length) return { cap: "mail", mode: "off", reason: reason ?? t("status.mail_need_user") };
   const h = Number(c?.sinceHours);
   return {
     cap: "mail", mode: "imap", accounts,
@@ -286,8 +288,8 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
     const x = c[cap] as Conn;
     const base = { cap, label: CAP_LABELS[cap], mode: x.mode, doc: `docs/connect/${cap === "issues" ? "issues" : cap}.md` };
     switch (x.mode) {
-      case "off": return { ...base, ready: false, detail: x.reason ?? "연결 안 됨" };
-      case "mcp": return has(x.server) ? { ...base, server: x.server, ready: true, detail: `MCP ${x.server}${x.preset ? ` (${x.preset})` : ""}` } : { ...base, server: x.server, ready: false, detail: `MCP 서버 "${x.server}"가 Claude Code에 등록돼 있지 않아요` };
+      case "off": return { ...base, ready: false, detail: x.reason ?? t("status.not_connected") };
+      case "mcp": return has(x.server) ? { ...base, server: x.server, ready: true, detail: `MCP ${x.server}${x.preset ? ` (${x.preset})` : ""}` } : { ...base, server: x.server, ready: false, detail: t("status.mcp_not_registered", { server: x.server }) };
       case "imap": {
         const ready = x.accounts.filter((a) => a.password);
         const first = x.accounts[0];
@@ -296,17 +298,17 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
           account: first.user, preset: first.preset,
           accounts: x.accounts.map((a) => ({ id: a.id, user: a.user, preset: a.preset, ready: !!a.password })),
         };
-        if (!ready.length) return { ...base, ...who, ready: false, detail: "메일 비밀번호(앱 비밀번호)가 없어요" };
-        const detail = x.accounts.length === 1 ? `${name(first)} IMAP (${first.user}, 읽기만)` : `메일 ${x.accounts.length}개 계정 (읽기만)`;
+        if (!ready.length) return { ...base, ...who, ready: false, detail: t("status.mail_no_password") };
+        const detail = x.accounts.length === 1 ? t("status.mail_one", { name: name(first), user: first.user }) : t("status.mail_accounts", { n: x.accounts.length });
         return { ...base, ...who, ready: true, detail };
       }
       case "api":
-        if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: "Slack Web API (사용자 토큰)" } : { ...base, ready: false, detail: "userToken(xoxp-…)이 없어요" };
-        if (!x.calendars.length) return { ...base, ready: false, detail: "캘린더 주소가 없어요" };
+        if (x.cap === "slack") return x.userToken ? { ...base, ready: true, detail: t("status.slack_user_token") } : { ...base, ready: false, detail: t("status.slack_no_user_token") };
+        if (!x.calendars.length) return { ...base, ready: false, detail: t("status.cal_no_url") };
         {
           const off = x.calendars.filter((e) => !e.enabled).length;
           const calendars = x.calendars.map(({ id, name, enabled }) => ({ id, name, enabled }));
-          return { ...base, ready: true, calendars, detail: `ICS 캘린더 ${x.calendars.length}개${off ? ` (${off}개 꺼 둠)` : ""}` };
+          return { ...base, ready: true, calendars, detail: `${t("status.ics_n", { n: x.calendars.length })}${off ? t("status.ics_off", { n: off }) : ""}` };
         }
     }
   });

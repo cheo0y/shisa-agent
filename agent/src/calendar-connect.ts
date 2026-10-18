@@ -12,6 +12,8 @@ import { writeFileAtomic } from "./fs-atomic.ts";
 import { addLogSecret } from "./log.ts";
 import type { CalendarState } from "./calendar-state.ts";
 import { calendarColors, okCalColor, type CalColor } from "./calendar-view.ts";
+import { t } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 export type CalendarAddResult =
   | { ok: true; id: string; name: string; events: number; calendars: number }
@@ -19,7 +21,8 @@ export type CalendarAddResult =
 export type Probe = (url: string) => Promise<{ ok: true; calName: string; events: number } | { ok: false; code: string; reason: string }>;
 
 const obj = (x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : undefined);
-export const CALENDAR_DUP = "이미 연결된 캘린더예요. 다른 주소를 붙여 주세요.";
+export let CALENDAR_DUP = t("status.cal_dup");
+onLanguage(() => { CALENDAR_DUP = t("status.cal_dup"); }); // 살아 있는 바인딩
 
 // 같은 캘린더인가(webcal:// 과 https:// 는 같은 주소, 앞뒤 공백 무시)
 export const sameCalendarUrl = (a: string, b: string) => a.trim().replace(/^webcal:\/\//i, "https://") === b.trim().replace(/^webcal:\/\//i, "https://");
@@ -58,8 +61,8 @@ export async function addCalendar(body: unknown, deps: { path: string; probe: Pr
   const b = obj(body);
   if (!b) return { ok: false, status: 400, error: "json object required" };
   for (const k of Object.keys(b)) if (k !== "url" && k !== "name") return { ok: false, status: 400, error: `unknown key: ${k}` };
-  if (!okCalendarUrl(b.url)) return { ok: false, status: 400, error: "캘린더 주소를 확인해 주세요. https:// 로 시작하는 iCal(ICS) 비공개 주소를 붙여 주세요." };
-  if (b.name !== undefined && typeof b.name !== "string") return { ok: false, status: 400, error: "별칭을 확인해 주세요." };
+  if (!okCalendarUrl(b.url)) return { ok: false, status: 400, error: t("status.cal_check_url") };
+  if (b.name !== undefined && typeof b.name !== "string") return { ok: false, status: 400, error: t("status.cal_check_alias") };
   const url = b.url.trim();
   addLogSecret(url);
   const alias = typeof b.name === "string" ? b.name.replace(/\s+/g, " ").trim().slice(0, 80) : "";
@@ -71,7 +74,7 @@ export async function addCalendar(body: unknown, deps: { path: string; probe: Pr
   if ([...v.calendars.map((c) => c.url), ...live].some((u) => sameCalendarUrl(u, url))) return { ok: false, status: 409, error: CALENDAR_DUP, code: "duplicate" };
   const r = await deps.probe(url);
   if (!r.ok) return { ok: false, status: 400, error: r.reason, code: r.code };
-  const name = alias || r.calName.replace(/\s+/g, " ").trim().slice(0, 80) || `캘린더 ${v.calendars.length + 1}`;
+  const name = alias || r.calName.replace(/\s+/g, " ").trim().slice(0, 80) || t("status.cal_n", { n: v.calendars.length + 1 });
   const id = calendarId(url);
   const value = {
     mode: "api",
@@ -93,7 +96,7 @@ export function calendarList(path: string, state: CalendarState): { phase: strin
     phase: state.phase,
     calendars: v.calendars.map((c, i) => {
       const p = state.calendars?.find((x) => x.id === c.id);
-      const name = c.name || (p && !/^캘린더( \d+)?$/.test(p.name) ? p.name : "") || `캘린더 ${i + 1}`; // 별칭 없는 예전 주소: ICS 이름 → 「캘린더 N」
+      const name = c.name || (p && !/^(캘린더|カレンダー)( \d+)?$/.test(p.name) ? p.name : "") || t("status.cal_n", { n: i + 1 }); // 별칭 없는 예전 주소: ICS 이름 → 「캘린더 N」
       const phase = !c.enabled ? "off" : state.phase === "pending" || !p ? "pending" : p.phase;
       return { id: c.id, name, enabled: c.enabled, phase, ...(c.color ? { color: c.color } : {}), ...(phase === "ok" && p?.meetings !== undefined ? { meetings: p.meetings } : {}), ...(phase === "failed" && p?.reason ? { reason: p.reason } : {}) };
     }),

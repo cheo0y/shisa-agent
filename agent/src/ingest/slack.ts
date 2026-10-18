@@ -15,6 +15,7 @@ import { CONNECTORS } from "../connectors.ts";
 import { SlackApiTransport, slackWebClient, type SlackDirect } from "./slack-api.ts";
 import { runs } from "../runs.ts";
 import type { Store } from "../store.ts";
+import { t as tr } from "../i18n.ts";
 
 export type SlackIngestDeps = {
   direct?: SlackDirect | null; // api 전송(모델 없이 직접). 없으면 커넥터 설정으로 정한다. null 이면 강제로 끔
@@ -594,7 +595,7 @@ export class SlackRun {
     const gate = this.ing.deps.gate;
     if (!gate && this.ing.cooldownUntil() > Date.now()) { this.counts.truncated = true; return; }
     if (!gate) this.stopOnRateLimit = true; // 관문 없이 429면 이번 사이클은 접고 다음 사이클에(쿨다운은 DB에 남는다)
-    const run = runs.startRun({ kind: "slack-ingest", title: "Slack 수집 (Web API)", model: "slack-web-api" });
+    const run = runs.startRun({ kind: "slack-ingest", title: tr("status.slack_ingest_title"), model: "slack-web-api" });
     try {
       for (let guard = 0; guard < 10000; guard++) {
         if (gate?.closed) this.throttled = true;

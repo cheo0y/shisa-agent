@@ -6,6 +6,7 @@
 //  RECURRENCE-ID 로 바뀐/취소된 회차, STATUS:CANCELLED, TRANSP:TRANSPARENT(=한가함), 참석자 응답(PARTSTAT), 회의 링크(Meet·Zoom·Teams).
 // 안 다루는 것: RDATE, BYSETPOS, BYWEEKNO·BYYEARDAY, VTIMEZONE 의 서머타임 규칙(이름을 IANA 로 못 바꿀 때는 표준시 오프셋 하나로 본다).
 import type { CalEvent } from "./calendar-sync.ts";
+import { t } from "./i18n.ts";
 
 export type IcsTime = { y: number; mo: number; d: number; h: number; mi: number; s: number; date: boolean; utc: boolean; tzid?: string };
 export type IcsProp = { name: string; params: Record<string, string>; value: string };
@@ -286,7 +287,7 @@ function toCalEvent(ev: VEvent, id: string, startMs: number, endMs: number, opts
     : "none";
   const join = [ev.conference, ev.location, ev.description, ev.url].map((x) => (x ? MEETING_URL.exec(x)?.[0] : undefined)).find(Boolean);
   const out: CalEvent = {
-    id, subject: ev.summary || "(제목 없음)", start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString(),
+    id, subject: ev.summary || t("status.no_title"), start: new Date(startMs).toISOString(), end: new Date(endMs).toISOString(),
     allDay: ev.start.date, cancelled: ev.status === "CANCELLED", showAs: ev.transp === "TRANSPARENT" ? "free" : "busy", response,
     online: !!join,
   };

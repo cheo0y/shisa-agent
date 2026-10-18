@@ -15,6 +15,7 @@ import {
   ANTHROPIC_URL, ANTHROPIC_VERSION, GEMINI_DEFAULT_MODEL, GEMINI_URL, GENSPARK_NO_CREDIT, OPENAI_DEFAULT_MODEL,
   AI_LIST_TIMEOUT_MS, BrainTimeoutError, timedFetch, anthropicKey, commandOnPath, geminiKey, gensparkKey, gensparkModels, keyTrouble, openaiKey, authFailText, type FetchLike,
 } from "./providers.ts";
+import { t as tr } from "./i18n.ts";
 
 export type ModelRow = { id: string; label: string };
 export type BrainModels = {
@@ -38,12 +39,12 @@ export type ChatModelsDeps = {
 };
 
 const NOTE: Record<string, string> = {
-  "claude-code": "Claude 구독 사용량을 써요",
-  codex: "ChatGPT 구독(Codex) 사용량을 써요",
-  anthropic: "Claude API 요금이 들어요",
-  gemini: "무료 키는 모델마다 하루 횟수가 정해져 있어요",
-  openai: "OpenAI API 요금이 들어요",
-  genspark: "Genspark 크레딧을 써요",
+  get "claude-code"() { return tr("status.note_claude_code"); },
+  get codex() { return tr("status.note_codex"); },
+  get anthropic() { return tr("status.note_anthropic"); },
+  get gemini() { return tr("status.note_gemini"); },
+  get openai() { return tr("status.note_openai"); },
+  get genspark() { return tr("status.note_genspark"); },
 };
 
 export const LIST_TTL_MS = 10 * 60_000;
@@ -84,8 +85,8 @@ export function codexRows(json: unknown): ModelRow[] {
 
 async function getJson(fetchImpl: FetchLike, url: string, headers: Record<string, string>, ms = AI_LIST_TIMEOUT_MS): Promise<unknown> {
   let res: Response;
-  try { res = await timedFetch(fetchImpl, url, { method: "GET", headers, redirect: "error" }, ms); } catch (e) { throw new Error(e instanceof BrainTimeoutError ? "목록을 받지 못했어요(응답이 너무 오래 걸렸어요)" : "목록을 받지 못했어요(연결 오류)"); }
-  if (!res.ok) { await res.text().catch(() => ""); throw new Error(res.status === 401 || res.status === 403 ? "키로 목록을 볼 수 없어요" : `목록을 받지 못했어요(HTTP ${res.status})`); }
+  try { res = await timedFetch(fetchImpl, url, { method: "GET", headers, redirect: "error" }, ms); } catch (e) { throw new Error(e instanceof BrainTimeoutError ? tr("status.list_timeout") : tr("status.list_net")); }
+  if (!res.ok) { await res.text().catch(() => ""); throw new Error(res.status === 401 || res.status === 403 ? tr("status.list_key") : tr("status.list_http", { status: res.status })); }
   return JSON.parse(await res.text());
 }
 
@@ -101,14 +102,14 @@ async function listFor(provider: string, cfg: Pick<Config, "brain" | "models">, 
     const dir = env.CODEX_HOME?.trim() || join(d.home ?? homedir(), ".codex");
     const file = join(dir, "models_cache.json");
     const exists = d.exists ?? existsSync;
-    if (!exists(file)) throw new Error("Codex 모델 목록 파일이 없어요(Codex 를 한 번 켜면 생겨요). 이름을 직접 넣어도 돼요");
+    if (!exists(file)) throw new Error(tr("status.codex_no_cache"));
     let rows: ModelRow[] = [];
-    try { rows = codexRows(JSON.parse((d.readFile ?? ((p) => readFileSync(p, "utf8")))(file))); } catch { throw new Error("Codex 모델 목록 파일을 읽지 못했어요"); }
-    if (!rows.length) throw new Error("Codex 모델 목록이 비어 있어요");
+    try { rows = codexRows(JSON.parse((d.readFile ?? ((p) => readFileSync(p, "utf8")))(file))); } catch { throw new Error(tr("status.codex_cache_bad")); }
+    if (!rows.length) throw new Error(tr("status.codex_cache_empty"));
     return rows;
   }
   const key = provider === "gemini" ? geminiKey(cfg, env) : provider === "openai" ? openaiKey(cfg, env) : provider === "anthropic" ? anthropicKey(cfg, env) : gensparkKey(cfg, env);
-  if (!key) throw new Error("키가 없어요");
+  if (!key) throw new Error(tr("status.no_key"));
   const tag = `${provider}:${fp(key)}`;
   const now = (d.now ?? Date.now)();
   const hit = cache.get(tag);
@@ -119,7 +120,7 @@ async function listFor(provider: string, cfg: Pick<Config, "brain" | "models">, 
   else if (provider === "openai") rows = openaiRows(await getJson(f, "https://api.openai.com/v1/models", { Authorization: `Bearer ${key}` }, d.listTimeoutMs));
   else if (provider === "anthropic") rows = anthropicRows(await getJson(f, `${ANTHROPIC_URL.replace(/\/messages$/, "/models")}?limit=100`, { "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION }, d.listTimeoutMs));
   else rows = (await gensparkModels(key, { fetch: f, fresh, ...(d.listTimeoutMs ? { timeoutMs: d.listTimeoutMs } : {}) })).map((id) => ({ id, label: "" }));
-  if (!rows.length) throw new Error("목록이 비어 있어요");
+  if (!rows.length) throw new Error(tr("status.list_empty"));
   cache.set(tag, { rows, at: now });
   return rows;
 }
@@ -132,16 +133,16 @@ export function brainReady(provider: string, cfg: Pick<Config, "brain">, d: Chat
   const has = d.commandExists ?? ((n: string) => commandOnPath(n, env));
   if (provider === "claude-code") {
     const ok = has("claude") || (d.exists ?? existsSync)(join(d.home ?? homedir(), ".claude"));
-    return ok ? { ready: true } : { ready: false, why: "Claude Code 에 로그인되어 있지 않아요" };
+    return ok ? { ready: true } : { ready: false, why: tr("status.claude_not_logged") };
   }
-  if (provider === "codex") return has("codex") ? { ready: true } : { ready: false, why: "Codex CLI 가 없어요" };
+  if (provider === "codex") return has("codex") ? { ready: true } : { ready: false, why: tr("status.codex_cli_missing") };
   // Genspark: gsk login 파일만 있고 고른 적이 없으면 연결된 것으로 보지 않는다(설정 창 연결 상태와 같은 규칙) — 그 키로 목록도 받지 않는다
   const gsk = provider === "genspark" && cfg.brain?.provider !== "genspark" ? (env.CY_AGENT_GENSPARK_API_KEY?.trim() || cfg.brain?.gensparkApiKey?.trim()) : undefined;
   const key = provider === "gemini" ? geminiKey(cfg, env) : provider === "openai" ? openaiKey(cfg, env) : provider === "anthropic" ? anthropicKey(cfg, env) : provider === "genspark" ? (cfg.brain?.provider === "genspark" ? gensparkKey(cfg, env) : gsk) : undefined;
-  if (!key) return { ready: false, why: "키가 없어요(패널 [모델] 탭에서 연결해요)" };
+  if (!key) return { ready: false, why: tr("status.no_key_panel") };
   const t = keyTrouble(provider, cfg, env);
   if (t === "auth") return { ready: false, why: authFailText(provider as "gemini") };
-  if (t === "credit") return { ready: false, why: provider === "genspark" ? GENSPARK_NO_CREDIT : "크레딧이 필요해요" };
+  if (t === "credit") return { ready: false, why: provider === "genspark" ? GENSPARK_NO_CREDIT : tr("status.credit_needed") };
   return { ready: true };
 }
 
@@ -161,12 +162,12 @@ export async function chatModels(cfg: Config, deps: ChatModelsDeps & { fresh?: b
       }
     }
     // 설정에 적어 둔 모델이 목록에 없으면 더한다(지금 쓰는 값)
-    for (const id of [defaults.general, defaults.quick]) if (id && st.ready && !models.some((m) => m.id === id)) models.push({ id, label: usesClaudeModels(provider) ? modelLabel(id) : "설정의 값" });
+    for (const id of [defaults.general, defaults.quick]) if (id && st.ready && !models.some((m) => m.id === id)) models.push({ id, label: usesClaudeModels(provider) ? modelLabel(id) : tr("status.settings_value") });
     const g = defaults.general;
     return {
       provider, label: BRAIN_LABEL[provider], active: provider === active, ready: st.ready, ...(st.why ? { why: st.why } : {}),
       tools: provider === "claude-code", defaults: Object.fromEntries(Object.entries(defaults).filter(([, v]) => v)) as BrainModels["defaults"],
-      defaultLabel: g ? modelLabel(g) : provider === "gemini" ? GEMINI_DEFAULT_MODEL : provider === "openai" ? OPENAI_DEFAULT_MODEL : `${BRAIN_LABEL[provider]} 기본`,
+      defaultLabel: g ? modelLabel(g) : provider === "gemini" ? GEMINI_DEFAULT_MODEL : provider === "openai" ? OPENAI_DEFAULT_MODEL : tr("status.brain_default", { label: BRAIN_LABEL[provider] }),
       models, ...(listError ? { listError } : {}), custom: true, ...(NOTE[provider] ? { note: NOTE[provider] } : {}),
     };
   }));

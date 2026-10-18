@@ -2,6 +2,7 @@
 // minutesBefore: 알릴 때들(양의 정수 분, 몇 개든·얼마든, 예: 1440 = 하루 전. 큰 것부터 정렬·중복 제거). [10] = 10분 전 한 번(기본), [15, 5] = 15분 전·5분 전 두 번, [] = 알림 끔.
 // 끄더라도 일정은 그대로 가져온다(브리핑·대시보드에 쓴다). 바꾸면 바로 반영(PUT /settings, 데몬 재시작 불필요).
 export type CalendarAlertConfig = { minutesBefore: number[] };
+import { t } from "./i18n.ts";
 export const DEFAULT_CALENDAR_ALERT: CalendarAlertConfig = { minutesBefore: [10] };
 
 const okMin = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x > 0;
@@ -20,6 +21,6 @@ export function validateCalendarAlert(raw: unknown): CalendarAlertConfig {
   const r = raw as Record<string, unknown>;
   for (const k of Object.keys(r)) if (k !== "minutesBefore") throw new Error(`unknown key: calendarAlert.${k}`);
   if (!Array.isArray(r.minutesBefore)) throw new Error("calendarAlert.minutesBefore must be a list of minutes ([] = off)");
-  if (!r.minutesBefore.every(okMin)) throw new Error("calendarAlert.minutesBefore: 1 이상 정수(분)만 돼요");
+  if (!r.minutesBefore.every(okMin)) throw new Error(t("status.alert_bad_minutes"));
   return { minutesBefore: tidy(r.minutesBefore as number[]) };
 }

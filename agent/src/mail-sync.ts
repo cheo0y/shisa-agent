@@ -7,6 +7,8 @@ import { mailTargets, type Conn, type MailImapAccount, type MailImapConn, type M
 import { addLogSecret } from "./log.ts";
 import { fetchRecentMail, type MailFailCode, type MailFetchOpts, type MailFetchResult, type MailItem } from "./mail-imap.ts";
 import { attachLine, findMail, mailBodyChunk, mailRef, pickMails, type MailCut } from "./mail-pick.ts";
+import { t, t as tr } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 export type MailPhase = "off" | "pending" | "ok" | "failed";
 // 계정 하나의 가져오기 결과. 계정마다 따로 가져오고 따로 남긴다(하나가 실패해도 나머지는 그대로)
@@ -89,7 +91,7 @@ export function mailAggregate(accounts: MailAccountState[], sinceHours?: number)
   const failed = accounts.filter((a) => a.phase === "failed");
   const max = (xs: (string | undefined)[]) => xs.filter((x): x is string => !!x).sort().at(-1);
   const phase: MailPhase = ok.length ? "ok" : accounts.some((a) => a.phase === "pending") ? "pending" : "failed";
-  const reason = failed.length ? failed.map((a) => (accounts.length > 1 ? `${a.user}: ${a.reason ?? "이유를 몰라요"}` : a.reason ?? "이유를 몰라요")).join(" / ") : undefined;
+  const reason = failed.length ? failed.map((a) => (accounts.length > 1 ? `${a.user}: ${a.reason ?? t("status.reason_unknown2")}` : a.reason ?? t("status.reason_unknown2"))).join(" / ") : undefined;
   const at = max(accounts.map((a) => a.at)), lastOkAt = max(accounts.map((a) => a.lastOkAt));
   return {
     phase,
@@ -203,11 +205,12 @@ export function withMailSync<T extends { cap: string; mode: string; ready: boole
 
 export type MailSyncDeps = { fetch?: (c: MailTarget, o?: MailFetchOpts) => Promise<MailFetchResult>; now?: () => Date; intervalMin?: number };
 
-const NO_PASSWORD = "메일 비밀번호(앱 비밀번호)가 없어요.";
+const noPassword = () => t("status.mail_no_password2");
 // 로그인 자체가 거절된 실패: 같은 비밀번호로 15분마다 다시 로그인하면 서비스가 계정을 잠그거나 의심 로그인으로 막을 수 있다.
 // 다시 연결(비밀번호 갱신)하거나 설정의 비밀번호·서버가 바뀔 때까지 자동으로 다시 시도하지 않는다
 const LOGIN_REFUSED = new Set<MailFailCode>(["auth", "app-password", "imap-off", "web-login", "admin", "config"]);
-export const PAUSED_NOTE = "더 연결하기에서 다시 연결해 주세요(그때까지 자동으로 다시 로그인하지 않아요).";
+export let PAUSED_NOTE = t("status.mail_paused");
+onLanguage(() => { PAUSED_NOTE = t("status.mail_paused"); }); // 살아 있는 바인딩
 // 네트워크·시간 초과 같은 실패: 정기 가져오기 간격을 15분 → 30분 → 1시간 → 2시간 → 4시간으로 늘린다(성공하면 처음으로)
 const BACKOFF_STEPS = 4;
 const fullKey = (t: Pick<MailTarget, "host" | "port" | "user" | "login" | "password">) => `${mailKey(t)}\u0000${t.login ?? ""}\u0000${t.password ?? ""}`; // 메모리에서만 쓴다(저장하지 않는다)
@@ -242,7 +245,7 @@ export class MailSync {
     const stored = accountsOf(readMailState(this.store));
     return c.accounts.map((a) => {
       const base = { id: a.id, user: a.user, preset: a.preset, key: mailKey(a) };
-      if (!a.password) return { ...base, phase: "failed", reason: NO_PASSWORD, code: "config" } as MailAccountState;
+      if (!a.password) return { ...base, phase: "failed", reason: noPassword(), code: "config" } as MailAccountState;
       const s = stored.find((x) => x.id === a.id && x.key === base.key);
       return s ? { ...s, user: a.user, preset: a.preset } : { ...base, phase: "pending" };
     });
@@ -346,7 +349,7 @@ export class MailSync {
       let r: MailFetchResult;
       try { r = await (this.deps.fetch ?? fetchRecentMail)(t, { now: this.deps.now?.() }); } catch (e: any) {
         const msg = String(e?.message ?? e);
-        r = { ok: false, code: "unknown", reason: `메일을 읽지 못했어요. ${(t.password ? msg.split(t.password).join("***") : msg).slice(0, 120)}` };
+        r = { ok: false, code: "unknown", reason: tr("status.mail_read_fail", { msg: (t.password ? msg.split(t.password).join("***") : msg).slice(0, 120) }) };
       }
       const c = this.imap();
       const a = c?.accounts.find((x) => x.id === t.id && fullKey({ ...x, login: x.login }) === key);

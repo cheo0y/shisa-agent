@@ -21,6 +21,7 @@ import { STEP_HEAD } from "./briefing-sources.ts";
 import { PHRASES, defaultLines, phraseDef, phraseLines, setPhrases, unknownVars } from "./phrases.ts";
 import { characterOptions, isCharacterId, setCharacter, DEFAULT_CHARACTER, type CharacterId } from "./characters.ts";
 import { DEFAULT_LANGUAGE, LANGUAGES, LANGUAGE_LABEL, isLang, setLanguage, type Lang } from "./lang.ts";
+import { t as tr } from "./i18n.ts";
 
 export const MODEL_ROLES = ["quick", "general", "code", "light"] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
@@ -29,7 +30,7 @@ export const MODEL_ENV: Record<ModelRole, string> = {
   quick: "CY_AGENT_MODEL_QUICK", general: "CY_AGENT_MODEL_GENERAL", code: "CY_AGENT_MODEL_CODE", light: "CY_AGENT_MODEL_LIGHT",
 };
 export const MODEL_ROLE_LABEL: Record<ModelRole, string> = {
-  quick: "빠른 대화(캐릭터 더블클릭)", general: "패널 채팅 기본", code: "코드 작업", light: "경량(수집·제목)",
+  get quick() { return tr("status.role_quick"); }, get general() { return tr("status.role_general"); }, get code() { return tr("status.role_code"); }, get light() { return tr("status.role_light"); },
 };
 // 앱이 모델 선택에서 내주는 것(기본 세 모델) + 지금 설정된 것. 그 밖의 이름은 받지 않는다
 export const DEFAULT_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
@@ -38,11 +39,11 @@ export const DEFAULT_QUICK = "claude-sonnet-5-5"; // config.ts 의 models.quick 
 // 브리핑 출처: id 는 config.json briefing.exclude 에 들어가는 값
 // (커넥터 기능 slack·calendar·mail·issues + 로컬 작업 세션 — briefing-sources.ts STEP_HEAD 로 지시 줄을 알아본다)
 export const BRIEFING_SOURCES = [
-  { id: "mail", label: "메일" },
-  { id: "calendar", label: "일정" },
+  { id: "mail", get label() { return tr("status.src_mail"); } },
+  { id: "calendar", get label() { return tr("status.src_calendar"); } },
   { id: "slack", label: "Slack" },
-  { id: "issues", label: "이슈" },
-  { id: "sessions", label: "최근 작업 세션" },
+  { id: "issues", get label() { return tr("status.src_issues"); } },
+  { id: "sessions", get label() { return tr("status.src_sessions"); } },
 ] as const;
 export type BriefingSource = (typeof BRIEFING_SOURCES)[number]["id"];
 const SOURCE_IDS = new Set<string>(BRIEFING_SOURCES.map((s) => s.id));
@@ -202,13 +203,13 @@ export function validatePatch(body: unknown, cfg: Pick<Config, "models">): Setti
   // 근무 시각: HH:MM(24시간, 로컬). 출근 < 퇴근은 put 이 지금 값과 합쳐서 본다
   for (const k of ["workStart", "lunchTime", "workEnd"] as const) {
     if (b[k] === undefined) continue;
-    if (!isHhmm(b[k])) throw new SettingsError(`${{ workStart: "출근", lunchTime: "점심", workEnd: "퇴근" }[k]} 시각은 HH:MM(예: 09:00)이어야 해요`);
+    if (!isHhmm(b[k])) throw new SettingsError(tr("status.bad_time", { what: tr(`status.t_${k}`) }));
     out[k] = b[k] as string;
   }
   if (b.workDays !== undefined) {
     const d = cleanDays(b.workDays);
-    if (!d) throw new SettingsError("근무 요일은 0(일)~6(토) 숫자 목록이어야 해요");
-    if (!d.length) throw new SettingsError("근무 요일을 하나 이상 골라 주세요");
+    if (!d) throw new SettingsError(tr("status.bad_days"));
+    if (!d.length) throw new SettingsError(tr("status.no_days"));
     out.workDays = d;
   }
   for (const k of ["onboarded", "readSessions", "lunchAlert", "startAlert", "leaveAlert"] as const) {
@@ -264,7 +265,7 @@ export function validatePhrases(raw: unknown): Record<string, string[] | null> {
     const lines = phraseLines(v);
     for (const l of lines) {
       const bad = unknownVars(l, def.vars);
-      if (bad.length) throw new SettingsError(`phrases.${k}: 모르는 자리표시 ${bad.map((x) => `{${x}}`).join(" ")} — ${def.vars.length ? `쓸 수 있는 것: ${def.vars.map((x) => `{${x}}`).join(" ")}` : "이 문구는 자리표시를 못 써요"}`);
+      if (bad.length) throw new SettingsError(tr("status.phrase_bad_vars", { k, bad: bad.map((x) => `{${x}}`).join(" "), hint: def.vars.length ? tr("status.phrase_can_use", { vars: def.vars.map((x) => `{${x}}`).join(" ") }) : tr("status.phrase_no_vars") }));
     }
     // 기본값과 같으면 고친 게 아니다(기본이 바뀌면 따라가게)
     out[k] = lines.length && lines.join("\n") !== defaultLines(k).join("\n") ? lines : null;
@@ -275,11 +276,11 @@ export function validatePhrases(raw: unknown): Record<string, string[] | null> {
 // 자동 머지 레포: owner/name(github 링크도 받아 owner/name 으로) 목록, 중복은 하나로
 export function validateAutoMerge(raw: unknown): string[] {
   if (!Array.isArray(raw)) throw new SettingsError("autoMerge must be a list of owner/name");
-  if (raw.length > AUTO_MERGE_MAX) throw new SettingsError(`autoMerge: ${AUTO_MERGE_MAX}개까지예요`);
+  if (raw.length > AUTO_MERGE_MAX) throw new SettingsError(tr("status.automerge_max", { n: AUTO_MERGE_MAX }));
   const out: string[] = [];
   for (const x of raw) {
     const s = normSlug(x);
-    if (!s) throw new SettingsError(`autoMerge: owner/name 모양이 아니에요(${String(x).slice(0, 80)})`);
+    if (!s) throw new SettingsError(tr("status.automerge_bad", { x: String(x).slice(0, 80) }));
     if (!inAutoMerge(out, s)) out.push(s);
   }
   return out;
@@ -302,8 +303,8 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
     const raw = stripBom(readFileSync(path, "utf8"));
     if (raw.trim()) {
       let v: unknown;
-      try { v = JSON.parse(raw); } catch (e) { throw new ConfigFileError(`${configErrorText(e).replace(/ 안전 모드로 켰어요\./, " 설정을 저장하지 못했어요(파일은 덮어쓰지 않았어요).")}`); }
-      if (!v || typeof v !== "object" || Array.isArray(v)) throw new ConfigFileError("설정 파일(config.json)이 { … } 모양이 아니라서 설정을 저장하지 못했어요(파일은 덮어쓰지 않았어요). 파일을 고친 뒤 데몬을 다시 켜 주세요");
+      try { v = JSON.parse(raw); } catch (e) { throw new ConfigFileError(configErrorText(e, "save")); }
+      if (!v || typeof v !== "object" || Array.isArray(v)) throw new ConfigFileError(tr("status.cfg_not_obj_save"));
       cur = v as Record<string, unknown>;
     }
   }
@@ -478,11 +479,11 @@ export class Settings {
     // 출근은 퇴근보다 앞이어야 한다(자정을 넘기는 근무는 다루지 않는다)
     const cur = workHoursOf(this.cfg as unknown as Record<string, unknown>);
     const start = patch.workStart ?? cur.workStart, end = patch.workEnd ?? cur.workEnd;
-    if (minutesOf(start) >= minutesOf(end)) return { ok: false, status: 400, error: "출근 시각은 퇴근 시각보다 앞이어야 해요" };
+    if (minutesOf(start) >= minutesOf(end)) return { ok: false, status: 400, error: tr("status.work_order") };
     if (patch.onboarded !== undefined) patch = this.withCurrentDefaults(patch);
     try { mergeConfigFile(this.path, patch); } catch (e: any) {
       if (e instanceof ConfigFileError) return { ok: false, status: 409, error: e.message };
-      return { ok: false, status: 500, error: `설정 파일을 쓰지 못했어요(${e?.code ?? "오류"}). 폴더 권한·남은 공간을 확인해 주세요` };
+      return { ok: false, status: 500, error: tr("status.cfg_write_fail", { code: e?.code ?? tr("status.error") }) };
     }
     if (patch.models) Object.assign(this.cfg.models, patch.models);
     if (patch.brainModels) this.setBrainModels(patch.brainModels.provider, patch.brainModels.models);
@@ -524,7 +525,7 @@ export class Settings {
     const locked = Object.keys(patch.models ?? {}).filter((r) => !!this.env[MODEL_ENV[r as ModelRole]]);
     return {
       ok: true, settings: this.view(), applied: "live", restartNeeded: false,
-      ...(locked.length ? { note: `${locked.map((r) => MODEL_ENV[r as ModelRole]).join(", ")} 환경변수가 있어서 데몬을 다시 켜면 그 값으로 돌아가요` } : {}),
+      ...(locked.length ? { note: tr("status.env_locked", { vars: locked.map((r) => MODEL_ENV[r as ModelRole]).join(", ") }) } : {}),
     };
   }
 
@@ -543,11 +544,11 @@ export class Settings {
     const c = this.cfg;
     const p = c.brain?.provider ?? "claude-code";
     const claude = usesClaudeModels(p);
-    const title = p === "local" ? "세부 모델" : `${BRAIN_LABEL[p]} 세부 모델`;
+    const title = p === "local" ? tr("status.slots_title") : tr("status.slots_title_brain", { label: BRAIN_LABEL[p] });
     const roles = MODEL_ROLES.map((role) => {
       const label = MODEL_ROLE_LABEL[role];
       if (role === "code") return this.codeSlot(label);
-      if (p === "local") return { role, label, value: null, enabled: false, why: "AI 를 연결하면 고를 수 있어요" };
+      if (p === "local") return { role, label, value: null, enabled: false, why: tr("status.slot_need_ai") };
       if (claude) return { role, label, value: role === "quick" ? c.models.quick ?? DEFAULT_QUICK : c.models[role], enabled: true };
       const own = c.brainModels?.[p]?.[role as ChatRole];
       return { role, label, value: own ?? (role === "general" ? roleModel(c, "general", p) ?? null : null), enabled: true };
@@ -560,11 +561,11 @@ export class Settings {
     const c = this.cfg;
     const avail = this.coders();
     const provider = codingProvider(c, avail);
-    const codexWhy = commandOnPath("codex", this.env) ? CODEX_AUTH_MISSING : "Codex 를 찾을 수 없어요. Codex CLI 를 설치하고 로그인해 주세요";
+    const codexWhy = commandOnPath("codex", this.env) ? CODEX_AUTH_MISSING : tr("status.codex_install");
     const coder: CoderSlot = {
       provider,
       choices: [
-        { id: "claude-code", label: "Claude Code", ready: avail.claude ?? null, ...(avail.claude === false ? { why: "Claude Code 에 로그인되어 있지 않아요" } : {}) },
+        { id: "claude-code", label: "Claude Code", ready: avail.claude ?? null, ...(avail.claude === false ? { why: tr("status.claude_not_logged") } : {}) },
         { id: "codex", label: "Codex", ready: !!avail.codex, ...(avail.codex ? {} : { why: codexWhy }) },
       ],
     };
@@ -573,7 +574,7 @@ export class Settings {
     if (ready) return { role: "code" as const, label, value, enabled: true, coder };
     const any = avail.claude !== false || !!avail.codex;
     return { role: "code" as const, label, value, enabled: false, coder,
-      why: any ? `${provider === "codex" ? "Codex" : "Claude Code"} 가 준비되지 않았어요. 코드 작업 AI 를 바꾸거나 연결해 주세요` : "Claude Code 나 Codex 를 연결하면 코드 작업을 맡길 수 있어요" };
+      why: any ? tr("status.coder_not_ready", { name: provider === "codex" ? "Codex" : "Claude Code" }) : tr("status.coder_none") };
   }
 
   // onboarded 를 처음 적으면 config.json 이 "새 방식"(onboarding.ts)이 되어 빈 칸의 기본값이 바뀐다(작업 기록 끔·레포 폴더 없음·뇌 미선택).

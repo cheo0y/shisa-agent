@@ -19,6 +19,8 @@ import { mkdtempSync, readFileSync, writeFileSync, renameSync, rmSync, readdirSy
 import { randomUUID } from 'node:crypto';
 import { pathWithin, realish, spawnSpec } from './plat.ts';
 import type { query } from '@anthropic-ai/claude-agent-sdk';
+import { t } from './i18n.ts';
+import { onLanguage } from './lang.ts';
 
 type Message = Record<string, any>;
 class Queue {
@@ -37,8 +39,9 @@ class Queue {
   }
 }
 
-export const CODEX_AUTH_MISSING = 'Codex 로그인 정보를 찾지 못했어요. 시사는 Codex 로그인 파일(~/.codex/auth.json)을 써요. Codex 설정(config.toml)에 cli_auth_credentials_store = "file" 을 넣고 codex login 으로 다시 로그인해 주세요.';
-export const CODEX_SANDBOX_UNSURE = 'Codex 가 작업 폴더 제한(샌드박스)을 확인해 주지 않아 시작하지 않았어요. Codex 를 최신으로 업데이트해 주세요.';
+export let CODEX_AUTH_MISSING = t('status.codex_auth_missing');
+export let CODEX_SANDBOX_UNSURE = t('status.codex_sandbox_unsure');
+onLanguage(() => { CODEX_AUTH_MISSING = t('status.codex_auth_missing'); CODEX_SANDBOX_UNSURE = t('status.codex_sandbox_unsure'); }); // 살아 있는 바인딩
 
 // 사용자 Codex 홈(인증 원본). CODEX_HOME 이 있으면 그것
 export function codexHomeOf(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
@@ -219,23 +222,23 @@ export function createCodexQuery({ prompt, options = {} }: { prompt: string | As
   const write = (data: Message) => { if (!child.stdin?.destroyed) child.stdin?.write(JSON.stringify(data) + '\n'); };
   const rpc = (method: string, params: Message) => new Promise<any>((resolve, reject) => {
     const id = ++seq;
-    const timer = setTimeout(() => { requests.delete(id); reject(new Error(`Codex ${method} 응답 시간이 초과됐어요`)); }, 60000);
+    const timer = setTimeout(() => { requests.delete(id); reject(new Error(t('status.codex_rpc_timeout', { method }))); }, 60000);
     requests.set(id, { resolve, reject, timer }); write({ id, method, params });
   });
   const cleanup = (error?: Error) => {
     if (stopped) return;
     stopped = true;
-    for (const r of requests.values()) { clearTimeout(r.timer); r.reject(error ?? new Error('Codex 실행 종료')); }
+    for (const r of requests.values()) { clearTimeout(r.timer); r.reject(error ?? new Error(t('status.codex_ended'))); }
     requests.clear();
-    failTurn?.(error ?? new Error('Codex 실행 종료'));
+    failTurn?.(error ?? new Error(t('status.codex_ended')));
     events.close(error);
     child.stdin?.end(); child.kill('SIGTERM');
     const timer = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 3000); timer.unref();
   };
   const abort = () => cleanup();
   options.abortController?.signal.addEventListener('abort', abort, { once: true });
-  child.on('error', () => { release(); cleanup(new Error('Codex 실행 파일을 시작하지 못했어요')); });
-  child.on('exit', (code) => { release(); if (!stopped) cleanup(new Error(`Codex 실행이 종료됐어요 (${code})`)); });
+  child.on('error', () => { release(); cleanup(new Error(t('status.codex_spawn_fail'))); });
+  child.on('exit', (code) => { release(); if (!stopped) cleanup(new Error(t('status.codex_exit', { code: String(code) }))); });
   // stderr에는 계정/환경 정보가 들어갈 수 있으므로 원문을 UI나 로그에 노출하지 않는다.
   child.stderr?.resume();
   const assistant = (content: any[], uuid?: string) => events.push({ type: 'assistant', uuid: randomUUID(), parent_tool_use_id: null, message: { id: randomUUID(), role: 'assistant', content }, ...(uuid ? { user_message_uuid: uuid } : {}) });
@@ -245,7 +248,7 @@ export function createCodexQuery({ prompt, options = {} }: { prompt: string | As
     if (msg.id !== undefined && !msg.method) {
       const r = requests.get(msg.id); if (!r) return;
       clearTimeout(r.timer); requests.delete(msg.id);
-      if (msg.error) r.reject(new Error(`Codex 요청 실패 (${msg.error.code ?? 'unknown'}): ${String(msg.error.message ?? '').slice(0, 300)}`)); else r.resolve(msg.result);
+      if (msg.error) r.reject(new Error(t('status.codex_req_fail', { code: String(msg.error.code ?? 'unknown'), msg: String(msg.error.message ?? '').slice(0, 300) }))); else r.resolve(msg.result);
       return;
     }
     const p = msg.params ?? {};
@@ -289,7 +292,7 @@ export function createCodexQuery({ prompt, options = {} }: { prompt: string | As
       for await (const user of input) {
         if (stopped) break;
         lastText = ''; items.clear();
-        assistant([{ type: 'text', text: 'Codex가 작업을 시작합니다.' }], user.uuid);
+        assistant([{ type: 'text', text: t('status.codex_starting') }], user.uuid);
         const completed = new Promise<Message>((resolve, reject) => { doneTurn = resolve; failTurn = reject; });
         // 실패가 먼저 와도 처리되지 않은 rejection을 남기지 않는다.
         completed.catch(() => {});
@@ -299,10 +302,10 @@ export function createCodexQuery({ prompt, options = {} }: { prompt: string | As
           ...(model && model !== 'codex' ? { model } : {}), ...(options.outputFormat?.schema ? { outputSchema: options.outputFormat.schema } : {}) });
         turnId = turn.turn.id;
         const finished = await completed;
-        if (finished.status === 'failed') throw new Error(`Codex 작업 실패: ${finished.error?.message ?? '모델 응답 오류'}`);
+        if (finished.status === 'failed') throw new Error(t('status.codex_task_fail', { msg: finished.error?.message ?? t('status.model_error') }));
         let output;
         if (finished.status !== 'interrupted' && options.outputFormat?.schema) {
-          try { output = JSON.parse(lastText); } catch { throw new Error('Codex가 작업 결과를 올바른 JSON으로 반환하지 않았어요'); }
+          try { output = JSON.parse(lastText); } catch { throw new Error(t('status.codex_bad_result')); }
         }
         events.push({ type: 'result', subtype: finished.status === 'interrupted' ? 'interrupted' : 'success', result: lastText, structured_output: output, user_message_uuids: user.uuid ? [user.uuid] : [] });
       }
@@ -313,7 +316,7 @@ export function createCodexQuery({ prompt, options = {} }: { prompt: string | As
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
     interrupt: async () => { if (threadId && turnId && !stopped) await rpc('turn/interrupt', { threadId, turnId }); },
-    setModel: async (next: string) => { if (/^(claude-|opus$|sonnet$|haiku$)/.test(next)) throw new Error('Codex 작업에는 Codex 모델을 골라 주세요'); model = next; },
+    setModel: async (next: string) => { if (/^(claude-|opus$|sonnet$|haiku$)/.test(next)) throw new Error(t('status.codex_pick_model')); model = next; },
   };
 }
 export const codexQuery = createCodexQuery as unknown as typeof query;

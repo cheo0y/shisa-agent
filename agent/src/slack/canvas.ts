@@ -11,6 +11,7 @@
 //  - 스코프: canvases:write (생성·편집·공유), canvases:read (sections.lookup — 지금은 안 씀), im:write (conversations.open)
 import { createHash } from "node:crypto";
 import type { Store, Todo } from "../store.ts";
+import { t as tr } from "../i18n.ts";
 
 // Bolt의 app.client(WebClient)와 테스트용 가짜 클라이언트가 둘 다 맞는 최소 모양
 type Call = (args: any) => Promise<any>;
@@ -23,7 +24,7 @@ export type DoneTodo = Todo & { doneAt?: string };
 export type CanvasExtras = { title?: string; markdown: string };
 
 const TITLE = "cy 할 일";
-const GROUPS: [number, string][] = [[1, "🔴 오늘 꼭"], [2, "🟡 이번 주"], [3, "⚪️ 참고"], [4, "🗂 언젠가 · 백로그"]];
+const GROUPS: [number, string][] = [[1, "status.cv_g1"], [2, "status.cv_g2"], [3, "status.cv_g3"], [4, "status.cv_g4"]]; // 제목은 tr(키)
 
 // 캔버스 마크다운의 특수문자를 백슬래시로 무력화하고 줄바꿈은 공백으로
 export function escapeCanvas(s: string): string {
@@ -45,7 +46,7 @@ export function kstStamp(d: Date): string {
 
 function item(t: Todo, done: boolean): string {
   const url = safeUrl(t.link);
-  const title = escapeCanvas(t.title) || "(제목 없음)";
+  const title = escapeCanvas(t.title) || tr("status.no_title");
   const label = url ? `[${title}](${url})` : title;
   const src = t.source ? `  \`${t.source.replace(/`/g, "'")}\`` : "";
   return `- [${done ? "x" : " "}] ${label}${src}`;
@@ -54,19 +55,19 @@ function item(t: Todo, done: boolean): string {
 // 순수 함수: 열린 할 일(+최근 완료, +호출자가 넘긴 추가 블록) → 캔버스 마크다운
 export function todoCanvasMarkdown(todos: Todo[], now: Date, extras?: { done?: DoneTodo[]; blocks?: CanvasExtras[] }): string {
   const backlog = todos.filter((t) => t.priority === 4).length; // 백로그(P4)는 '열린 일' 수에서 뺀다
-  const out: string[] = [`# ${TITLE}`, `마지막 업데이트: ${kstStamp(now)} · 열린 일 ${todos.length - backlog}개${backlog ? ` · 백로그 ${backlog}개` : ""}`];
+  const out: string[] = [`# ${TITLE}`, `${tr("status.cv_updated", { at: kstStamp(now), n: todos.length - backlog })}${backlog ? tr("status.cv_backlog", { n: backlog }) : ""}`];
   for (const b of extras?.blocks ?? []) {
     if (!b.markdown.trim()) continue;
     out.push("", ...(b.title ? [`## ${b.title}`] : []), b.markdown.trim());
   }
-  if (!todos.length) out.push("", "열린 할 일이 없어요 🎉");
+  if (!todos.length) out.push("", tr("status.cv_empty"));
   for (const [prio, head] of GROUPS) {
     const xs = todos.filter((t) => (GROUPS.some(([p]) => p === t.priority) ? t.priority : 3) === prio);
     if (!xs.length) continue;
-    out.push("", `## ${head} (${xs.length})`, ...xs.map((t) => item(t, false)));
+    out.push("", `## ${tr(head)} (${xs.length})`, ...xs.map((t) => item(t, false)));
   }
   const done = (extras?.done ?? []).slice(0, 10);
-  if (done.length) out.push("", "---", "", "## ✅ 최근 완료", ...done.map((t) => item(t, true)));
+  if (done.length) out.push("", "---", "", tr("status.cv_done"), ...done.map((t) => item(t, true)));
   return out.join("\n") + "\n";
 }
 

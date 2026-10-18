@@ -5,13 +5,16 @@
 // 메일·이슈 MCP 읽기·코드 고치기·워크트리·백그라운드 에이전트는 여기 없다 — Claude Code 전용 그대로.
 import type { Config } from "./config.ts";
 import { codexExec, commandOnPath, type ExecFileLike } from "./providers.ts";
+import { t } from "./i18n.ts";
+import { onLanguage } from "./lang.ts";
 
 export type FeatureBrain = "claude-code" | "codex";
 export type CodexDeps = { execFile?: ExecFileLike; commandExists?: (name: string) => boolean };
 export type CodexStat = { costUsd: number; inTokens: number; outTokens: number; ms: number };
 
-export const NEEDS_CODER = "이 기능은 Claude Code·Codex 가 있어야 돌아요";
-export const NEEDS_CLAUDE_MCP = "MCP 연결(메일·이슈·캘린더·Slack)은 Claude Code 뇌일 때만 읽어요";
+export let NEEDS_CODER = t("status.needs_coder");
+export let NEEDS_CLAUDE_MCP = t("status.needs_claude_mcp");
+onLanguage(() => { NEEDS_CODER = t("status.needs_coder"); NEEDS_CLAUDE_MCP = t("status.needs_claude_mcp"); }); // 살아 있는 바인딩: 가져다 쓰는 쪽도 새 언어
 
 // 이 기능들을 돌릴 뇌. 없으면 null. 설치 마법사를 마치기 전(onboarded false)에도 null: 아무 모델 작업도 하지 않는다(onboarding.ts)
 export function featureBrain(cfg: Pick<Config, "brain" | "onboarded">, exists: (name: string) => boolean = (n) => commandOnPath(n)): FeatureBrain | null {
@@ -27,7 +30,7 @@ export const usesCodex = (cfg: Pick<Config, "brain">) => cfg.brain?.provider ===
 
 const noted = new Set<string>();
 // 기능마다 한 번만 알린다(뇌를 바꾸면 다시 한 번)
-export function skipQuietly(feature: string, cfg: Pick<Config, "brain">, log: (s: string) => void = console.log, why = NEEDS_CODER): void {
+export function skipQuietly(feature: string, cfg: Pick<Config, "brain">, log: (s: string) => void = console.log, why: string = NEEDS_CODER): void {
   const key = `${feature}:${cfg.brain?.provider ?? "claude-code"}`;
   if (noted.has(key)) return;
   noted.add(key);
@@ -46,9 +49,9 @@ export function withMcpBrain<T extends { mode: string; ready: boolean; detail?: 
 export function shapeError(out: unknown, schema: unknown): string | undefined {
   const sc = schema as { type?: string; required?: string[]; properties?: Record<string, { type?: string | string[] }> } | undefined;
   if (!sc || sc.type !== "object") return undefined;
-  if (out === null || typeof out !== "object" || Array.isArray(out)) return "객체가 아님";
+  if (out === null || typeof out !== "object" || Array.isArray(out)) return t("status.shape_not_object");
   const o = out as Record<string, unknown>;
-  for (const k of sc.required ?? []) if (!(k in o)) return `${k} 없음`;
+  for (const k of sc.required ?? []) if (!(k in o)) return t("status.shape_missing", { k });
   for (const [k, p] of Object.entries(sc.properties ?? {})) {
     if (!(k in o) || o[k] === null || !p?.type) continue;
     const types = Array.isArray(p.type) ? p.type : [p.type];
@@ -58,7 +61,7 @@ export function shapeError(out: unknown, schema: unknown): string | undefined {
       : t === "integer" ? Number.isInteger(v)
       : t === "null" ? v === null
       : typeof v === t);
-    if (!ok) return `${k} 타입`;
+    if (!ok) return t("status.shape_type", { k });
   }
   return undefined;
 }
@@ -71,6 +74,6 @@ export async function codexStructured<T>(
   const t0 = Date.now();
   const { out, usage } = await codexExec(spec.prompt, spec.schema, { system: spec.system, execFile: deps.execFile, commandExists: deps.commandExists, timeoutMs: spec.timeoutMs });
   const bad = shapeError(out, spec.schema);
-  if (bad) throw new Error(`Codex 답이 형식에 맞지 않아요(${bad})`);
+  if (bad) throw new Error(t("status.codex_bad_shape", { bad }));
   return { out: out as T, stat: { costUsd: 0, inTokens: usage.inTokens, outTokens: usage.outTokens, ms: Date.now() - t0 } };
 }
