@@ -4,27 +4,27 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>도움 보내기</title>
+  <title data-i18n="main.title_debug">도움 보내기</title>
   <link rel="stylesheet" href="debug.css">
 </head>
 <body>
-  <p id="guide">앱이 이상하면 <strong>⌘⇧D</strong> 를 눌러 이 창을 엽니다. 아래 기록을 <strong>복사</strong>하거나 바탕화면에 <strong>저장</strong>합니다. 옆 그림은 짧은 요약입니다.</p>
-  <p id="speech">로그 모아 봤어요. 복사해서 보내 주세요 (스이시~사)</p>
+  <p id="guide"><span data-i18n="main.dbg_guide_1">앱이 이상하면 </span><strong id="guide-key">⌘⇧D</strong><span data-i18n="main.dbg_guide_2"> 를 눌러 이 창을 엽니다. 아래 기록을 </span><strong data-i18n="main.dbg_guide_copy">복사</strong><span data-i18n="main.dbg_guide_3">하거나 바탕화면에 </span><strong data-i18n="main.dbg_guide_save">저장</strong><span data-i18n="main.dbg_guide_4">합니다. 옆 그림은 짧은 요약입니다.</span></p>
+  <p id="speech" data-i18n="main.dbg_speech">로그 모아 봤어요. 복사해서 보내 주세요 (스이시~사)</p>
 
   <div id="cols">
     <section id="log-sec">
-      <h1>오류 기록</h1>
-      <textarea id="log" readonly rows="18" spellcheck="false">기록을 모으는 중…</textarea>
+      <h1 data-i18n="main.dbg_log_title">오류 기록</h1>
+      <textarea id="log" readonly rows="18" spellcheck="false" data-i18n="main.dbg_collecting">기록을 모으는 중…</textarea>
       <div id="actions">
-        <button id="copy" type="button" class="primary">모두 복사</button>
-        <button id="save" type="button">바탕화면에 저장</button>
+        <button id="copy" type="button" class="primary" data-i18n="main.dbg_copy">모두 복사</button>
+        <button id="save" type="button" data-i18n="main.dbg_save">바탕화면에 저장</button>
       </div>
       <p id="status" role="status"></p>
     </section>
     <section id="qr-sec">
-      <h1>그림으로 보내기</h1>
-      <canvas id="qr" width="220" height="220" aria-label="짧은 요약 그림"></canvas>
-      <p id="qr-note">짧은 요약만 들어 있습니다. 전체는 왼쪽 기록입니다.</p>
+      <h1 data-i18n="main.dbg_qr_title">그림으로 보내기</h1>
+      <canvas id="qr" width="220" height="220" aria-label="짧은 요약 그림" data-i18n-aria-label="main.dbg_qr_label"></canvas>
+      <p id="qr-note" data-i18n="main.dbg_qr_note">짧은 요약만 들어 있습니다. 전체는 왼쪽 기록입니다.</p>
     </section>
   </div>
   <script type="module" src="debug.js"></script>

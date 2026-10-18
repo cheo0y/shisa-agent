@@ -129,7 +129,7 @@ test('캐릭터 한 번 클릭 → 패널, 더블클릭 → 말 걸기(뇌가 �
   const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
   assert.match(m, /hover \? \{ kind: 'hover' \}/);
   // 설정 창으로 가는 길: 트레이·앱 메뉴·패널 ⚙
-  assert.match(m, /label: '설정…', click: \(\) => settingsUi\?\.show\(\)/);
+  assert.match(m, /settings: \(\) => settingsUi\?\.show\(\)/); // 트레이 「설정…」(src/menus.js)
   assert.match(readFileSync(new URL('../renderer/panel.html', import.meta.url), 'utf8'), /id="open-settings"/);
   // PUT 도 X-CY-Agent 헤더를 단다
   assert.match(m, /if \(method === 'POST' \|\| method === 'PUT'\) \{\s*headers\['X-CY-Agent'\] = '1';/);

@@ -1,4 +1,5 @@
 // 새 버전 알림: 하루 한 번 GitHub Releases 의 최신 릴리스를 보고(인증 없이), 지금보다 새로우면 캐릭터 말풍선. 순수 로직.
+import { t } from './i18n.js';
 export const REPO_SLUG = 'cheo0y/shisa-agent';
 // 목록으로 본다: 윈도우는 맥과 따로 v<버전>-windows 릴리스(--latest=false)라 /releases/latest 로는 윈도우 PC 가 늘 맥 릴리스만 봤다
 export const RELEASES_API = `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=100`;
@@ -97,15 +98,8 @@ export function shouldNotify({ latest, current, notified }) {
 // platform 'win32': 설치본은 새 Setup.exe 를 실행(Squirrel 이 다시 깐다 — 켜져 있는 시사는 바로 꺼지니 먼저 종료).
 // portable(Update.exe 없는 휴대용 zip): 새 zip 을 풀어 쓴다. assetUrl 이 있으면 그 파일을 바로 받는다
 export function updateBubble({ version, url, assetUrl, checkout = false, platform, portable = false }) {
-  const text = checkout
-    ? `새 버전 v${version} 가 나왔어요. 받은 레포 폴더에서 ./ops/update.sh 를 실행하면 바뀌어요.`
-    : platform === 'win32'
-      ? portable
-        ? `새 버전 v${version} 가 나왔어요. 시사를 종료하고 새 zip 을 받아 풀어서 Shisa.exe 를 실행하면 돼요. 할 일·기록은 그대로예요.`
-        : `새 버전 v${version} 가 나왔어요. 알림 영역 아이콘에서 시사를 종료한 뒤 새 Setup.exe 를 받아 실행하면 바뀌어요. 할 일·기록은 그대로예요.`
-      : platform === 'darwin'
-        ? `새 버전 v${version} 가 나왔어요. 새 dmg 를 받아 응용 프로그램에 덮어 넣으면 돼요. 할 일·기록은 그대로예요.`
-        : `새 버전 v${version} 가 나왔어요. 새 버전을 받아 바꿔 주세요. 할 일·기록은 그대로예요.`;
+  const key = checkout ? 'upd_checkout' : platform === 'win32' ? (portable ? 'upd_win_portable' : 'upd_win_setup') : platform === 'darwin' ? 'upd_mac' : 'upd_other';
+  const text = t(`main.${key}`, { version });
   const link = (!checkout && assetUrl) || url || RELEASES_PAGE;
-  return { id: BUBBLE_ID, kind: 'info', text, link, linkLabel: checkout ? '바뀐 점 보기' : '받으러 가기', ttlMs: 120000, closable: true };
+  return { id: BUBBLE_ID, kind: 'info', text, link, linkLabel: checkout ? t('main.upd_changes') : t('main.upd_download'), ttlMs: 120000, closable: true };
 }

@@ -1,5 +1,6 @@
 // 이 컴퓨터에서 쓸 수 있는 코딩 도구(Claude Code·Codex) — 순수 로직. 확인 자체(agent-login.js)는 main 이 한다.
 // 코딩 실행기는 Claude Code 또는 Codex. MCP·Claude 백그라운드 도구 지원과는 별도다.
+import { t } from './i18n.js';
 
 // 모르면(아직 확인 전) 있다고 본다 — 예전처럼 다 보이고, 확인이 끝나면 맞춘다
 export const UNKNOWN_CAPS = Object.freeze({ claude: null, codex: null });
@@ -13,10 +14,11 @@ export const hasCoder = (caps) => caps?.claude !== false || caps?.codex === true
 export const sameCaps = (a, b) => a?.claude === b?.claude && a?.codex === b?.codex;
 
 // 기능별 안내(누를 수 있는 곳에서 Claude Code 가 없을 때)
-export const CODER_HINTS = {
-  session: '작업 세션은 Claude Code 또는 Codex로 코드를 고칠 때 생겨요. 지금은 대화·브리핑·할 일만 써요.',
-  code: '코드 고치기는 Claude Code 또는 Codex가 있어야 해요. 설치 탭에서 연결할 수 있어요.',
-};
+// 부를 때 그 언어로(게터)
+export const CODER_HINTS = Object.freeze({
+  get session() { return t('main.coder_session'); },
+  get code() { return t('main.coder_code'); },
+});
 export const coderHint = (feature) => CODER_HINTS[feature] ?? CODER_HINTS.code;
 
 // 확인 결과를 잠깐 기억(Claude Code 확인은 프로세스를 하나 띄운다). force 면 새로

@@ -43,7 +43,10 @@ test('createCapsProbe: 잠깐 기억하고(force 면 새로), 동시에 물으�
 
 test('코드 작업 AI 가 없으면: 메뉴에서 작업 세션을 빼고, 패널은 버튼을 숨기고, 단축키는 안내', () => {
   const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
-  assert.match(m, /\.\.\.\(coder\(\) \? \[\{ label: '작업 세션 열기', click: openSessionMenu \}\] : \[\]\)/);
+  assert.match(m, /trayTemplate\(\{[\s\S]*?\}, \{ coder: coder\(\),/); // 메뉴 템플릿은 src/menus.js
+  assert.match(m, /characterMenuTemplate\(\{[^\n]*\}, \{ coder: coder\(\), who: who\(\) \}\)/);
+  const menus = readFileSync(new URL('../src/menus.js', import.meta.url), 'utf8');
+  assert.equal(menus.match(/\.\.\.\(s\.coder \? \[\{ label: t\('main\.menu_open_session'\), click: a\.openSession \}\] : \[\]\)/g)?.length, 2);
   assert.match(m, /const coder = \(\) => brainNow\(\)\.coder;/, '데몬이 본 코드 작업 AI 기준');
   assert.doesNotMatch(m, /suggest|건의/i, '건의함은 개인판에서 뺐다');
   assert.match(m, /ipcMain\.handle\('caps-get'/);

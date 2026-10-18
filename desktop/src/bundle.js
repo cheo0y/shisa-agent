@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import { bundledCodexDirs } from './codex-paths.js';
 
 // 앱(dmg)으로 깐 시사와 레포에서 띄운 시사를 가르는 판단. 순수 로직(파일·환경은 main.js 가 읽어서 넘긴다).
@@ -126,11 +127,7 @@ export function loginItemPlan({ platform = 'darwin', packaged, launchd = false, 
 
 // 설정 창에 보일 한 줄(켜고 끌 수 없을 때 이유)
 export function loginItemHint(reason) {
-  if (reason === 'launchd') return '터미널로 설치한 시사는 launchd 가 로그인할 때 켜 줘요. 여기서는 바꾸지 않아요.';
-  if (reason === 'dev') return '레포에서 띄운 개발용 실행이라 여기서는 바꾸지 않아요.';
-  if (reason === 'test') return '시험용 실행(다른 데이터 폴더·포트)이라 여기서는 바꾸지 않아요.';
-  if (reason === 'platform') return '이 컴퓨터에서는 지원하지 않아요.';
-  return '';
+  return ['launchd', 'dev', 'test', 'platform'].includes(reason) ? t(`main.login_${reason}`) : '';
 }
 
 // 마법사를 마쳤을 때(또는 마친 뒤 처음 켤 때) 기본값: 정한 적 없으면 켬

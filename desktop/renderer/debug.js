@@ -1,6 +1,8 @@
 // 도움 보내기 창 — 메인에서 받은 기록을 보여 주고, 짧은 요약 그림을 그린다. 네트워크 없음.
+// 화면 글은 src/i18n/main.js(언어가 바뀌면 bindLanguage 가 정적 글과 지금 상태 글을 다시)
 import { encode } from './vendor/qr.js';
 import { isWindowsUA } from '../src/os-hint.js';
+import { t, bindLanguage } from '../src/i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
@@ -10,16 +12,31 @@ const canvas = $('qr');
 const qrNote = $('qr-note');
 
 // 윈도우: 단축키 안내를 Ctrl+Shift+D 로
-if (isWindowsUA()) { const k = $('guide')?.querySelector('strong'); if (k) k.textContent = 'Ctrl+Shift+D'; }
+if (isWindowsUA()) { const k = $('guide-key'); if (k) k.textContent = 'Ctrl+Shift+D'; }
 
-function setStatus(text, err) {
-  statusEl.textContent = text;
-  statusEl.classList.toggle('err', !!err);
+// 지금 보이는 상태 글(언어가 바뀌면 같은 키로 다시): { key, vars, err } · 그림 아래 글 · 기록 칸(모으는 중·실패일 때만 키)
+let statusMsg = null;
+let qrMsg = null;
+let logMsg = null;
+let bundle = null;
+
+function setStatus(msg) {
+  statusMsg = msg;
+  statusEl.textContent = msg ? (msg.text ?? t(msg.key, msg.vars)) : '';
+  statusEl.classList.toggle('err', !!msg?.err);
+}
+function setQrNote(key) {
+  qrMsg = key;
+  if (key) qrNote.textContent = t(key);
+}
+function setLog(key) {
+  logMsg = key;
+  logEl.value = key ? t(key) : bundle?.text || '';
 }
 
 function drawQr(text) {
   if (!text) {
-    qrNote.textContent = '그림에 넣을 요약이 없어요. 왼쪽 기록을 복사해 주세요.';
+    setQrNote('main.dbg_qr_empty');
     return;
   }
   try {
@@ -37,36 +54,46 @@ function drawQr(text) {
       }
     }
   } catch {
-    qrNote.textContent = '그림이 너무 커서 못 그렸어요. 왼쪽 기록을 복사해 주세요.';
+    setQrNote('main.dbg_qr_big');
   }
 }
 
 async function load() {
   if (!window.cy) {
-    logEl.value = '창을 열지 못했어요.';
+    setLog('main.dbg_no_window');
     return;
   }
-  logEl.value = '기록을 모으는 중…';
+  setLog('main.dbg_collecting');
   const b = await window.cy.load();
   if (!b?.ok) {
-    logEl.value = '기록을 모으지 못했어요.';
-    setStatus('기록을 모으지 못했어요.', true);
+    setLog('main.dbg_collect_fail');
+    setStatus({ key: 'main.dbg_collect_fail', err: true });
     return;
   }
-  logEl.value = b.text || '';
+  bundle = b;
+  setLog(null);
   if (b.speech) speechEl.textContent = b.speech;
+  qrMsg = null;
   drawQr(b.qr);
 }
 
 $('copy').addEventListener('click', async () => {
   const r = await window.cy.copy();
-  setStatus(r?.ok ? '복사했습니다. 채팅이나 메일에 붙여 넣어 주세요.' : (r?.error || '복사하지 못했어요.'), !r?.ok);
+  setStatus(r?.ok ? { key: 'main.dbg_copied' } : r?.error ? { text: r.error, err: true } : { key: 'main.dbg_copy_fail', err: true });
 });
 
 $('save').addEventListener('click', async () => {
   const r = await window.cy.save();
-  setStatus(r?.ok ? `바탕화면에 저장했습니다. (${r.fileName || '파일'})` : (r?.error || '저장하지 못했어요.'), !r?.ok);
+  setStatus(r?.ok ? { key: 'main.dbg_saved', vars: { file: r.fileName || t('main.dbg_file') } } : r?.error ? { text: r.error, err: true } : { key: 'main.dbg_save_fail', err: true });
 });
 
+// 언어가 바뀜: 정적 글(data-i18n)은 bindLanguage 가, 상태 글은 같은 키로. 기록(머리·말)은 메인이 그 언어로 다시 모은다
+bindLanguage(window.cy, () => {
+  if (isWindowsUA()) { const k = $('guide-key'); if (k) k.textContent = 'Ctrl+Shift+D'; }
+  if (statusMsg && !statusMsg.text) setStatus(statusMsg);
+  if (qrMsg) setQrNote(qrMsg);
+  if (logMsg) setLog(logMsg);
+  else load();
+});
 window.cy?.onReload?.(load);
 load();

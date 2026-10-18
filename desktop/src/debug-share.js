@@ -3,11 +3,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { t } from './i18n.js';
 
 export const RING_MAX_BYTES = 250 * 1024;
 export const QR_MAX_BYTES = 480;
 export const LOG_FILE_TAIL = 80 * 1024;
-export const SPEECH = '로그 모아 봤어요. 복사해서 보내 주세요 (스이시~사)';
+export const SPEECH = t('main.dbg_speech', null, 'ko'); // 한국어판 — 기록에는 speech()(지금 언어)
+export const speech = () => t('main.dbg_speech');
 
 const CONNECTOR_CAPS = ['slack', 'calendar', 'mail', 'issues'];
 const CONNECTOR_MODES = ['api', 'mcp', 'imap', 'off'];
@@ -167,24 +169,24 @@ export function shapeConnectorsSafe(list) {
 }
 
 export function formatHeader(meta = {}) {
-  const pack = meta.packaged === true ? '예' : '아니오';
-  const daemon = meta.daemonReachable === true ? '연결됨' : '연결 안 됨';
+  const pack = meta.packaged === true ? t('main.hdr_yes') : t('main.hdr_no');
+  const daemon = meta.daemonReachable === true ? t('main.hdr_reach') : t('main.hdr_noreach');
   const port = meta.daemonPort != null ? String(meta.daemonPort) : '';
   const lines = [
-    '시사 비서 오류 기록',
-    `시각: ${formatStamp(meta.now instanceof Date ? meta.now : new Date())}`,
-    `앱: ${meta.appVersion || '0.1.0'}`,
+    t('main.hdr_title'),
+    t('main.hdr_time', { v: formatStamp(meta.now instanceof Date ? meta.now : new Date()) }),
+    t('main.hdr_app', { v: meta.appVersion || '0.1.0' }),
     `Electron: ${meta.electron || '?'}`,
     `Chrome: ${meta.chrome || '?'}`,
     `OS: ${meta.os || '?'} ${meta.arch || ''}`.trimEnd(),
-    `설치본: ${pack}`,
-    `데몬: ${daemon}${port ? ` (127.0.0.1:${port})` : ''}`,
-    '연결:',
+    t('main.hdr_packaged', { v: pack }),
+    t('main.hdr_daemon', { v: `${daemon}${port ? ` (127.0.0.1:${port})` : ''}` }),
+    t('main.hdr_conn'),
   ];
   const cons = shapeConnectorsSafe(meta.connectors);
-  if (!cons.length) lines.push('  (아직 모름)');
+  if (!cons.length) lines.push(`  ${t('main.hdr_unknown')}`);
   for (const c of cons) {
-    const ready = c.mode === 'off' ? '꺼짐' : (c.ready ? '준비됨' : '준비 안 됨');
+    const ready = c.mode === 'off' ? t('main.hdr_off') : (c.ready ? t('main.hdr_ready') : t('main.hdr_notready'));
     lines.push(`  ${c.cap}  ${c.mode}  ${ready}`);
   }
   return lines.join('\n');
@@ -197,7 +199,7 @@ export function tailText(text, maxBytes = LOG_FILE_TAIL) {
   let slice = buf.subarray(buf.length - maxBytes).toString('utf8');
   const nl = slice.indexOf('\n');
   if (nl !== -1) slice = slice.slice(nl + 1);
-  return `(앞 ${buf.length - maxBytes}바이트 생략)\n${slice}`;
+  return `${t('main.log_skipped', { n: buf.length - maxBytes })}\n${slice}`;
 }
 
 function readTailFile(full, size, maxBytes, io) {
@@ -209,7 +211,7 @@ function readTailFile(full, size, maxBytes, io) {
   let text = buf.toString('utf8');
   const i = text.indexOf('\n');
   if (i !== -1) text = text.slice(i + 1);
-  return `(앞 ${start}바이트 생략)\n${text}`;
+  return `${t('main.log_skipped', { n: start })}\n${text}`;
 }
 
 const LOG_PRIORITY = ['com.cy-agent.daemon.log', 'daemon.log', 'com.cy-agent.desktop.log'];
@@ -219,8 +221,8 @@ export function collectLogFiles(dir, io = fs, perFileMax = LOG_FILE_TAIL) {
   try {
     names = io.readdirSync(dir);
   } catch (err) {
-    if (err && err.code === 'ENOENT') return { missingDir: true, files: [], notes: ['데몬 기록 파일이 아직 없어요.'] };
-    return { missingDir: false, files: [], notes: ['로그 폴더를 읽지 못했어요.'] };
+    if (err && err.code === 'ENOENT') return { missingDir: true, files: [], notes: [t('main.log_no_daemon')] };
+    return { missingDir: false, files: [], notes: [t('main.log_dir_fail')] };
   }
   const list = names.filter((n) => typeof n === 'string' && n && !n.startsWith('.') && !n.includes('/') && !n.includes('\\') && n !== '..');
   list.sort((a, b) => {
@@ -242,7 +244,7 @@ export function collectLogFiles(dir, io = fs, perFileMax = LOG_FILE_TAIL) {
     files.push({ name, text: redact(text) });
   }
   const notes = [];
-  if (!files.some((f) => DAEMON_LOG_NAMES.has(f.name))) notes.push('데몬 기록 파일이 아직 없어요.');
+  if (!files.some((f) => DAEMON_LOG_NAMES.has(f.name))) notes.push(t('main.log_no_daemon'));
   return { missingDir: false, files, notes };
 }
 
@@ -269,7 +271,7 @@ export function compactQrPayload({ header, logText, maxBytes = QR_MAX_BYTES } = 
   const pack = (errs, width) => {
     const body = errs.map((l) => clipLine(l, width));
     const extra = body.length < pickErrorLines(logText, 30).length
-      ? [`(오류 ${pickErrorLines(logText, 30).length}줄 중 ${body.length}줄)`]
+      ? [t('main.qr_some', { total: pickErrorLines(logText, 30).length, n: body.length })]
       : [];
     return redact([...head, '---', ...body, ...extra].join('\n'));
   };
@@ -281,35 +283,35 @@ export function compactQrPayload({ header, logText, maxBytes = QR_MAX_BYTES } = 
   if (utf8Bytes(out) <= maxBytes) return out;
   out = pack(errors.slice(-3), 40);
   if (utf8Bytes(out) <= maxBytes) return out;
-  const fallback = redact([...head, '---', `오류 ${errors.length}줄 (전체는 복사)`].join('\n'));
+  const fallback = redact([...head, '---', t('main.qr_count', { n: errors.length })].join('\n'));
   if (utf8Bytes(fallback) <= maxBytes) return fallback;
   const buf = new TextEncoder().encode(fallback).slice(0, Math.max(0, maxBytes - 3));
   return new TextDecoder().decode(buf) + '…';
 }
 
 function formatDaemonSection(daemonLogs) {
-  const logs = daemonLogs && typeof daemonLogs === 'object' ? daemonLogs : { files: [], notes: ['데몬 기록 파일이 아직 없어요.'] };
+  const logs = daemonLogs && typeof daemonLogs === 'object' ? daemonLogs : { files: [], notes: [t('main.log_no_daemon')] };
   const parts = [];
   for (const n of logs.notes || []) parts.push(n);
-  if (logs.missingDir && !(logs.notes || []).length) parts.push('데몬 기록 파일이 아직 없어요.');
+  if (logs.missingDir && !(logs.notes || []).length) parts.push(t('main.log_no_daemon'));
   for (const f of logs.files || []) {
     parts.push(`--- ${f.name} ---`);
-    parts.push(f.text || '(비어 있음)');
+    parts.push(f.text || t('main.log_empty'));
   }
-  if (!parts.length) parts.push('데몬 기록 파일이 아직 없어요.');
+  if (!parts.length) parts.push(t('main.log_no_daemon'));
   return parts.join('\n');
 }
 
 export function assembleBundle({ meta, electronLog, daemonLogs, now } = {}) {
   const header = formatHeader({ ...meta, now: now || meta?.now });
-  const appLog = redact(String(electronLog || '(앱 기록이 아직 없어요.)'));
+  const appLog = redact(String(electronLog || t('main.log_no_app')));
   const daemon = redact(formatDaemonSection(daemonLogs));
-  const text = redact([header, '', '== 앱 기록 ==', appLog, '', '== 데몬 기록 ==', daemon, ''].join('\n'));
+  const text = redact([header, '', t('main.log_sec_app'), appLog, '', t('main.log_sec_daemon'), daemon, ''].join('\n'));
   const qr = compactQrPayload({ header, logText: text });
   return {
     text,
     qr,
     fileName: debugFileName(now || meta?.now || new Date()),
-    speech: SPEECH,
+    speech: speech(),
   };
 }
