@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execBin } from './win-exec.js';
+import { bundledCodexDirs } from './codex-paths.js';
 
 export function parseClaudeAuth(stdout) {
   const text = String(stdout ?? '');
@@ -39,6 +40,7 @@ export function findBin(name, { home = os.homedir(), pathEnv = process.env.PATH 
     const newest = [...readdir(root)].sort((a, b) => { const [x, y] = [ver(a), ver(b)]; return (y[0] - x[0]) || (y[1] - x[1]) || (y[2] - x[2]); });
     for (const n of newest) dirs.push(p.join(root, n, 'bin'));
   } catch { /* nvm 없음 */ }
+  if (name === 'codex' && platform === 'darwin') dirs.push(...bundledCodexDirs(home));
   for (const d of dirs) {
     const f = p.join(d, name);
     if (exists(f)) return f;

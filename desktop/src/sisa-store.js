@@ -38,6 +38,7 @@ export function normalizeSisa(raw) {
     gsk: d.gsk === true,
     provider: ALL_PROVIDERS.includes(d.provider) || d.provider === 'none' ? d.provider : '',
     chatModels,
+    codeProvider: d.codeProvider === 'codexcli' ? 'codexcli' : 'claudecode',
     codeModel: isModelId(d.codeModel) ? d.codeModel : 'default',
     persona: typeof d.persona === 'string' && !isStockPersona(d.persona) ? d.persona : '',
     canned: sanitizeCanned(d.canned),
@@ -77,6 +78,7 @@ export function publicView(data, defaultPersona = '') {
     connected: connectedProviders(d),
     chatModels: d.chatModels,
     codeModel: d.codeModel,
+    codeProvider: d.codeProvider,
   };
 }
 
@@ -133,8 +135,12 @@ export function withModels(data, { chat, code } = {}) {
     }
   }
   if (code !== undefined) {
-    if (!isModelId(code)) return null;
-    next = { ...next, codeModel: code };
+    const provider = typeof code === 'object' ? code?.provider : d.codeProvider;
+    const model = typeof code === 'object' ? code?.model : code;
+    if (!['claudecode', 'codexcli'].includes(provider) || !isModelId(model)) return null;
+    if (typeof code === 'object' && !connectedProviders(d).includes(provider)) return null;
+    if (model !== 'default' && (provider === 'codexcli' ? /^(claude-|opus$|sonnet$|haiku$)/.test(model) : /^(gpt-|codex|o\d)/.test(model))) return null;
+    next = { ...next, codeProvider: provider, codeModel: model };
   }
   return next;
 }
@@ -164,8 +170,8 @@ export function daemonBrainPatch(data) {
   // Genspark 를 gsk login 키로 쓰면 데몬 설정의 키를 지운다(null) — 데몬이 gsk login 파일을 읽는다
   if (KEY_FIELD[chosen]) brain[KEY_FIELD[chosen]] = d.keys[chosen] ?? (chosen === 'genspark' ? null : undefined);
   const m = d.chatModels[chosen];
-  // models.general: 고른 모델(기본값이면 비운다). codex·local 은 데몬 쪽 기본을 그대로
-  const general = chosen === 'codexcli' || chosen === 'none' ? undefined : m && m !== 'default' ? m : null;
+  // 고른 모델을 전달한다(기본값이면 비움). local 은 모델을 쓰지 않는다.
+  const general = chosen === 'none' ? undefined : m && m !== 'default' ? m : null;
   return { brain, general };
 }
 

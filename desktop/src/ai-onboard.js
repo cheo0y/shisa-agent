@@ -104,7 +104,7 @@ export const CLI_PROVIDERS = [CLI_PROVIDER, CODEX_PROVIDER];
 // AI 는 선택이다: 「AI 없이 쓰기」(none)를 고르면 로컬 뇌로 정하고 다음 단계로 간다
 export const BRAIN_CHOICES = [
   { id: 'claudecode', agent: 'claude', title: 'Claude Code', blurb: '이 맥에 로그인된 Claude Code 로 이야기해요. 키가 필요 없고, 코드 고치기·작업 세션도 돼요.' },
-  { id: 'codexcli', agent: 'codex', title: 'Codex', blurb: '이 맥에 로그인된 Codex 로 이야기해요. 키가 필요 없고, 할 일 정리·지식그래프도 Codex 로 돌아요. 코드 고치기·슬랙·지라(MCP)는 Claude Code 가 있어야 해요.' },
+  { id: 'codexcli', agent: 'codex', title: 'Codex', blurb: '이 맥에 로그인된 Codex 로 이야기해요. 키가 필요 없고, 할 일 정리·지식그래프도 Codex 로 돌아요. 코드 고치기도 Codex로 할 수 있어요. 슬랙·지라(MCP)는 Claude Code가 필요해요.' },
   { id: 'gemini', title: 'Gemini 키', blurb: '구글 AI 키를 붙여 넣어요. 카드 없이 무료로 만들 수 있어요.' },
   { id: 'openai', title: 'OpenAI(GPT) 키', blurb: 'OpenAI 플랫폼 키를 붙여 넣어요. 크레딧이 있어야 대답해요.' },
   { id: 'claude', title: 'Claude API 키', blurb: 'Anthropic 콘솔 키를 붙여 넣어요. 크레딧이 있어야 대답해요.' },
@@ -146,7 +146,7 @@ export function todoBrief({ open = [], done = [] } = {}) {
 
 export const HUB = [
   { id: 'claude', title: 'Claude Code', blurb: '코드 작업을 맡길 때 씁니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
-  { id: 'codex', title: 'Codex', blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 코드 고치기는 Claude Code 가 있어야 합니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
+  { id: 'codex', title: 'Codex', blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 모델 탭에서 코딩 실행기도 Codex로 고를 수 있습니다. 연결하지 않아도 할 일 비서는 됩니다.', kind: 'code' },
   { id: 'gcal', title: '구글 캘린더', blurb: '내 일정을 시사가 읽습니다. 캘린더마다 비밀 주소를 붙여 넣으면 되고, 여러 개 붙일 수 있습니다.', kind: 'done' },
   { id: 'outlook', title: 'Outlook 캘린더', blurb: '내 일정을 시사가 읽습니다. 여러 개 붙일 수 있고 구글 캘린더와 같이 써도 됩니다. 회사가 일정 게시를 막았으면 쓸 수 없습니다.', kind: 'done' },
   { id: 'slack', title: 'Slack', blurb: '슬랙 글을 시사가 읽습니다. 슬랙 공식 로그인만 쓰고 쿠키는 복사하지 않습니다. 회사처럼 관리자 승인이 필요한 곳은 막힐 수 있습니다. Claude Code가 먼저 필요합니다.', kind: 'done', needsAgent: 'claude' },

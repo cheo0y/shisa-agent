@@ -1,3 +1,5 @@
+import { bundledCodexDirs } from './codex-paths.js';
+
 // 앱(dmg)으로 깐 시사와 레포에서 띄운 시사를 가르는 판단. 순수 로직(파일·환경은 main.js 가 읽어서 넘긴다).
 //  - 앱 번들: Contents/Resources/agent(데몬 소스 + 런타임 의존성), Contents/Resources/assets(캐릭터 그림·영상)
 //  - 개발(npm start): 번들 데몬을 쓰지 않는다. CY_BUNDLED_DAEMON=1 이면 레포 agent/ 를 같은 방식으로 띄운다
@@ -65,6 +67,7 @@ export function daemonEnv(env = {}, { port, home, platform = 'darwin' } = {}) {
   if (platform === 'win32') return winPath(out, home);
   const have = String(env.PATH ?? '').split(':').filter(Boolean);
   const extra = PATH_DIRS.map((d) => (d.startsWith('~/') ? (home ? posixJoin(home, d.slice(2)) : null) : d)).filter(Boolean);
+  if (platform === 'darwin') extra.push(...bundledCodexDirs(home));
   out.PATH = [...new Set([...have, ...extra])].join(':');
   return out;
 }

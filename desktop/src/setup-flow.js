@@ -12,7 +12,7 @@ export const AGENTS = [
   {
     id: 'codex',
     title: 'Codex',
-    blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 코드 고치기와 메일·이슈 MCP 읽기는 Claude Code 가 있어야 합니다.',
+    blurb: '대화·브리핑·할 일 정리를 Codex 로 돌립니다. 코드 고치기도 Codex로 할 수 있습니다. 메일·이슈 MCP 읽기는 Claude Code가 필요합니다.',
     need: 'ChatGPT Plus, Pro, Business, Enterprise 계정과 Codex CLI가 필요합니다.',
   },
   {

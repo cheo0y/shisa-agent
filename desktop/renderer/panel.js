@@ -1,3 +1,4 @@
+import { hasCoder as canCodeWith } from '../src/caps.js';
 // 패널 렌더러 — 대시보드(개요·프로젝트·할 일·오늘 할 일)와 채팅. 네트워크는 전부 메인을 거친다.
 import DOMPurify from './vendor/purify.js';
 import { Marked } from './vendor/marked.js';
@@ -120,7 +121,7 @@ let error = null;
 let connected = false;
 // 이 컴퓨터의 Claude Code·Codex(모르면 있다고 본다)
 let caps = { claude: null, codex: null };
-const hasCoder = () => caps.claude !== false;
+const hasCoder = () => canCodeWith(caps);
 let section = 'overview';
 try { section = normalizeSection(localStorage.getItem('section')) ?? 'overview'; } catch { /* 저장소 없음 */ }
 let setupPhase = 'name'; // name·brain·ai-key·extras·connect·done (setup-plan.js — 키·토큰은 저장하지 않는다)
@@ -144,7 +145,7 @@ let setupCalendars = []; // 연결된 캘린더(main calendar-list: 가린 이�
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
 let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
-let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {}, codeModel: 'default' };
+let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {}, codeProvider: 'claudecode', codeModel: 'default' };
 // 예전 화면 위치(ai-offer·agent·pick·walk)는 불러오지 않는다
 try {
   setupPhase = restorePhase(localStorage.getItem('setupPhase'));
@@ -2873,6 +2874,7 @@ async function loadSisa() {
         done: got.done || {},
         connected: Array.isArray(got.connected) ? got.connected : [],
         chatModels: got.chatModels && typeof got.chatModels === 'object' ? got.chatModels : {},
+        codeProvider: got.codeProvider === 'codexcli' ? 'codexcli' : 'claudecode',
         codeModel: typeof got.codeModel === 'string' ? got.codeModel : 'default',
       };
     }
@@ -3274,6 +3276,7 @@ function applySisa(v) {
     canned: v.canned && typeof v.canned === 'object' ? v.canned : sisa.canned,
     connected: Array.isArray(v.connected) ? v.connected : sisa.connected,
     chatModels: v.chatModels && typeof v.chatModels === 'object' ? v.chatModels : sisa.chatModels,
+    codeProvider: v.codeProvider ?? sisa.codeProvider,
     codeModel: typeof v.codeModel === 'string' ? v.codeModel : sisa.codeModel,
   };
   renderChatLock();

@@ -49,7 +49,7 @@ export function brainView({ status = null, sisa = null, caps = null } = {}) {
       label: st.brain.label,
       local: st.brain.local,
       detail: st.brain.detail,
-      coder: claude !== false,
+      coder: claude !== false || st.coder.codex || caps?.codex === true,
       codex: st.coder.codex || caps?.codex === true,
       connected: st.connectors.filter((c) => c.ready).map((c) => c.cap),
       name: st.user.name ?? '',
@@ -62,7 +62,7 @@ export function brainView({ status = null, sisa = null, caps = null } = {}) {
   const hasKey = !!sisa?.hasKey;
   return {
     ready: hasKey, known: false, provider: str(sisa?.provider, 40), label: '', local: sisa?.provider === 'none', detail: '',
-    coder: capClaude !== false, codex: caps?.codex === true, connected: [], name: '',
+    coder: capClaude !== false || caps?.codex === true, codex: caps?.codex === true, connected: [], name: '',
     background: null, mcp: null, needsClaude: [],
   };
 }

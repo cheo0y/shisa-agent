@@ -45,7 +45,7 @@ export type StatusDeps = {
 
 const KEY_LABEL: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", anthropic: "Claude" };
 
-export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes">>, deps: StatusDeps = {}): Status {
+export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes" | "coding">>, deps: StatusDeps = {}): Status {
   const env = deps.env ?? process.env;
   const provider = cfg.brain?.provider ?? "claude-code";
   const claude = deps.claude?.();
@@ -77,7 +77,7 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
     brain: { provider, label, ready, local, detail },
     chat: local ? false : ready,
     coder: { claude: claude ?? null, codex },
-    features: { background, mcp, code: claude ?? null },
+    features: { background, mcp, code: cfg.coding?.provider === "codex" ? codex : claude ?? null },
     connectors: CAPABILITIES.map((cap) => {
       const x = st.find((s) => s.cap === cap)!;
       const needs = x.mode === "mcp" && !mcp;

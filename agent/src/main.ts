@@ -7,7 +7,7 @@ import { LEAVE_BEFORE_MIN, WorkAlerts, minsToLeave, workHoursOf } from "./work-h
 import { Store } from "./store.ts";
 import { Bus, EXIT_PORT_TAKEN } from "./bus.ts";
 import { runs } from "./runs.ts";
-import { modelChoices } from "./models.ts";
+import { modelChoices, codingChoice } from "./models.ts";
 import { chatModels } from "./chat-models.ts";
 import { Agent, LOCAL_GREET_ID } from "./core.ts";
 import { suggestTitle } from "./chat.ts";
@@ -305,7 +305,7 @@ await bus.listen(cfg.port, {
     bg: agent.bgAgents.list(id), subs: worktreeRecords.forThread(id),
     tokensOf: (runId, parent) => runs.tokensOf(runId, parent), askedAt: (pid) => store.proposal(pid)?.created,
   }) : undefined),
-  models: () => ({ choices: modelChoices(cfg), defaults: { fix: cfg.models.code, chat: cfg.models.general } }),
+  models: () => ({ choices: modelChoices(cfg), defaults: { fix: codingChoice(cfg).model ?? "codex", chat: cfg.models.general } }),
   chatModels: (fresh) => chatModels(cfg, { fresh }),
   commands: () => commands.list(),
   repos: () => agent.repos(),

@@ -1,3 +1,4 @@
+import { hasCoder as canCodeWith } from '../src/caps.js';
 // 작업 세션 창 — 왼쪽 run 목록, 오른쪽 Claude Code 같은 기록 + 입력창. 네트워크는 전부 메인을 거친다.
 import { who, setWho } from './who.js';
 import { applyCharacters } from '../src/character-registry.js';
@@ -692,11 +693,11 @@ cy.brain?.().then(applyBrain).catch(() => {});
 cy.onBrain?.(applyBrain);
 // Claude Code 가 없는 컴퓨터: 새 작업(코드 고치기)은 숨기고, 세션 목록 위에 쉬운 안내
 cy.caps?.().then((c) => {
-  if (c?.claude !== false) return;
+  if (canCodeWith(c)) return;
   $('btn-new').hidden = true;
   const note = document.createElement('div');
   note.className = 'empty';
-  note.textContent = '코드 고치기·새 작업은 Claude Code 가 있어야 해요. 여기서는 브리핑·대화 기록만 볼 수 있어요.';
+  note.textContent = '코드 고치기·새 작업은 Claude Code 또는 Codex가 있어야 해요. 여기서는 브리핑·대화 기록만 볼 수 있어요.';
   $('btn-new').after(note);
 }).catch(() => {});
 

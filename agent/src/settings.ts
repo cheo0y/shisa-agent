@@ -486,7 +486,7 @@ export class Settings {
     this.cfg.brainModels = all;
   }
 
-  // 지금 뇌의 세부 모델 칸. 코드 작업은 늘 Claude Code 라 Claude Code 일 때만 바꾼다. 경량은 Claude 뇌면 수집·제목, 그 밖이면 제목 짓기
+  // 지금 대화 AI의 세부 모델 칸. Codex 코딩 설정은 패널에서 별도로 고른다. 경량은 Claude 뇌면 수집·제목, 그 밖이면 제목 짓기
   private slots(): SettingsView["modelSlots"] {
     const c = this.cfg;
     const p = c.brain?.provider ?? "claude-code";
@@ -496,9 +496,10 @@ export class Settings {
       const label = MODEL_ROLE_LABEL[role];
       if (p === "local") return { role, label, value: null, enabled: false, why: "AI 를 연결하면 고를 수 있어요" };
       if (role === "code") {
+        if (c.coding?.provider === 'codex') return { role, label, value: c.coding.model ?? null, enabled: false, why: 'Codex 코딩 실행기·모델은 패널의 [모델]에서 별도로 선택해요.' };
         return p === "claude-code"
           ? { role, label, value: c.models.code, enabled: true }
-          : { role, label, value: null, enabled: false, why: "코드 작업은 Claude Code 로만 해요. Claude Code 일 때만 바꿀 수 있어요" };
+          : { role, label, value: null, enabled: false, why: "코딩 실행기·모델은 패널의 [모델]에서 별도로 선택해요" };
       }
       if (claude) return { role, label, value: role === "quick" ? c.models.quick ?? DEFAULT_QUICK : c.models[role], enabled: true };
       const own = c.brainModels?.[p]?.[role as ChatRole];
