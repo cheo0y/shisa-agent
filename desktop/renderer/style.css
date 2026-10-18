@@ -460,6 +460,8 @@ html, body {
 }
 /* 우사기: 귀가 길어 같은 상자에 넣으면 몸이 작아 보인다 — 정지 그림만 바닥 기준으로 키워 귀는 상자 위로 나가게 */
 #char-wrap[data-character="usagi"] #char, #char-wrap[data-character="usagi"] #char-closed { transform: scale(1.2); transform-origin: 50% 100%; }
+/* 키운 만큼(상자 140px × 0.2 = 28px) 귀가 위로 나가니, 위의 말풍선·입력창·집중 말풍선도 그만큼 올린다 */
+#char-wrap[data-character="usagi"] { margin-top: 30px; }
 /* 깜빡임: 감은 그림은 늘 디코드된 채 숨어 있다가 잠깐 위로 — src 를 바꾸지 않아 깜빡임 없음 */
 #char-closed { visibility: hidden; }
 #char-wrap.blink-ready.blink #char-closed { visibility: visible; }
