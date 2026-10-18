@@ -277,7 +277,7 @@ test('화면: 손잡이 화살표 키(↑← 앞으로, ↓→ 뒤로)·⋯ 메�
   assert.deepEqual(m.names(), ['A', 'B', 'D', 'C']);
   await flush(); await flush();
   assert.deepEqual(m.names(), ['B', 'A', 'D', 'C']);
-  assert.match(d.text(m.sec), /프로젝트 순서 바꾸기 실패 — missing project: proj:x/);
+  assert.match(d.text(m.sec), /프로젝트 순서 바꾸기 실패: missing project: proj:x/);
   // 끌기 실패도 되돌린다
   m.grip('C').props.onpointerdown(ptr(320, 220));
   d.listeners.get('pointermove')(ptr(40, 40));

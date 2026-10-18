@@ -5,6 +5,7 @@
 import { who } from './who.js';
 import { CANNED, CANNED_CATALOG, CANNED_DEFAULTS } from '../src/canned.js';
 import { brainDisconnectCopy, disconnectControl } from '../src/disconnect.js';
+import { createUi } from './ui-kit.js';
 
 export const PROVIDER_TITLE = {
   gemini: 'Gemini',
@@ -58,6 +59,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
   let personaDraft = null;
   let cannedDraft = null;
   let confirming = ''; // [연결 해제] 확인을 열어 둔 AI(다시 그려도 그대로)
+  const ui = createUi({ h, fill: (el, ...k) => el.replaceChildren(...k.flat().filter((c) => c != null && c !== false)) });
 
   function linesOf(key) {
     if (cannedDraft?.[key]) return cannedDraft[key];
@@ -202,7 +204,7 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
           : h('ul.model-list', null, l.models.map((m) => h('li', null, h('code', { text: m.id }), m.label ? h('span.muted.small', { text: ` ${m.label}` }) : null))));
   }
 
-  // 말투: 대화는 전부 시사(데몬)가 답한다 — 말투·답 모양은 설정 창의 「행동 지침」에 적는다
+  // 말투: 대화는 전부 시사(데몬)가 답한다. 말투·답 모양은 설정 창의 「행동 지침」에 적는다
   function voiceCard() {
     return h('div.card.models-card', null,
       h('h2', { text: '말투' }),
@@ -235,23 +237,39 @@ export function mountModels({ section, h, cy, getSisa, onSisa, gotoSetup }) {
         h('button.primary', { type: 'button', text: '저장', disabled: busy, onclick: () => saveVoice({ canned: cannedOverrideOf(cannedDraft, getSisa().canned) }) })));
   }
 
+  // 이 컴퓨터에서 로그인을 찾았지만 아직 안 쓰는 Claude Code·Codex: 한 줄씩(이름 · 확인됨 · [연결])
+  function detectedRows(connected) {
+    return [['codex', 'codexcli'], ['claude', 'claudecode']]
+      .filter(([agent, provider]) => !connected.includes(provider) && detected[agent])
+      .map(([agent, provider]) => h('div.ai-row', null,
+        h('span.t', { text: PROVIDER_TITLE[provider] }),
+        h('span.ui-badge.ok', { text: '로그인 확인됨' }),
+        h('span.spacer'),
+        h('button.primary.size-s', { type: 'button', disabled: busy, text: '연결', 'aria-label': `${PROVIDER_TITLE[provider]} 연결해서 사용`, title: `${PROVIDER_TITLE[provider]}를 ${who()}에서 써요`, onclick: () => connectCli(agent) })));
+  }
+
   function render() {
     const sisa = getSisa();
     const connected = sisa.connected || [];
     const kids = [];
+    const found = detectedRows(connected);
+    const addMore = h('button.ghost.size-s.ai-add', { type: 'button', text: '＋ 다른 AI 연결', onclick: gotoSetup });
     if (!connected.length) {
-      kids.push(h('div.card.models-card.empty', null,
-        h('p', { text: '연결된 AI 없음' }),
-        h('button.primary', { type: 'button', text: '설치 열기', onclick: gotoSetup })));
+      kids.push(h('div.card.models-card.ai-connect', null,
+        ui.emptyState({
+          icon: '🤖', compact: true, text: '아직 연결된 AI가 없어요',
+          sub: found.length ? '이 컴퓨터에서 찾은 AI를 바로 쓸 수 있어요.' : '설치 화면에서 Claude Code·Codex 로그인이나 API 키를 연결해요.',
+          action: found.length ? null : h('button.primary', { type: 'button', text: '설치 열기', onclick: gotoSetup }),
+        }),
+        found.length ? h('div.ai-rows', null, found) : null,
+        found.length ? addMore : null));
     } else {
       kids.push(chatCard(sisa), codeCard());
+      kids.push(h('div.card.models-card.ai-connect', null,
+        h('h2', { text: 'AI 연결' }),
+        found.length ? h('div.ai-rows', null, found) : h('p.muted.small', { text: `이 컴퓨터에서 더 찾은 AI는 없어요.` }),
+        addMore));
     }
-    for (const [agent, provider] of [['codex', 'codexcli'], ['claude', 'claudecode']]) {
-      if (!connected.includes(provider) && detected[agent]) kids.push(h('div.card.models-card', null,
-        h('p', { text: `${PROVIDER_TITLE[provider]} 로그인 확인됨 · 시사에서 사용할 수 있어요` }),
-        h('button.primary', { type: 'button', disabled: busy, text: `${PROVIDER_TITLE[provider]} 연결해서 사용`, onclick: () => connectCli(agent) })));
-    }
-    kids.push(h('button.ghost', { type: 'button', text: 'AI 연결 추가', onclick: gotoSetup }));
     kids.push(voiceCard(), cannedCard());
     if (note) kids.push(h('p.muted.small.models-note', { role: 'status', text: note }));
     if (connected.length) {

@@ -148,7 +148,7 @@ test('화면: 이름 바꾸기: 두 번 누르기·✎ 로 그 자리 칸, Enter
   await flush();
   assert.deepEqual(calls.pop(), ['t2', { title: '견적 회신' }]);
   assert.deepEqual(m.titles(), ['현수막 주문', '견적']);
-  assert.match(d.text(m.sec), /이름 바꾸기 실패 — title required/);
+  assert.match(d.text(m.sec), /이름 바꾸기 실패: title required/);
 });
 
 test('화면: 순서 바꾸기: ↑↓ 버튼·손잡이 ↑↓ 키, ⋮⋮ 끌기(끄는 중 자리 표시, Esc 취소), 저장은 그 프로젝트 열린 할 일 모두, 실패하면 되돌림', async () => {
@@ -184,7 +184,7 @@ test('화면: 순서 바꾸기: ↑↓ 버튼·손잡이 ↑↓ 키, ⋮⋮ 끌�
   await flush();
   assert.deepEqual(calls.pop()[1], ['tC', 'tB', 'tA']);
   assert.deepEqual(m.titles(), ['B', 'C', 'A']);
-  assert.match(d.text(m.sec), /순서 바꾸기 실패 — missing todo: tX/);
+  assert.match(d.text(m.sec), /순서 바꾸기 실패: missing todo: tX/);
   reply = { ok: true, status: 200, data: {} };
 
   // ⋮⋮ 끌기: A(맨 아래)를 맨 위로. 끄는 동안 자리 표시(점선 줄)와 따라오는 이름

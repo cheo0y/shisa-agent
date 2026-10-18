@@ -1475,3 +1475,64 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 .setup-mail-acct { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .setup-mail-acct.fail { color: var(--warn-fg, #b45309); }
 .setup-mail-add-title { display: block; margin-top: 10px; font-size: 13px; }
+
+/* ---- 패널 손질(ui-kit 조각과 같이) ---- */
+/* 개요: 「오늘 할 일」 한 줄 카드 */
+button.card.today-link {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 12px; padding: 12px 16px;
+  text-align: left; color: var(--fg); cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+button.card.today-link:hover:not(:disabled) { filter: none; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: var(--card-shadow-hover); }
+.today-link .tl-title { font-weight: 650; flex: none; }
+.today-link .ui-progress { flex: 1; max-width: 220px; }
+.today-link .tl-go { margin-left: auto; color: var(--muted); font-size: 12px; flex: none; }
+button.brief-now { flex: none; }
+.perm-row .perm-del { opacity: 0.6; }
+.perm-row:hover .perm-del, .perm-row .perm-del:focus-visible { opacity: 1; }
+.perm-row .perm-del:hover:not(:disabled) { color: var(--del-fg); }
+
+/* 할 일 줄: 줄 사이 선은 체크 뒤부터(둥근 모서리에 선이 휘지 않게), 좁은 창에선 칩이 줄어든다 */
+.card.todos > .todo, .card.todos > .todo-wrap { border-top: 0; position: relative; }
+.card.todos > .todo + .todo::before, .card.todos > .todo + .todo-wrap::before, .card.todos > .todo-wrap + .todo::before, .card.todos > .todo-wrap + .todo-wrap::before {
+  content: ""; position: absolute; top: 0; left: 36px; right: 10px; height: 1px; background: var(--line); pointer-events: none;
+}
+.card.todos > .todo.row:hover::before, .card.todos > .todo.row:hover + .todo::before, .card.todos > .todo.row:hover + .todo-wrap::before { opacity: 0; }
+.todo .t { flex: 1 1 8em; min-width: 6em; }
+.todo > .chip { flex: 0 1 auto; min-width: 2.5em; overflow: hidden; text-overflow: ellipsis; }
+.todo.row .row-doing { flex: none; padding: 1px 6px; font-size: 11px; color: var(--faint); opacity: 0; transition: opacity 0.12s ease; }
+.todo.row:hover .row-doing, .todo.row:focus-visible .row-doing, .todo.row:focus-within .row-doing, .todo.row .row-doing.on { opacity: 1; }
+.todo.row .row-doing.on { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .todo.row .row-doing { transition: none; } }
+@media (max-width: 640px) {
+  .todo.row { flex-wrap: wrap; row-gap: 4px; }
+  .todo.row .t { flex-basis: calc(100% - 60px); }
+  .todo.row > .t + * { margin-left: 26px; } /* 줄 바뀐 칩은 제목 아래에 맞춘다 */
+}
+
+/* 할 일 추가 칸: 한 줄 상자. 우선순위·[추가]는 쓰기 시작하거나 칸에 들어갔을 때만 */
+.todo-add {
+  align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); transition: border-color 0.12s ease;
+}
+.todo-add::before { content: "＋"; color: var(--faint); font-size: 13px; flex: none; }
+.todo-add:focus-within { border-color: var(--accent); background: var(--surface); }
+#sec-todos .todo-add input[type="text"], #sec-today .todo-add input[type="text"] { border: 0; background: transparent; padding: 5px 2px; height: 30px; }
+.todo-add:not(:focus-within):has(input:placeholder-shown) > :not(input) { display: none; }
+.todo-add button { height: 28px; padding: 0 12px; }
+
+/* 모델: AI 연결 카드(찾은 Claude Code·Codex 한 줄씩) */
+.ai-rows { display: flex; flex-direction: column; }
+.ai-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.ai-row:first-child { border-top: 0; }
+.ai-row .t { font-weight: 650; }
+.ai-connect .ui-empty { padding-bottom: 6px; }
+button.ai-add { align-self: flex-start; }
+/* 오늘 할 일 머리: 날짜 · 진행 막대 · 집중하기 */
+#sec-today .today-head { align-items: center; }
+#sec-today .today-head .ui-progress { flex: 1 1 160px; max-width: 320px; }
+
+/* 채팅: 정해진 말은 알약 단추(글자만 늘어놓지 않게) */
+#chat-canned .canned-row button {
+  padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--fg); font-size: 12.5px;
+}
+#chat-canned .canned-row button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); color: var(--accent); }

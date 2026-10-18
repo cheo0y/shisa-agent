@@ -157,3 +157,21 @@ test('스타일: ui-kit.css 는 패널에 붙고 색은 토큰만, 단추 크기
   const dark = panel.slice(panel.indexOf('@media (prefers-color-scheme: dark)'));
   for (const t of ['--warn-fg', '--ok-fg', '--track']) assert.ok(panel.includes(`${t}:`) && dark.slice(0, 2000).includes(`${t}:`), `${t} 라이트·다크`);
 });
+
+test('패널 손질: 화면 글에 em dash 없음(주석 빼고), 공통 조각을 개요·모델·오늘 할 일에서 씀, 할 일 줄 좁은 창·추가 칸 규칙', () => {
+  const read = (f) => readFileSync(new URL(`../renderer/${f}`, import.meta.url), 'utf8');
+  for (const f of ['panel.js', 'projects-view.js', 'models-view.js', 'ui-kit.js']) {
+    const code = read(f).split('\n').map((l) => l.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '')).join('\n');
+    assert.ok(!code.includes('—'), `${f}: em dash 없음`);
+  }
+  assert.ok(!read('panel.html').replace(/<!--[\s\S]*?-->/g, '').includes('—'), 'panel.html: em dash 없음');
+  const panel = read('panel.js');
+  assert.match(panel, /function todayLink\(today\)/, '개요 오늘 할 일 한 줄 카드');
+  assert.match(panel, /ui\.emptyState\(\{ icon: '📰'/, '브리핑 빈 상태');
+  assert.match(panel, /ui\.progress\(total - open, total/, '오늘 할 일 머리 진행 막대');
+  assert.match(read('models-view.js'), /ui\.emptyState\(/);
+  const css = read('panel.css');
+  assert.match(css, /\.todo-add:not\(:focus-within\):has\(input:placeholder-shown\) > :not\(input\) \{ display: none; \}/, '추가 칸: 쓰기 전엔 우선순위·추가 숨김');
+  assert.match(css, /@media \(max-width: 640px\) \{\s*\.todo\.row \{ flex-wrap: wrap;/, '좁은 창: 칩은 제목 아래로');
+  assert.match(css, /\.todo\.row:hover \.row-doing/, '▶ 은 올렸을 때만(켜져 있으면 늘)');
+});

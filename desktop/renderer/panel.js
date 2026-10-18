@@ -29,6 +29,7 @@ import { originPlan, todoPlan } from '../src/origin.js';
 import { trashModel, commitTrash, trashItemOf, todoBodyOf, confirmReducer, isConfirming, confirmKey, isTrashKey, createUndo, readTrashOpen, writeTrashOpen, overTrash, CONFIRM_TEXT, UNDO_MS } from '../src/todo-trash.js';
 import { BACKLOG, rulesChip, overlayRules, hitsLabel, readBacklogOpen, writeBacklogOpen, isCollapsed } from '../src/todo-rules.js';
 import { attachSlashMenu } from './slash-menu.js';
+import { createUi } from './ui-kit.js';
 import { createAttachTray } from './attach-tray.js';
 import { attachUrl, chipView, attachSummary } from '../src/attachments.js';
 import { cleanChatModels, pickGroups, encodePick, decodePick, pickSendOpts, okPickModel } from '../src/chat-pick.js';
@@ -107,6 +108,8 @@ function h(sel, props, ...kids) {
   for (const c of kids.flat()) if (c != null && c !== false) el.append(c);
   return el;
 }
+// 공통 조각(아이콘 단추·⋯ 메뉴·빈 상태·배지·진행 막대): ui-kit.js · ui-kit.css
+const ui = createUi({ h, fill: (el, ...k) => fill(el, ...k) });
 // 집중하기: 할 일 목록의 [집중하기] · 맨 아래 「오늘 집중」 · 주·월 기록(focus-view.js)
 const focusView = createFocusView({ h, cy });
 // 직접 만든 프로젝트: 프로젝트 탭 위쪽 카드와 ＋ 만들기 창(새로 만들기·일정에서 가져오기)
@@ -384,6 +387,17 @@ function stat(num, label, sub, hot) {
 const PROPOSAL_LABEL = { pending: '대기', approved: '승인', held: '보류', running: '진행 중', done: '완료', failed: '실패' };
 const PROPOSAL_CHIP = { pending: 'accent', running: 'warn', done: 'ok', failed: 'err' };
 
+// 개요의 「오늘 할 일」: 한 줄 카드(남은 수 · 진행 막대 · 보기 ›). 누르면 오늘 할 일 탭
+function todayLink(today) {
+  const items = today?.items ?? [];
+  const left = items.filter((it) => !it.done).length;
+  return h('button.card.today-link', { type: 'button', 'aria-label': `오늘 할 일 보기: 남은 ${left}개`, onclick: () => goto('today') },
+    h('span.tl-title', { text: '오늘 할 일' }),
+    items.length ? h('span.ui-badge.accent', { text: left ? `남은 ${left}개` : '다 끝냈어요' }) : h('span.muted.small', { text: '아직 없어요' }),
+    items.length ? ui.progress(items.length - left, items.length) : h('span.spacer'),
+    h('span.tl-go', { 'aria-hidden': 'true', text: '보기 ›' }));
+}
+
 function renderOverview() {
   const { stats, briefing, today, proposals } = vm;
   const el = $('sec-overview');
@@ -394,11 +408,10 @@ function renderOverview() {
       stat(stats.openTodos, '열린 할 일', stats.p1Todos ? `P1 ${stats.p1Todos}개` : 'P1 없음', stats.p1Todos > 0),
       stat(stats.activeProjects, '진행 중 프로젝트', active.slice(0, 3).join(', ') || null),
       stat(stats.pendingProposals, '대기 중 제안', null)),
-    connected ? null : h('div.card.empty', { text: `${who()}가 꺼져 있어요. 켜지면 여기 채워져요.` }),
-    h('h2', null, h('span', { text: '오늘 할 일 ' }),
-      h('span.chip.click', { text: today?.items?.length ? `남은 ${(today.items.filter((it) => !it.done).length)}개` : '아직 없음', role: 'button', onclick: () => goto('today') })),
-    h('h2', null, h('span', { text: '최근 브리핑 ' }),
-      h('button.ghost.small', { type: 'button', text: '지금 브리핑', onclick: async (ev) => {
+    connected ? null : h('div.card.off-note', null, ui.emptyState({ icon: '💤', compact: true, text: `${who()}가 꺼져 있어요`, sub: '켜지면 여기 채워져요.' })),
+    todayLink(today),
+    h('div.sec-head', null, h('h2', { text: '최근 브리핑' }), h('span.spacer'),
+      h('button.size-s.brief-now', { type: 'button', text: '지금 브리핑', title: '지금 브리핑을 만들어요', onclick: async (ev) => {
         const b = ev.currentTarget; b.disabled = true; b.textContent = '브리핑 중…';
         const r = await cy.briefingNow().catch(() => ({ ok: false }));
         b.textContent = r?.ok ? '시작했어요' : '연결 안 됨';
@@ -408,7 +421,7 @@ function renderOverview() {
       ? h('div.card', null,
         h('div.row.briefing-head', null, h('span.chip.accent', { text: `${briefing.time} · ${briefing.rel}` }), briefing.bubble ? h('span.muted', { text: briefing.bubble }) : null),
         md(h('div'), briefing.md || briefing.bubble))
-      : h('div.card.empty', { text: '아직 브리핑이 없어요.' }),
+      : h('div.card.empty-card', null, ui.emptyState({ icon: '📰', compact: true, text: '아직 브리핑이 없어요', sub: '「지금 브리핑」을 누르면 바로 만들어요.' })),
     permissionsSection(),
     proposals.length ? h('h2', { text: '제안' }) : null,
     proposals.length
@@ -441,13 +454,13 @@ async function removePermission(rule) {
   try { r = await cy.permissionDelete(rule.id); } catch { r = { ok: false }; }
   permRemoving.delete(rule.id);
   if (r?.ok || r?.status === 404) permRules = permRules.filter((x) => x.id !== rule.id);
-  else permMsg = `지우지 못했어요 — ${why(r)}`;
+  else permMsg = `지우지 못했어요: ${why(r)}`;
   renderOverview();
 }
 function permissionsSection() {
   const rules = withoutPending(permRules, permRemoving);
   return h('section.perm-sec', null,
-    h('h2', null, h('span', { text: '권한 ' }), h('span.muted.small', { text: '항상 허용한 도구 — 나머지 쓰기는 매번 승인 카드로 물어봐요' })),
+    h('div.sec-head', null, h('h2', { text: '권한' }), h('span.muted.small.sec-sub', { text: '항상 허용한 도구예요. 나머지 쓰기는 매번 승인 카드로 물어봐요' })),
     permMsg ? h('div.result.err', { role: 'status', text: permMsg }) : null,
     rules.length
       ? h('div.card.perm-list', null, rules.map((r) => h('div.perm-row', { dataset: { id: r.id } },
@@ -455,8 +468,10 @@ function permissionsSection() {
         h('span.perm-label', { text: r.label, title: r.scope || r.tool }),
         h('span.muted.small', { text: ruleUsage(r) }),
         h('span.spacer'),
-        h('button.ghost.small.perm-del', { type: 'button', text: '지우기', 'aria-label': `권한 지우기: ${r.label}`, onclick: () => removePermission(r) }))))
-      : h('div.card.empty.small', { text: permLoaded ? '항상 허용한 도구가 없어요. 승인 카드에서 [항상 허용]을 누르면 여기 생겨요.' : '불러오는 중…' }));
+        ui.iconBtn('perm-del', { label: `권한 지우기: ${r.label}`, title: '지우기(다음부터 다시 물어봐요)', icon: '✕', size: 's', onclick: () => removePermission(r) }))))
+      : h('div.card.empty-card', null, permLoaded
+        ? ui.emptyState({ compact: true, text: '항상 허용한 도구가 없어요', sub: '승인 카드에서 [항상 허용]을 누르면 여기 생겨요.' })
+        : h('div.muted.small.loading-line', { text: '불러오는 중…' })));
 }
 
 // 연결 카드: 기능마다 이름 · 상태 칩 · 맞는 주 동작(꺼져 있으면 [연결하기], 켜져 있으면 [연결 해제]).
@@ -1035,7 +1050,7 @@ async function setHidden(p, hide) {
     if (raw && Array.isArray(raw.projects)) raw = { ...raw, projects: raw.projects.map((x) => (x?.path === p.path ? { ...x, hidden: hide } : x)) };
     loadSoon();
   } else {
-    projMsg = { ok: false, text: `${hide ? '숨기기' : '다시 보이기'} 실패 — ${why(r)}` };
+    projMsg = { ok: false, text: `${hide ? '숨기기' : '다시 보이기'} 실패: ${why(r)}` };
   }
   renderAll();
 }
@@ -1074,10 +1089,10 @@ function projectCards() {
   return h('div.projects', null, vm.projects.map((p) => h('article.card.proj', null,
     h('div.head', null, h('span.name', { text: p.name }), p.branch ? h('span.chip.mono', { text: p.branch }) : null,
       h('span.spacer'),
-      h('button.ghost.hide-btn', { type: 'button', text: '숨기기', title: '이 프로젝트 숨기기 — 집계와 에이전트 맥락에서도 빠져요', 'aria-label': `숨기기: ${p.name}`, onclick: () => setHidden(p, true) })),
+      h('button.ghost.hide-btn', { type: 'button', text: '숨기기', title: '이 프로젝트 숨기기: 집계와 에이전트 맥락에서도 빠져요', 'aria-label': `숨기기: ${p.name}`, onclick: () => setHidden(p, true) })),
     p.path ? h('div.path.mono', { text: p.path, title: p.path }) : null,
     h('div.meta', null,
-      h('span', null, '마지막 활동 ', h('b', { text: p.lastActiveRel || '—', title: p.lastActive })),
+      h('span', null, '마지막 활동 ', h('b', { text: p.lastActiveRel || '없음', title: p.lastActive })),
       h('span', null, '24h 세션 ', h('b', { text: String(p.sessions24h) })),
       h('span', null, '오늘 커밋 ', h(`b${p.commitsToday ? '.today' : ''}`, { text: String(p.commitsToday) }))),
     p.lastTitle || p.lastPrompt
@@ -1125,7 +1140,7 @@ async function mutate(op, call, failText, commit) {
     if (raw) commit?.(r);
     loadSoon();
   } else if (failText) {
-    todoMsg = { ok: false, text: `${failText} — ${why(r)}` };
+    todoMsg = { ok: false, text: `${failText}: ${why(r)}` };
   }
   renderAll();
   return r;
@@ -1491,7 +1506,7 @@ function todayListKids() {
   const kids = [
     h('div.today-head', null,
       h('h2', { text: t.date ? `${t.date} 오늘 할 일` : '오늘 할 일' }),
-      h('span.muted', { text: total ? `남은 ${open} · 전체 ${total}` : '아직 없어요. 일정을 보고 적어 보세요.' }),
+      total ? ui.progress(total - open, total, open ? `${open}개 남음 · 모두 ${total}개` : `다 끝냈어요 · ${total}개`) : h('span.muted', { text: '아직 없어요. 일정을 보고 적어 보세요.' }),
       focusView.bar('today')),
   ];
   if (t.carry?.n) kids.push(carryBox(t));
@@ -1582,7 +1597,7 @@ async function ruleCall(r, pending, call, failText) {
   let res;
   try { res = await call(); } catch { res = { ok: false }; }
   rulePending.delete(r.id);
-  if (!res?.ok) todoMsg = { ok: false, text: `${failText} — ${why(res)}` };
+  if (!res?.ok) todoMsg = { ok: false, text: `${failText}: ${why(res)}` };
   else loadSoon();
   renderTodos();
 }
@@ -1591,7 +1606,7 @@ const deleteRule = (r) => ruleCall(r, 'delete', () => cy.todoRuleDelete(r.id), '
 
 function addForm(scope = 'todos') {
   const today = scope === 'today';
-  const input = h('input', { id: today ? 'today-add-input' : 'todo-add-input', type: 'text', placeholder: today ? '오늘 할 일 추가 (Enter)' : '할 일 추가 — Enter', 'aria-label': today ? '새 오늘 할 일' : '새 할 일' });
+  const input = h('input', { id: today ? 'today-add-input' : 'todo-add-input', type: 'text', placeholder: today ? '오늘 할 일 추가 (Enter)' : '할 일 적고 Enter', 'aria-label': today ? '새 오늘 할 일' : '새 할 일' });
   input.value = today ? todayDraft : addDraft;
   input.addEventListener('input', () => { if (today) todayDraft = input.value; else addDraft = input.value; });
   input.addEventListener('keydown', (e) => {
@@ -1634,7 +1649,7 @@ async function loadDetail(id, force = false) {
   details.set(id, { status: 'loading' });
   let r;
   try { r = await cy.todoDetail(id); } catch { r = { ok: false }; }
-  details.set(id, r?.ok && r.data ? { status: 'ok', data: r.data } : { status: 'error', error: r?.status === 404 ? '이 할 일을 못 찾았어요.' : `설명을 못 불러왔어요 — ${why(r)}` });
+  details.set(id, r?.ok && r.data ? { status: 'ok', data: r.data } : { status: 'error', error: r?.status === 404 ? '이 할 일을 못 찾았어요.' : `설명을 못 불러왔어요: ${why(r)}` });
   if (details.get(id)?.status === 'ok') fillEditDesc(id, details.get(id).data?.description);
   if (openId === id) renderTodos();
 }
@@ -1646,7 +1661,7 @@ function todoRow(t) {
   const flashing = flash?.id === t.id && Date.now() < flash.until;
   const row = h(`div.todo.row${t.pending ? '.pending' : ''}${open ? '.open' : ''}${confirming ? '.confirming' : ''}${flashing ? '.flash' : ''}`, {
     dataset: { id: t.id }, tabindex: '0', role: 'button', 'aria-expanded': String(open),
-    'aria-label': `${t.title} — Enter 설명, Shift+Enter 제목·설명 고치기, Alt+↑↓ 순서, Alt+1~4 우선순위(오늘 꼭·이번 주·천천히·언젠가), Delete 휴지통`,
+    'aria-label': `${t.title}: Enter 설명, Shift+Enter 제목·설명 고치기, Alt+↑↓ 순서, Alt+1~4 우선순위(오늘 꼭·이번 주·천천히·언젠가), Delete 휴지통`,
     title: '눌러서 설명 · 두 번 눌러 제목·설명 고치기 · 꾹 눌러 끌어서 순서·우선순위',
     onclick: (e) => {
       if (suppressClick) { suppressClick = false; return; }
@@ -1659,7 +1674,7 @@ function todoRow(t) {
   h('input.check', { type: 'checkbox', 'aria-label': `완료: ${t.title}`, title: '완료', disabled: t.pending, onchange: () => completeTodo(t) }),
   // (진행중): 사용자가 ▶ 로 켠 것, 아니면 작업 세션을 보니 하는 중(todo-progress.ts 가 진척을 남김) → 제목 앞
   h('span.t', null, isDoing(t) ? h('span.doing', { text: '(진행중) ', title: t.progress ? `진행: ${t.progress}` : '직접 진행중으로 표시' }) : null, t.title),
-  t.source ? h('span.chip', { text: t.source === 'user' ? '직접 추가' : t.source }) : null,
+  t.source && t.source !== 'user' ? h('span.chip', { text: t.source }) : null, // 직접 추가한 건(대부분) 칩 없이: 줄이 가볍게. 원본 칸엔 그대로
   projectChip(t),
   confirming ? null : todayButton(t),
   confirming ? null : doingButton(t),
@@ -2246,7 +2261,7 @@ async function openThread(id) {
 async function openTodoThread(todoId, text) {
   let r;
   try { r = await cy.chatThreadCreate({ kind: 'todo', todoId }); } catch { r = { ok: false }; }
-  if (!r?.ok || !r.data?.thread) { todoMsg = { ok: false, text: `대화를 못 열었어요 — ${why(r)}` }; renderTodos(); return; }
+  if (!r?.ok || !r.data?.thread) { todoMsg = { ok: false, text: `대화를 못 열었어요: ${why(r)}` }; renderTodos(); return; }
   threads = upsertThread(threads, r.data.thread);
   await openThread(r.data.thread.id);
   if (text) { chatInput.value = text; drafts.set(selectedId, text); autosize(); }
@@ -2351,7 +2366,7 @@ async function renameThread(id, title) {
   renderThreadList(); renderThreadHead();
   let r;
   try { r = await cy.chatThreadEdit(id, { title: v }); } catch { r = { ok: false }; }
-  if (!r?.ok) { setBanner(`이름을 못 바꿨어요 — ${why(r)}`); loadThreads(); }
+  if (!r?.ok) { setBanner(`이름을 못 바꿨어요: ${why(r)}`); loadThreads(); }
 }
 
 async function archiveThread(id, on) {
@@ -2359,7 +2374,7 @@ async function archiveThread(id, on) {
   rowMode = null;
   let r;
   try { r = await cy.chatThreadEdit(id, { archived: on }); } catch { r = { ok: false }; }
-  if (!r?.ok) { setBanner(`${on ? '보관' : '꺼내기'} 못 했어요 — ${why(r)}`); renderThreadList(); return; }
+  if (!r?.ok) { setBanner(`${on ? '보관' : '꺼내기'} 못 했어요: ${why(r)}`); renderThreadList(); return; }
   if (on) {
     threads = threads.filter((t) => t.id !== id);
     if (selectedId === id) selectThread(afterRemoval(order, id), { noFocus: true });
@@ -2376,7 +2391,7 @@ async function deleteThread(id) {
   rowMode = null;
   let r;
   try { r = await cy.chatThreadDelete(id); } catch { r = { ok: false }; }
-  if (!r?.ok && r?.status !== 404) { setBanner(`못 지웠어요 — ${why(r)}`); renderThreadList(); return; }
+  if (!r?.ok && r?.status !== 404) { setBanner(`못 지웠어요: ${why(r)}`); renderThreadList(); return; }
   threads = threads.filter((t) => t.id !== id);
   archived = archived?.filter((t) => t.id !== id) ?? null;
   drafts.delete(id);
@@ -2406,8 +2421,8 @@ function renderThreadHead() {
   }
   $('th-sync').hidden = !(t?.cliSync && cy.chatThreadSync);
   chatInput.placeholder = t?.kind === 'todo'
-    ? '이 할 일에 대해 — 예: 내일로 미뤄 / 끝났어 (바로 적용돼요 · Shift+Enter 줄바꿈)'
-    : '물어보세요 — 예: 오늘 커밋 보여줘 (Shift+Enter 줄바꿈)';
+    ? '이 할 일에 대해 말해요. 예: 내일로 미뤄 / 끝났어 (바로 적용돼요 · Shift+Enter 줄바꿈)'
+    : '물어보세요. 예: 오늘 커밋 보여줘 (Shift+Enter 줄바꿈)';
 }
 
 function startTitleEdit() {
@@ -2482,7 +2497,7 @@ function userStatus(m) {
   if (m.canned) return { status: '보냄', tone: 'sent' }; // AI 없이 고른 말: 패널 안에서 바로 답한다
   if (!m.local) return m.queuedAt ? sentStatus(m.queuedAt, m.at) : null;
   const st = localState(chat, m.chatId);
-  if (st === 'sending') return { status: '보내는 중', tone: 'sending', title: m.chatId ? '데몬이 받았어요 — 바로 보낼지 줄 설지 확인하는 중' : '데몬에 보내는 중' };
+  if (st === 'sending') return { status: '보내는 중', tone: 'sending', title: m.chatId ? '데몬이 받았어요, 바로 보낼지 줄 설지 확인하는 중' : '데몬에 보내는 중' };
   const p = chat.pending[m.chatId];
   return { ...sentLabel(m.queuedAt ?? p?.queuedAt, m.sentAt ?? p?.sentAt), tone: 'sent' }; // 로컬 사본은 늘 「보냄」까지 — 서버 기록이 오면 조용해진다
 }
@@ -2500,7 +2515,7 @@ function queuedRow(p, canEdit = false) {
   const key = `q:${p.chatId}`;
   return h(`div.msg-row.user.queued${canEdit ? '.editable' : ''}`, { dataset: { chat: p.chatId } },
     queuedAtts(p),
-    canEdit && editingMsg?.key === key ? msgEditor() : (p.text || !p.attachments?.length) ? h('div.msg.user.queued', { title: '아직 보내지 않았어요 — 줄 서 있어요' }, h('span', { text: p.text ?? '' })) : null,
+    canEdit && editingMsg?.key === key ? msgEditor() : (p.text || !p.attachments?.length) ? h('div.msg.user.queued', { title: '아직 보내지 않았어요, 줄 서 있어요' }, h('span', { text: p.text ?? '' })) : null,
     canEdit && editingMsg?.key !== key ? editButton(() => startEdit({ key, kind: 'queued', chatId: p.chatId, text: p.text ?? '' })) : null,
     h('div.msg-meta.q-meta', null,
       h('span.st.s-queued', { 'data-s': l.status, title: l.wait }),
@@ -2533,7 +2548,7 @@ function queuedAtts(p) {
 // ---- 말 고치기(✏️) — 이 대화의 마지막 내 말만. 저장하면: 답하는 중이면 멈추고, 그 뒤 답은 걷히고, 고친 글로 다시 답한다(데몬 Chat.edit).
 // 줄 선 말이면 글만 바뀐다(차례 그대로). Enter 저장 · Shift+Enter 줄바꿈 · Esc 취소
 function editButton(onclick) {
-  return h('button.msg-edit', { type: 'button', text: '✏️', title: '이 말 고치기 — 고친 글로 다시 답해요', 'aria-label': '이 말 고치기', onclick });
+  return h('button.msg-edit', { type: 'button', text: '✏️', title: '이 말 고치기, 고친 글로 다시 답해요', 'aria-label': '이 말 고치기', onclick });
 }
 function startEdit(e) {
   if (!cy.chatEdit && e.kind === 'sent') return;
@@ -2564,7 +2579,7 @@ function msgEditor() {
   e.el = h('div.msg-edit-box', null, ta,
     h('div.me-row', null,
       h('span.me-err'),
-      h('span.me-hint', { text: e.kind === 'queued' ? '아직 안 보낸 말이라 글만 바뀌어요' : '저장하면 고친 말로 다시 답해요 — 그 뒤 답은 걷혀요' }),
+      h('span.me-hint', { text: e.kind === 'queued' ? '아직 안 보낸 말이라 글만 바뀌어요' : '저장하면 고친 말로 다시 답해요, 그 뒤 답은 걷혀요' }),
       h('button.ghost.small', { type: 'button', text: '취소', onclick: endEdit }),
       h('button.primary.small', { type: 'button', text: '저장', onclick: () => saveEdit() })));
   requestAnimationFrame(size);
@@ -2615,7 +2630,7 @@ async function saveEdit() {
   if (editingMsg !== e) return;
   e.saving = false;
   const why = r?.data?.error;
-  e.error = why === 'not_latest' || why === 'not_queued' ? '이제 마지막 말이 아니라 고칠 수 없어요' : why === 'agents_running' ? '에이전트가 돌고 있어 고치지 않았어요' : '고치지 못했어요 — 다시 해 보세요';
+  e.error = why === 'not_latest' || why === 'not_queued' ? '이제 마지막 말이 아니라 고칠 수 없어요' : why === 'agents_running' ? '에이전트가 돌고 있어 고치지 않았어요' : '고치지 못했어요, 다시 해 보세요';
   renderChat();
   if (why === 'not_latest' || why === 'not_queued') loadMessages();
 }
@@ -2704,7 +2719,7 @@ async function stopAgent(a) {
 // 누르면 작업 세션 창이 그 run 을 연다
 function sessionCardEl(s) {
   const v = sessionCard(s, { connected });
-  const el = h(`button.session-card.t-${v.tone}`, { type: 'button', title: `작업 세션 창에서 보기 — ${s.title} (${v.status})`, onclick: () => cy.openSession?.(s.runId) },
+  const el = h(`button.session-card.t-${v.tone}`, { type: 'button', title: `작업 세션 창에서 보기: ${s.title} (${v.status})`, onclick: () => cy.openSession?.(s.runId) },
     h('span.ws-head', null,
       h(`i.ws-dot.d-${v.dot}`, { 'aria-hidden': 'true' }),
       h('span.ws-name', { text: v.header }),
@@ -2753,7 +2768,7 @@ function renderAgents() {
   const strip = agentsFor === selectedId ? agentStrip(agents, { open: agentsDoneOpen }) : null;
   chatAgentsEl.hidden = !strip;
   if (!strip) { chatAgentsEl.replaceChildren(); return; }
-  const rows = strip.running.map((r) => h('button.ag-row.run', { type: 'button', title: `${r.agent.description} — 작업 세션 창에서 보기`, onclick: () => openAgent(r.agent) },
+  const rows = strip.running.map((r) => h('button.ag-row.run', { type: 'button', title: `${r.agent.description}, 작업 세션 창에서 보기`, onclick: () => openAgent(r.agent) },
     h('i.ag-dot'), h('span.ag-text', { text: r.text })));
   if (strip.finished) {
     const f = strip.finished;
@@ -3006,7 +3021,7 @@ async function sendChat() {
     sendingAtts = true;
     try {
       const st = await tray.ready();
-      if (st.failed) { showAttError('못 올린 첨부가 있어요 — ✕ 로 빼고 다시 보내 주세요'); return; }
+      if (st.failed) { showAttError('못 올린 첨부가 있어요, ✕ 로 빼고 다시 보내 주세요'); return; }
       atts = tray.take();
     } finally { sendingAtts = false; }
     if (selectedId !== tid) { tray.restore(atts); return; } // 기다리는 사이 다른 대화로 옮겼다
