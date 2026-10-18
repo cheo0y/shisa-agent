@@ -8,6 +8,9 @@ const on = (channel) => (cb) => {
 };
 
 contextBridge.exposeInMainWorld('cy', {
+  // 화면 글 언어(src/i18n.js bindLanguage): 지금 언어 · 바뀜 알림(창이 글을 다시 그린다)
+  getLang: () => ipcRenderer.invoke('lang-get'),
+  onLang: (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on('lang', h); return () => ipcRenderer.removeListener('lang', h); },
   onConnection: on('connection'),
   onDashboard: on('dashboard'),
   onSisa: on('sisa'), // 설정 창 등에서 AI·연결을 끊으면 새 저장 모양(publicView)

@@ -35,6 +35,8 @@ import { okPickModel, okPickProvider, chatPickBody } from './src/chat-pick.js';
 import { KEY_PROVIDERS, normalizeSisa, publicView, withKey, withCli, withGsk, withSkip, withoutProvider, activeProvider, withModels, withVoice, connectedProviders, daemonBrainPatch, withDaemonBrain, settingsBrainBody } from './src/sisa-store.js';
 import { personaFor } from './src/persona.js';
 import { okCharacter, characterName, appName } from './src/character.js';
+import { language, setLanguage, onLanguage } from './src/lang.js';
+import { t } from './src/i18n.js';
 import { applyCharacters, staticCharacters } from './src/character-registry.js';
 import { normStatus, brainView, sameView } from './src/brain-state.js';
 import { isAskId } from './src/quick-ask.js';
@@ -857,6 +859,7 @@ function onSSE({ event, data }) {
   }
   if (event === 'state') {
     lastState = payload;
+    if (typeof payload?.language === 'string') setLanguage(payload.language); // 화면 글 언어 → onLanguage 가 메뉴·창마다
     if (typeof payload?.character === 'string') onCharacter(payload.character);
   }
   if (event === 'characters') loadCharacters(); // 만들거나 고치거나 지움 → 다시 읽어 창마다
@@ -1105,6 +1108,21 @@ function setDockMenu() {
     { label: `${who()} 끄기`, click: () => app.quit() },
   ]));
 }
+
+// 화면 글 언어가 바뀜(데몬 state.language · GET /characters language → lang.js): 메뉴·트레이·창 제목을 다시 짓고
+// 열린 창마다 'lang' 을 보낸다(창이 src/i18n.js bindLanguage 로 글을 다시 그린다)
+function onUiLanguage(l) {
+  app.setName(appTitle());
+  if (tray) tray.setToolTip(appTitle());
+  rebuildTrayMenu();
+  createAppMenu();
+  setDockMenu();
+  if (panel && !panel.isDestroyed()) panel.setTitle(appTitle());
+  for (const w of [win, panel, sessionWin, settingsUi?.window, debugWin]) {
+    if (w && !w.isDestroyed()) w.webContents.send('lang', l);
+  }
+}
+onLanguage(onUiLanguage);
 
 // 설정 창에서 캐릭터를 바꿈(데몬 state.character) → 앱 이름·메뉴·트레이·창 제목·패널(아이콘·정해진 말)
 // force: 같은 id 라도 이름·그림이 바뀌었을 수 있다(캐릭터 목록을 새로 받음)
@@ -1581,6 +1599,7 @@ function setupIPC() {
   });
 
   ipcMain.handle('get-character', (e) => (fromOurs(e) ? charId : null));
+  ipcMain.handle('lang-get', () => language()); // 화면 글 언어(비밀이 아니라 창 누구에게나)
   // 사용자 캐릭터·고친 대사 목록(GET /characters 를 받아 둔 것). 아직 없으면 null — 받으면 'characters' 로 알린다
   ipcMain.handle('characters-get', (e) => (fromOurs(e) || settingsUi?.isSender(e) ? charactersData : null));
   ipcMain.handle('click-target', (e) => (fromOurs(e) ? clickTarget(lastState, activeRuns) : null));

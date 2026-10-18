@@ -1,19 +1,26 @@
 // 언어(데몬 lang.ts 와 같은 id) — 순수 로직. 창(프로세스)마다 하나씩 들고 있다.
 // 데몬이 정한다: GET /characters 의 language(character-registry.js applyCharacters 가 넣는다)·SSE state.language·config.json language(main 이 켤 때).
 // 캐릭터 대사는 데몬이 그 언어로 주고(lines.<언어>.json), 여기는 캐릭터 창(오버레이)에 늘 보이는 짧은 화면 글만 언어별로 둔다.
-// 설정 창·패널 메뉴 글은 아직 한국어다(언어를 더하려면 UI 에 한 벌 더).
+// 설정 창·패널·세션·설치·메뉴 같은 나머지 화면 글은 src/i18n.js t() 와 src/i18n/<화면>.js 표.
 export const LANGUAGES = ['ko', 'ja'];
 export const DEFAULT_LANGUAGE = 'ko';
 export const isLang = (v) => typeof v === 'string' && LANGUAGES.includes(v);
 
 let current = DEFAULT_LANGUAGE;
+const listeners = new Set();
 export const language = () => current;
-// 바뀌었으면 true
+// 바뀌었으면 true(듣는 쪽에 알린다: 창이 화면 글을 다시 그린다)
 export function setLanguage(v) {
   const next = isLang(v) ? v : DEFAULT_LANGUAGE;
   if (next === current) return false;
   current = next;
+  for (const f of [...listeners]) { try { f(next); } catch { /* 한 창이 실패해도 나머지는 */ } }
   return true;
+}
+// 언어가 바뀔 때마다 f(새 언어). 떼는 함수를 돌려준다
+export function onLanguage(f) {
+  listeners.add(f);
+  return () => { listeners.delete(f); };
 }
 
 // 캐릭터 창 화면 글. 함수는 그때 값(이름 등)을 받는다
