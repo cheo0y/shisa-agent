@@ -5,7 +5,7 @@ import { DEFAULT_TODAY_REMINDER } from "./daily-plan.ts";
 import { localAsk, localLine } from "./local-mode.ts";
 import { LEAVE_BEFORE_MIN, WorkAlerts, minsToLeave, workHoursOf } from "./work-hours.ts";
 import { Weather, setWeatherPeek, weatherDue, weatherLine, weatherOf } from "./weather.ts";
-import { failText as weatherFailText, noPlaceText as weatherNoPlaceText, weatherText } from "./weather-say.ts";
+import { failText as weatherFailText, noPlaceText as weatherNoPlaceText, sourceNote as weatherSourceNote, weatherText } from "./weather-say.ts";
 import { Store } from "./store.ts";
 import { Bus, EXIT_PORT_TAKEN } from "./bus.ts";
 import { runs } from "./runs.ts";
@@ -396,7 +396,7 @@ await bus.listen(cfg.port, {
       return weather.forecast().then((f) => {
         if (!f) { const st = weather.state(); return { id, kind: "info", text: weatherFailText(), ...(st.phase === "failed" ? { detail: st.reason } : {}) }; }
         const t = weatherText("now", place, f);
-        return { id, kind: "info", text: t.text, detail: `${place.label} · 예보: Open-Meteo` };
+        return { id, kind: "info", text: t.text, detail: weatherSourceNote(place.label) };
       });
     }
     // 「집중 시작할래?」·「집중 그만할래?」: 할 일은 진행 중(▶)인 것 → 오늘 할 일 중 안 끝낸 첫 번째 → 없이

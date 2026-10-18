@@ -2,9 +2,12 @@
 import { localLine, spoken } from "./local-mode.ts";
 import { codeAt, findRain, hourLabel, leaveWindow, rainAmount, temp, weatherWord, type Forecast, type Rain, type WeatherPlace } from "./weather.ts";
 import type { Mood } from "./voice.ts";
+import { language } from "./lang.ts";
 
 const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (all, k: string) => (k in v ? v[k] : all));
-const rainVars = (r: Rain) => ({ when: hourLabel(r.hour), what: r.what, prob: rainAmount(r) });
+const rainVars = (r: Rain) => ({ when: hourLabel(r.hour), what: language() === "ja" ? (r.what === "눈" ? "雪" : "雨") : r.what, prob: rainAmount(r) });
+// 칩 답 아래 작은 글(출처)
+export const sourceNote = (label: string) => `${label} · ${language() === "ja" ? "予報" : "예보"}: Open-Meteo`;
 const say = (text: string, seed: string, mood: Mood) => spoken(text, seed, mood).replace(/\s+([.!?])/g, "$1").replace(/ {2,}/g, " ").trim();
 
 export type WeatherKind = "morning" | "leave" | "now";

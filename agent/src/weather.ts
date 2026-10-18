@@ -6,6 +6,7 @@
 //  - 알림(weatherDue): 근무 요일에 하루 한 번씩. 「출근 후 브리핑 다음」(morning) · 「퇴근 20분 전」(leave) · 사용자가 정한 시각(times)
 //    기록은 근무 시간과 같은 lunch.json(work-hours.ts WorkAlerts — 키 weatherMorning·weatherLeave·weather@HH:MM)
 import { isHhmm, minutesOf, isWorkDay, type WorkHours } from "./work-hours.ts";
+import { language, type Lang } from "./lang.ts";
 
 // ---- 설정(config.json weather) ----
 export type WeatherPlace = { name: string; label: string; latitude: number; longitude: number; timezone: string };
@@ -72,7 +73,7 @@ export const mergeWeather = (cur: WeatherConfig, p: WeatherPatch): WeatherConfig
 export const GEO_URL = "https://geocoding-api.open-meteo.com/v1/search";
 export const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 export type GeoCandidate = WeatherPlace & { id: number; country?: string; admin1?: string; admin2?: string };
-const ADMIN_TAIL = /(특별자치시|특별자치도|특별시|광역시)$/;
+const ADMIN_TAIL = /(특별자치시|특별자치도|특별시|광역시|特別自治市|特別自治道|特別市|広域市)$/;
 // 「서울특별시」→「서울」, 「부산광역시」→「부산」(말풍선·연결 상태 줄에 쓰는 짧은 이름)
 export const shortAdmin = (s: string) => s.replace(ADMIN_TAIL, "") || s;
 // 한글로 친 글자: 「서울」·「부산」은 「서울특별시」·「부산광역시」로 실려 있어 같이 찾는다. 이미 시·도·구·군 등으로 끝나면 그대로
@@ -95,7 +96,7 @@ export function candidatesOf(json: unknown): GeoCandidate[] {
     const admin1 = oneLine(r.admin1, 40), admin2 = oneLine(r.admin2, 40), country = oneLine(r.country, 40);
     const label = [name, admin2 && admin2 !== name ? admin2 : "", admin1 && admin1 !== name && admin1 !== admin2 ? admin1 : "", country].filter(Boolean).join(" · ");
     // 짧은 이름: 구·군이면 위 행정구역을 앞에(「서울 마포구」), 특별시·광역시는 줄여서(「서울」)
-    const short = /(구|군)$/.test(name) && admin1 && admin1 !== name ? `${shortAdmin(admin1)} ${name}` : shortAdmin(name);
+    const short = /(구|군|区|郡)$/.test(name) && admin1 && admin1 !== name ? `${shortAdmin(admin1)} ${name}` : shortAdmin(name);
     out.push({
       id: Number(r.id) || 0, name: short, label, latitude: lat, longitude: lon, timezone: okTz(r.timezone) ? r.timezone : "auto",
       ...(country ? { country } : {}), ...(admin1 ? { admin1 } : {}), ...(admin2 ? { admin2 } : {}),
@@ -140,6 +141,13 @@ export function parseForecast(json: unknown, at: Date = new Date()): Forecast | 
 }
 
 // 날씨 코드(WMO) → 한국어 낱말 + 이모지 하나
+// 일본어판(언어 설정 ja)
+const JA_WORDS: Record<string, string> = {
+  "맑음": "晴れ", "구름 조금": "晴れ時々くもり", "구름 많음": "くもり時々晴れ", "흐림": "くもり", "안개": "霧", "이슬비": "霧雨", "어는 이슬비": "着氷性の霧雨",
+  "비": "雨", "많은 비": "大雨", "어는 비": "着氷性の雨", "눈": "雪", "많은 눈": "大雪", "싸락눈": "霧雪", "소나기": "にわか雨", "강한 소나기": "激しいにわか雨",
+  "눈 소나기": "にわか雪", "뇌우": "雷雨", "우박 뇌우": "ひょうを伴う雷雨", "날씨 정보 없음": "天気情報なし",
+};
+export const localWord = (w: string, lang: Lang = language()) => (lang === "ja" ? JA_WORDS[w] ?? w : w);
 const WORDS: [number[], string, string][] = [
   [[0], "맑음", "☀️"], [[1], "구름 조금", "🌤️"], [[2], "구름 많음", "⛅"], [[3], "흐림", "☁️"],
   [[45, 48], "안개", "🌫️"], [[51, 53, 55], "이슬비", "🌦️"], [[56, 57], "어는 이슬비", "🌧️"],
@@ -149,9 +157,9 @@ const WORDS: [number[], string, string][] = [
   [[95], "뇌우", "⛈️"], [[96, 99], "우박 뇌우", "⛈️"],
 ];
 export const WEATHER_CODES = WORDS.flatMap(([cs]) => cs);
-export function weatherWord(code: number | null | undefined): { word: string; emoji: string } {
+export function weatherWord(code: number | null | undefined, lang: Lang = language()): { word: string; emoji: string } {
   const w = WORDS.find(([cs]) => cs.includes(Number(code)));
-  return w ? { word: w[1], emoji: w[2] } : { word: "날씨 정보 없음", emoji: "🌡️" };
+  return w ? { word: localWord(w[1], lang), emoji: w[2] } : { word: localWord("날씨 정보 없음", lang), emoji: "🌡️" };
 }
 const SNOW = new Set([71, 73, 75, 77, 85, 86]);
 const WET = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99]);
@@ -161,8 +169,9 @@ export const temp = (t: number) => `${Math.round(t) === 0 ? 0 : Math.round(t)}°
 // "YYYY-MM-DDTHH:MM"(그 지역 시각) → 시계 없는 분(같은 날끼리 비교·더하기만)
 const naive = (t: string) => Date.UTC(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10), +t.slice(11, 13), +t.slice(14, 16)) / 60e3;
 // 「오전 9시」·「낮 12시」·「오후 3시」·「밤 0시」
-export function hourLabel(h: number): string {
+export function hourLabel(h: number, lang: Lang = language()): string {
   const x = ((h % 24) + 24) % 24;
+  if (lang === "ja") return x === 12 ? "正午" : x < 12 ? `午前${x}時` : `午後${x - 12}時`;
   return x === 0 ? "밤 12시" : x < 12 ? `오전 ${x}시` : x === 12 ? "낮 12시" : `오후 ${x - 12}시`;
 }
 export type Rain = { hour: number; what: "비" | "눈"; prob: number | null; mm: number | null };
@@ -191,7 +200,7 @@ export function codeAt(f: Forecast, min: number): number {
 // AI 맥락 한 줄: 「- 오늘 날씨(서울 마포구 · Open-Meteo): 맑음, 지금 14°C · 최고 21°C/최저 11°C · 오후 3시쯤 비 60%」
 export function weatherLine(place: WeatherPlace, f: Forecast): string {
   const r = findRain(f);
-  return `- 오늘 날씨(${place.name} · Open-Meteo 예보): ${weatherWord(f.dayCode).word}, 지금 ${temp(f.temp)}(${weatherWord(f.code).word}) · 최고 ${temp(f.max)}/최저 ${temp(f.min)}${r ? ` · ${hourLabel(r.hour)}쯤 ${r.what} ${rainAmount(r)}` : " · 오늘 남은 시간 비·눈 소식 없음"}`;
+  return `- 오늘 날씨(${place.name} · Open-Meteo 예보): ${weatherWord(f.dayCode, "ko").word}, 지금 ${temp(f.temp)}(${weatherWord(f.code, "ko").word}) · 최고 ${temp(f.max)}/최저 ${temp(f.min)}${r ? ` · ${hourLabel(r.hour, "ko")}쯤 ${r.what} ${rainAmount(r)}` : " · 오늘 남은 시간 비·눈 소식 없음"}`;
 }
 // 채팅·브리핑 프롬프트가 부른다(main 이 setWeatherPeek). 캐시에 있을 때만 — 프롬프트 때문에 바깥에 묻지 않는다
 let peek: (() => string) | undefined;
@@ -247,12 +256,13 @@ export class Weather {
   async search(q: string): Promise<SearchResult> {
     const t = oneLine(q, 60);
     if (t.length < 2) return { ok: true, items: [] };
-    const key = t.toLowerCase();
+    const lang = language(); // 지명도 지금 언어로(한국어 ko · 일본어 ja)
+    const key = `${lang}:${t.toLowerCase()}`;
     const hit = this.searches.get(key);
     if (hit) return { ok: true, items: hit };
     try {
       const all = await Promise.all(searchVariants(t).map((v, i) => {
-        const p = this.getJson(`${GEO_URL}?${new URLSearchParams({ name: v, count: "10", language: "ko", format: "json" })}`);
+        const p = this.getJson(`${GEO_URL}?${new URLSearchParams({ name: v, count: "10", language: lang, format: "json" })}`);
         return i === 0 ? p : p.catch(() => ({})); // 붙여 본 이름이 실패한 건 넘어간다
       }));
       const items = candidatesOf({ results: all.flatMap((j) => (isObj(j) && Array.isArray(j.results) ? j.results : [])) }).slice(0, 10);

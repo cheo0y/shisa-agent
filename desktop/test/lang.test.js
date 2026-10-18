@@ -64,7 +64,7 @@ test('언어를 일본어로: 이름·앱 이름(「○○秘書」, カニち�
   }
   // 캐릭터 창 화면 글: 칩·입력창·답 말풍선 단추
   const chips = chipsOf(quickBubble({ ready: false }, 'usagi').quick).map((c) => c.label);
-  assert.deepEqual(chips, ['今日のやること、どれくらいできた？', 'いまやることは？', '次の予定は？', '集中はじめる？', '応援して', '踊って', 'AIをつなぐ']);
+  assert.deepEqual(chips, ['今日のやること、どれくらいできた？', 'いまやることは？', '次の予定は？', '今日の天気は？', '集中はじめる？', '応援して', '踊って', 'AIをつなぐ']);
   assert.ok(chipsOf(quickBubble({ ready: false }, 'usagi', true).quick).some((c) => c.label === '集中やめる？'));
   assert.ok(!hangul.test(quickBubble({ ready: false }, 'usagi').text));
   assert.ok(!hangul.test(answerBubble('today', { ok: false }).text));

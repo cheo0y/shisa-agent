@@ -201,7 +201,14 @@
       "focusStartTodo": "'{title}' の集中をはじめます。ひとつずつやっていきましょう！",
       "focusAlready": "もう{mins}分集中しています。このまま続けましょう。",
       "focusStop": "{duration}集中しました。ちょっと休みましょう！",
-      "focusIdle": "いまは集中していません。"
+      "focusIdle": "いまは集中していません。",
+      "weatherMorning": "今日の{place}は{summary}、いま{now}・最高{max}/最低{min}です。{rain}",
+      "weatherLeave": "帰り道の{place}は{summary}、いま{now}です。気をつけて帰ってくださいね。",
+      "weatherLeaveRain": "帰り道は{what}です、傘を！{when}ごろ{what}{prob}、{place}はいま{now}です。",
+      "weatherNow": "いまの{place}は{summary}、{now}・今日の最高{max}/最低{min}です。{rain}",
+      "weatherRain": "{when}ごろ{what}{prob}、傘を持っていってくださいね。",
+      "weatherNoPlace": "設定で地域を選ぶとお知らせしますね。",
+      "weatherFail": "いまは天気を取得できませんでした。少ししてからまた聞いてください。"
     },
     "cheer": [
       "今日もちゃんとできています。そばで応援していますね！",
@@ -545,7 +552,14 @@
       "focusStartTodo": "'{title}' の集中スタート！一緒にがんばろ！",
       "focusAlready": "もう{mins}分も集中してるよ！このままいこ。",
       "focusStop": "{duration}も集中したの？すごいじゃん！ちょっと休も。",
-      "focusIdle": "いまは集中してないよ。"
+      "focusIdle": "いまは集中してないよ。",
+      "weatherMorning": "ねえ、今日の{place}は{summary}だって！いま{now}・最高{max}/最低{min}。{rain}",
+      "weatherLeave": "帰り道の{place}は{summary}、いま{now}だよ。気をつけてね！",
+      "weatherLeaveRain": "帰り道は{what}だよ、傘わすれないで！{when}ごろ{what}{prob}、{place}はいま{now}。",
+      "weatherNow": "いまの{place}は{summary}、{now}だよ！今日の最高{max}/最低{min}。{rain}",
+      "weatherRain": "{when}ごろ{what}{prob}、傘もってこ！",
+      "weatherNoPlace": "設定で地域を選んでくれたら天気を教えるね！",
+      "weatherFail": "あっ、いま天気が取れなかった。ちょっとしたらまた聞いてね！"
     },
     "cheer": [
       "やっほー！今日もがんばろ！",
@@ -853,7 +867,14 @@
       "focusStartTodo": "'{title}' に集中する時間か。はじめるとしよう。",
       "focusAlready": "もう{mins}分集中しているぞ。そのまま続けろ。",
       "focusStop": "{duration}集中したか。少し息を整えるといい。",
-      "focusIdle": "いまは集中していないぞ。"
+      "focusIdle": "いまは集中していないぞ。",
+      "weatherMorning": "今日の{place}の天気は{summary}だ。いま{now}・最高{max}/最低{min}。{rain}",
+      "weatherLeave": "帰り道の{place}は{summary}、いま{now}だ。気をつけて帰れ。",
+      "weatherLeaveRain": "帰り道は{what}だ、傘を持っていけ。{when}ごろ{what}{prob}、{place}はいま{now}。",
+      "weatherNow": "いまの{place}は{summary}、{now}だ。今日の最高{max}/最低{min}。{rain}",
+      "weatherRain": "{when}ごろ{what}{prob}、傘を持っておくといい。",
+      "weatherNoPlace": "設定で地域を選べば天気を教えてやろう。",
+      "weatherFail": "いまは天気が取れなかった。少ししてからまた聞いてくれ。"
     },
     "cheer": [
       "来たか。さあ、今日も走るとしよう。",
@@ -1173,7 +1194,14 @@
       "focusStartTodo": "'{title}' やるの？ふーん、サボったらすぐわかるからね。",
       "focusAlready": "もう{mins}分も集中してるじゃん。また押すの？",
       "focusStop": "{duration}集中したの？ふん、まあまあだね。",
-      "focusIdle": "集中してないじゃん。なにをやめるの？"
+      "focusIdle": "集中してないじゃん。なにをやめるの？",
+      "weatherMorning": "は？ 今日の{place}の天気は{summary}。いま{now}・最高{max}/最低{min}。{rain}",
+      "weatherLeave": "帰り道の{place}は{summary}、いま{now}。さっさと帰りな！",
+      "weatherLeaveRain": "帰り道は{what}だってば！傘もって！{when}ごろ{what}{prob}、{place}はいま{now}。",
+      "weatherNow": "は？ いまの{place}は{summary}、{now}だよ。今日の最高{max}/最低{min}。{rain}",
+      "weatherRain": "{when}ごろ{what}{prob}、傘もってかなくても知らないから！",
+      "weatherNoPlace": "設定で地域を先に選んで。そしたら教えてあげる。",
+      "weatherFail": "天気とれなかったじゃん。あとでまた聞いて！"
     },
     "cheer": [
       "もぐもぐ、あっ、なに。応援してほしいの？ はいはい、ちゃんとやれてるよ。(もぐ～もぐ)",
@@ -1464,7 +1492,14 @@
       "focusStartTodo": "ウラ ヤハ(「{title}」の集中スタート！)",
       "focusAlready": "ウラ({mins}分集中してるよ。このままいこう！)",
       "focusStop": "プルルルルルル({duration}の集中おしまい！伸びしよ)",
-      "focusIdle": "ハァ～？(いまは集中してないよ。)"
+      "focusIdle": "ハァ～？(いまは集中してないよ。)",
+      "weatherMorning": "ヤハッ！(今日の{place}は{summary}！いま{now}・最高{max}/最低{min}。{rain})",
+      "weatherLeave": "ウラ(帰り道の{place}は{summary}、いま{now}だよ。気をつけて！)",
+      "weatherLeaveRain": "ハァ～？(帰り道は{what}だよ！傘！{when}ごろ{what}{prob}、{place}はいま{now}。)",
+      "weatherNow": "ウラ ヤハ(いまの{place}は{summary}、{now}！今日の最高{max}/最低{min}。{rain})",
+      "weatherRain": "{when}ごろ{what}{prob}、傘もってって！",
+      "weatherNoPlace": "ウラ(設定で地域を選んだら天気を教えるよ)",
+      "weatherFail": "ハァ～？(いま天気が取れなかった。ちょっとしたらまた聞いて)"
     },
     "cheer": [
       "ウラ ヤハ(ひとマスだけ一緒に進んでみよう！)",
@@ -1757,7 +1792,14 @@
       "focusStartTodo": "へへ ('{title}' の集中スタートだよ！)",
       "focusAlready": "ん？ (もう{mins}分集中してるよ！)",
       "focusStop": "へへへ… ({duration}集中したよ。ちょっと休もう！)",
-      "focusIdle": "ん？ (いまは集中してないよ。)"
+      "focusIdle": "ん？ (いまは集中してないよ。)",
+      "weatherMorning": "わぁぁ～ (今日の{place}は{summary}！いま{now}・最高{max}/最低{min}。{rain})",
+      "weatherLeave": "ん？ (帰り道の{place}は{summary}、いま{now}だよ。気をつけてね！)",
+      "weatherLeaveRain": "わぁぁ～ (帰り道は{what}だよ！傘！{when}ごろ{what}{prob}、{place}はいま{now}。)",
+      "weatherNow": "ん？ (いまの{place}は{summary}、{now}だよ。今日の最高{max}/最低{min}。{rain})",
+      "weatherRain": "{when}ごろ{what}{prob}、傘もってって！",
+      "weatherNoPlace": "ん？ (設定で地域を選んだら天気を教えるよ。)",
+      "weatherFail": "ん？ (いま天気が取れなかった。ちょっとしたらまた聞いて。)"
     },
     "cheer": [
       "あっ？ へへへ (じゅうぶんがんばってるよ！)",
@@ -2051,7 +2093,14 @@
       "focusStartTodo": "エヘヘ (「{title}」の集中スタートだよ！)",
       "focusAlready": "エッ？ (もう{mins}分集中してるよ！)",
       "focusStop": "ワッ！！ ({duration}集中したよ。ちょっと休も！)",
-      "focusIdle": "エッ？ (いまは集中してないよ。)"
+      "focusIdle": "エッ？ (いまは集中してないよ。)",
+      "weatherMorning": "エヘヘ (今日の{place}は{summary}！いま{now}・最高{max}/最低{min}。{rain})",
+      "weatherLeave": "エヘヘ (帰り道の{place}は{summary}、いま{now}だよ。気をつけてね！)",
+      "weatherLeaveRain": "エッ？ (帰り道は{what}だよ！傘！{when}ごろ{what}{prob}、{place}はいま{now}。)",
+      "weatherNow": "フンッ！ (いまの{place}は{summary}、{now}だよ。今日の最高{max}/最低{min}。{rain})",
+      "weatherRain": "{when}ごろ{what}{prob}、傘もってって！",
+      "weatherNoPlace": "エッ？ (設定で地域を選んだら天気を教えるよ。)",
+      "weatherFail": "エッ？ (いま天気が取れなかった。ちょっとしたらまた聞いて。)"
     },
     "cheer": [
       "ワッ！！ (ちゃんとできてるよ、ほんとに！)",
@@ -2346,7 +2395,14 @@
       "focusStartTodo": "おーい～ ('{title}' の集中スタートだ。)",
       "focusAlready": "ほっほ (もう{mins}分集中してるぞ。そのままいこう。)",
       "focusStop": "カーッ ({duration}集中したな。ひと息つこう！)",
-      "focusIdle": "おーい～ (いまは集中してないぞ。)"
+      "focusIdle": "おーい～ (いまは集中してないぞ。)",
+      "weatherMorning": "おーい～ (今日の{place}は{summary}。いま{now}・最高{max}/最低{min}。{rain})",
+      "weatherLeave": "うーむ～ (帰り道の{place}は{summary}、いま{now}だ。気をつけて帰ろう。)",
+      "weatherLeaveRain": "おーい～ (帰り道は{what}だぞ、傘！{when}ごろ{what}{prob}、{place}はいま{now}。)",
+      "weatherNow": "うーむ～ (いまの{place}は{summary}、{now}。今日の最高{max}/最低{min}。{rain})",
+      "weatherRain": "{when}ごろ{what}{prob}、傘を持っていこう。",
+      "weatherNoPlace": "おーい～ (設定で地域を選べば天気を教えるぞ。)",
+      "weatherFail": "うーむ～ (いま天気が取れなかった。あとでまた聞いてくれ。)"
     },
     "cheer": [
       "ハーーーッ (よくやってるよ、乾杯！)",

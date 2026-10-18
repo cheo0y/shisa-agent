@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import {
   Weather, candidatesOf, codeAt, findRain, hourLabel, mergeWeather, parseForecast, searchVariants, shortAdmin, validateWeather, weatherDue, weatherLine,
   weatherOf, weatherWord, WEATHER_CODES, setWeatherPeek, weatherPeekLine, type DueInput, type Forecast, type WeatherFetch, type WeatherPlace,
@@ -340,7 +341,7 @@ test("하루 한 번 기록: 근무 시간과 같은 lunch.json 에 날씨 키, 
 test("버스: GET /weather/search 는 q 를 넘기고, /local/ask 는 「오늘 날씨?」 Promise 답을 기다린다", async () => {
   const bus = new Bus();
   const seen: string[] = [];
-  const port = 47000 + Math.floor(Math.random() * 900);
+  const port = await new Promise<number>((r) => { const srv = createServer(); srv.listen(0, "127.0.0.1", () => { const p = (srv.address() as { port: number }).port; srv.close(() => r(p)); }); }); // 빈 포트(다른 테스트와 겹치지 않게)
   await bus.listen(port, {
     weatherSearch: async (q: string) => { seen.push(q); return { ok: true, items: [{ name: "서울" }] }; },
     localAsk: (id: string) => (id === "weather" ? Promise.resolve({ id, kind: "info", text: "☀️ 지금 서울 맑음" }) : undefined),
@@ -355,4 +356,39 @@ test("버스: GET /weather/search 는 q 를 넘기고, /local/ask 는 「오늘 
     assert.equal(a.status, 200);
     assert.equal((await a.json()).answer.text, "☀️ 지금 서울 맑음");
   } finally { bus.close(); }
+});
+
+test("일본어(언어 설정 ja): 날씨 낱말·시각·비/눈·대사가 일본어, 지명 검색도 language=ja, AI 맥락 줄은 한국어 그대로", async () => {
+  const { setLanguage } = await import("./lang.ts");
+  setLanguage("ja");
+  try {
+    assert.equal(weatherWord(0).word, "晴れ");
+    assert.equal(weatherWord(3).word, "くもり");
+    assert.equal(weatherWord(63).word, "雨");
+    assert.equal(weatherWord(73).word, "雪");
+    assert.equal(weatherWord(95).word, "雷雨");
+    for (const c of WEATHER_CODES) assert.doesNotMatch(weatherWord(c).word, /[가-힣]/, String(c));
+    assert.equal(hourLabel(15), "午後3時");
+    assert.equal(hourLabel(9), "午前9時");
+    assert.equal(hourLabel(12), "正午");
+    const TOKYO: WeatherPlace = { name: "東京都", label: "東京都 · 日本", latitude: 35.68, longitude: 139.76, timezone: "Asia/Tokyo" };
+    for (const id of CHARACTER_IDS) {
+      setCharacter(id);
+      for (const kind of ["morning", "leave", "now"] as const) for (const prob of [{}, { 15: 60, 19: 60 }, { 15: 60, 19: 60 }]) {
+        const t = weatherText(kind, TOKYO, fc({ prob, codes: { 15: 73, 19: 73 } }), { workEnd: "18:00", seed: "j" }).text;
+        assert.doesNotMatch(t, /[가-힣]|\{|\}/, `${id}/${kind}: ${t}`);
+        assert.match(t, /東京都/);
+      }
+      assert.doesNotMatch(noPlaceText() + failText(), /[가-힣]/, id);
+    }
+    setCharacter("shisa");
+    assert.match(weatherText("leave", TOKYO, fc({ prob: { 19: 70 } }), { workEnd: "18:00", seed: "j" }).text, /^☔ 帰り道は雨です、傘を！午後7時ごろ雨70%/);
+    assert.match(weatherText("morning", TOKYO, fc({ prob: { 15: 60 } }), { seed: "j" }).text, /今日の東京都は晴れ、いま14°C・最高21°C\/最低11°Cです。午後3時ごろ雨60%/);
+    const calls: string[] = [];
+    const w = new Weather(() => weatherOf({}), { fetch: fakeFetch(() => ({ results: [] }), calls) });
+    await w.search("東京");
+    assert.equal(new URL(calls[0]).searchParams.get("language"), "ja");
+    assert.match(weatherLine(TOKYO, fc()), /^- 오늘 날씨\(東京都 · Open-Meteo 예보\): 맑음/);
+    assert.equal(candidatesOf({ results: [{ id: 1, name: "渋谷区", latitude: 35.6, longitude: 139.7, admin1: "東京都", country: "日本" }] })[0].name, "東京都 渋谷区");
+  } finally { setLanguage("ko"); }
 });

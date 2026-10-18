@@ -177,9 +177,9 @@ test("일본어 うさぎ: 춤 말고는 외침(ウラ・ヤハッ！・ハァ�
   const u = JA.usagi as LinesEntry;
   const shout = /^(?:ウラ ヤハ|ウラ|ヤハッ！|プルルルルルル|イヤッハー！！！|ウララ ヤハ。|ハァ～？)\(.*\)$/su;
   for (const [k, v] of Object.entries(u.phrases)) if (k !== "dance") for (const l of v) assert.match(l, shout, `phrases.${k}`);
-  for (const l of [...Object.values(u.local), ...u.cheer]) assert.match(l as string, shout);
+  for (const l of [...Object.entries(u.local).filter(([k]) => k !== "weatherRain").map(([, v]) => v), ...u.cheer]) assert.match(l as string, shout);
   for (const id of ["chiikawa", "kani", "kuri"]) {
     const e = JA[id] as LinesEntry;
-    for (const l of [...Object.values(e.local), ...e.cheer, ...Object.entries(e.phrases).filter(([k]) => k !== "dance").flatMap(([, v]) => v)]) assert.match(l as string, /^[^(]+ \(.*\)$/su, `${id}: ${l}`);
+    for (const l of [...Object.entries(e.local).filter(([k]) => k !== "weatherRain").map(([, v]) => v), ...e.cheer, ...Object.entries(e.phrases).filter(([k]) => k !== "dance").flatMap(([, v]) => v)]) assert.match(l as string, /^[^(]+ \(.*\)$/su, `${id}: ${l}`);
   }
 });
