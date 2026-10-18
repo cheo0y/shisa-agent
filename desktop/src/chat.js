@@ -24,6 +24,7 @@
 //   { type: 'unsent', clientId }           보내기 실패 — 기다리던 clientId 를 걷는다(accepted 에 clientId 가 와도 걷힌다)
 import { normalizeSection } from './dashboard.js';
 import { normAttachments } from './attachments.js';
+import { t } from './i18n.js';
 
 export const MAX_MESSAGES = 200;
 const MAX_FINISHED = 20;
@@ -152,7 +153,7 @@ export function chatReducer(state, action) {
       }
       if (ev.status === 'stopped') {
         if (state.finished.some((f) => f.chatId === id)) return state; // 중복
-        const text = typeof ev.text === 'string' && ev.text.trim() ? ev.text : STOPPED_TEXT;
+        const text = typeof ev.text === 'string' && ev.text.trim() ? ev.text : t('overlay.stopped');
         const fin = { chatId: id, text, show: null, error: false, stopped: true, ...(tid ? { threadId: tid } : {}) };
         const { [id]: _, ...pending } = state.pending;
         return {
@@ -166,7 +167,7 @@ export function chatReducer(state, action) {
       if (ev.status === 'done' || ev.status === 'error') {
         if (state.finished.some((f) => f.chatId === id)) return state; // 중복
         const error = ev.status === 'error';
-        const text = typeof ev.text === 'string' && ev.text.trim() ? ev.text : error ? '답을 못 만들었어요.' : '(빈 답)';
+        const text = typeof ev.text === 'string' && ev.text.trim() ? ev.text : error ? t('overlay.reply_fail') : t('overlay.empty_reply');
         const fin = { chatId: id, text, show: error ? null : normalizeSection(ev.show), error, ...(tid ? { threadId: tid } : {}) };
         const { [id]: _, ...pending } = state.pending;
         const msg = { role: 'assistant', text, at: new Date().toISOString() };
@@ -248,7 +249,7 @@ export function isBusy(state, threadId) {
   return inThread(state, threadId).length > 0;
 }
 
-export const STOPPED_TEXT = '멈췄어요';
+export const STOPPED_TEXT = '멈췄어요'; // 한국어 글(지금 언어 글은 t('overlay.stopped'))
 
 // 멈출 대화들(POST /chat/:chatId/stop): 그 스레드에서 진행 중·기다리는 것 전부(threadId 없으면 모두)
 export function stopTargets(state, threadId) {
@@ -259,8 +260,8 @@ export const CHAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // 보내기 버튼: 그 대화가 답하는 중이고 입력창이 비었으면 멈추기(Claude·ChatGPT 처럼). 뭔가 적었으면 보내기(줄 서서 다음에 답)
 export function sendButton(state, threadId, draft) {
   const busy = threadId != null && isBusy(state, threadId);
-  if (busy && !String(draft ?? '').trim()) return { mode: 'stop', text: '멈추기', title: '답하던 걸 멈춰요 (Esc)' };
-  return { mode: 'send', text: '보내기', title: busy ? '앞의 답이 끝나면 이어서 답해요 (Enter)' : '보내기 (Enter)' };
+  if (busy && !String(draft ?? '').trim()) return { mode: 'stop', text: t('overlay.stop_btn'), title: t('overlay.stop_btn_title') };
+  return { mode: 'send', text: t('overlay.send_btn'), title: busy ? t('overlay.send_after_title') : t('overlay.send_btn_title') };
 }
 
 // 차례를 기다리는 것(queued) · 돌고 있는 것 — threadId 를 주면 그 스레드에서만
@@ -287,7 +288,7 @@ export function runningThreads(state) {
 export function busyCaption(state) {
   const n = runningThreads(state);
   const waiting = queuedIds(state).length + heldIds(state).length;
-  return [n > 1 ? `대화 ${n}개 답하는 중` : n ? busyLabel(state) : '', waiting ? `메시지 ${waiting}개 대기 중` : ''].filter(Boolean).join(' · ');
+  return [n > 1 ? t('overlay.threads_busy', { n }) : n ? busyLabel(state) : '', waiting ? t('overlay.msgs_waiting', { n: waiting }) : ''].filter(Boolean).join(' · ');
 }
 
 // 내가 보낸 말(local) 풍선 상태: 'sending'(POST 응답 전이거나, 받아들여졌지만 줄 섰는지 아직 모름) | 'queued'(대기 중 — 지금 보내기·취소)
@@ -309,20 +310,19 @@ export function queuedChats(state, threadId) {
 // 대기 중 풍선 아래 상태 줄: "대기 중 · 2번째"(그 대화 안의 차례) + 무엇을 기다리는지
 // 다른 대화는 동시에 답하니 기다리는 건 늘 이 대화의 앞 답 — 「앞 답(“…”)이 끝나면 보내요」, 모르면 「앞 답이 끝나면 보내요」
 export function queuedLabel(p) {
-  const pos = Number.isInteger(p?.position) && p.position > 1 ? ` · ${p.position}번째` : '';
-  const what = p?.ahead?.text ? `“${p.ahead.text}”` : '';
-  const wait = `앞 답${what ? `(${what})` : ''}이 끝나면 보내요`;
-  return { status: `대기 중${pos}`, wait: p?.position > 1 ? `${wait} — 앞에 ${p.position - 1}개 더 있어요` : wait };
+  const pos = Number.isInteger(p?.position) && p.position > 1 ? t('overlay.queue_pos', { n: p.position }) : '';
+  const wait = p?.ahead?.text ? t('overlay.queue_wait_what', { what: `“${p.ahead.text}”` }) : t('overlay.queue_wait');
+  return { status: t('overlay.queue_status', { pos }), wait: p?.position > 1 ? t('overlay.queue_more', { wait, n: p.position - 1 }) : wait };
 }
 
 // 보낸 말의 상태 줄(보냄): 줄 섰다 간 말이면 언제 줄 서서 언제 보냈는지(시각은 따로 그린다)
 export function sentLabel(queuedAt, sentAt) {
   const q = Date.parse(queuedAt ?? ''), s = Date.parse(sentAt ?? '');
-  if (!Number.isFinite(q) || !Number.isFinite(s) || s - q < 2000) return { status: '보냄', title: '모델에 보냈어요' };
+  if (!Number.isFinite(q) || !Number.isFinite(s) || s - q < 2000) return { status: t('overlay.sent_status'), title: t('overlay.sent_title') };
   const hm = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   const waited = Math.round((s - q) / 1000);
-  const dur = waited < 60 ? `${waited}초` : `${Math.round(waited / 60)}분`;
-  return { status: `대기 ${dur} 뒤 보냄`, title: `${hm(q)}에 줄 서서 앞 답이 끝난 ${hm(s)}에 보냈어요` };
+  const dur = waited < 60 ? t('overlay.dur_sec', { n: waited }) : t('overlay.dur_min', { n: Math.round(waited / 60) });
+  return { status: t('overlay.sent_after', { dur }), title: t('overlay.sent_after_title', { q: hm(q), s: hm(s) }) };
 }
 
 // 지금 보내기 대신 쓸 멈출 대상(옛 데몬 — /now 가 없을 때): 그 스레드에서 돌고 있는 것만(기다리는 건 그대로)
@@ -345,16 +345,17 @@ export function busyThreads(state) {
   return new Set(Object.values(state.pending).map((p) => p.threadId).filter(Boolean));
 }
 
-const SERVICES = { code: '코드', slack: 'Slack', ms365: '메일·일정', jira: 'Jira', git: 'git', store: '기록', cal: '캘린더' };
+const SERVICES = { code: 'svc_code', slack: 'Slack', ms365: 'svc_ms365', jira: 'Jira', git: 'git', store: 'svc_store', cal: 'svc_cal' };
+const svcName = (svc) => { const v = SERVICES[svc]; return v?.startsWith('svc_') ? t(`overlay.${v}`) : v ?? svc; };
 
 // "slack.slack_search_messages" → "Slack · search messages"
 export function stepLabel(step) {
-  if (typeof step !== 'string' || !step.trim()) return '생각 중…';
+  if (typeof step !== 'string' || !step.trim()) return t('overlay.thinking');
   const [svc, ...rest] = step.split('.');
   let tool = rest.join('.');
   if (!tool) return step.replace(/_/g, ' ');
   if (tool.startsWith(`${svc}_`)) tool = tool.slice(svc.length + 1);
-  return `${SERVICES[svc] ?? svc} · ${tool.replace(/_/g, ' ')}`;
+  return `${svcName(svc)} · ${tool.replace(/_/g, ' ')}`;
 }
 
 // 말풍선용 짧은 답: 마크다운 기호 걷어내고 max 자에서 자른다

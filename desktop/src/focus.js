@@ -1,4 +1,5 @@
 import { ui } from './lang.js';
+import { t } from './i18n.js';
 // 집중하기(포커스 타이머) — 순수 로직. 캐릭터 말풍선·패널(할 일 하단 「오늘 집중」·집중 기록)·테스트가 같이 쓴다.
 // 데몬 GET /focus · SSE focus 모양(docs/contract.md 「집중하기」):
 // { active: null | { id, startedAt, paused, baseMs, since, seconds }, day, today, now }
@@ -63,19 +64,19 @@ export function fmtClock(sec) {
 // 「1시간 12분」 · 「25분」 · 1분 안 되면 「1분 미만」 · 0이면 「0분」
 export function fmtDuration(sec) {
   const s = Math.max(0, Math.floor(sec || 0));
-  if (s === 0) return '0분';
-  if (s < 60) return '1분 미만';
+  if (s === 0) return t('overlay.dur_min', { n: 0 });
+  if (s < 60) return t('overlay.under_min');
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-  return h ? (m ? `${h}시간 ${m}분` : `${h}시간`) : `${m}분`;
+  return h ? (m ? t('overlay.dur_hm', { h, m }) : t('overlay.dur_h', { n: h })) : t('overlay.dur_min', { n: m });
 }
 // 짧게(막대 위): 「1.5시간」 「45분」 「1분 미만」, 0이면 빈 글
 export function fmtShort(sec) {
   const s = Math.max(0, Math.floor(sec || 0));
   if (!s) return '';
-  if (s < 60) return '1분 미만';
-  if (s < 3600) return `${Math.round(s / 60)}분`;
+  if (s < 60) return t('overlay.under_min');
+  if (s < 3600) return t('overlay.dur_min', { n: Math.round(s / 60) });
   const h = Math.round(s / 360) / 10;
-  return `${h}시간`;
+  return t('overlay.dur_h', { n: h });
 }
 
 // 캐릭터 말풍선 글
@@ -110,7 +111,9 @@ export function doingBubble(list, focus) {
 
 // ---- 잔디 단계(GitHub 기여 그래프처럼): 0 = 빈 칸, 1~4 = 오래 집중할수록 진하게 ----
 export const LEVEL_STEPS = [1, 30 * 60, 60 * 60, 2 * 3600]; // 이 초 이상이면 1·2·3·4단계
-export const LEVEL_LABELS = ['안 함', '30분 미만', '30분~1시간', '1~2시간', '2시간 이상'];
+// 지금 언어 글(배열처럼 쓴다: LEVEL_LABELS[i] · .map)
+const liveList = (key) => new Proxy([], { get: (_t, k) => Reflect.get(t(key), k), has: (_t, k) => Reflect.has(t(key), k), ownKeys: () => Reflect.ownKeys(t(key)), getOwnPropertyDescriptor: (_t, k) => Reflect.getOwnPropertyDescriptor(t(key), k) });
+export const LEVEL_LABELS = liveList('overlay.focus_levels');
 export function focusLevel(sec) {
   const s = Math.max(0, Math.floor(sec || 0));
   let lv = 0;
@@ -140,7 +143,7 @@ export function addDays(day, n) {
   return d ? dayOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)) : day;
 }
 const mondayIdx = (d) => (d.getDay() + 6) % 7; // 월 0 … 일 6
-export const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
+export const WEEKDAYS = liveList('overlay.focus_wd'); // 월요일부터
 
 // 그 날이 든 주(월~일)
 export function weekRange(day) {
@@ -179,26 +182,26 @@ export function monthGrid(from, to) {
 // 「10월 14일 (화)」
 export function dayLabel(day) {
   const d = parseDay(day);
-  return d ? `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[mondayIdx(d)]})` : '';
+  return d ? t('date.mdw_space', { m: d.getMonth() + 1, d: d.getDate(), w: WEEKDAYS[mondayIdx(d)] }) : '';
 }
 // 칸 위 설명(마우스 올리면)
 export function cellTitle(day, sec) {
-  return `${dayLabel(day)} · ${sec ? fmtDuration(sec) : '집중 기록 없음'}`;
+  return `${dayLabel(day)} · ${sec ? fmtDuration(sec) : t('overlay.focus_none')}`;
 }
 // 날짜를 눌렀을 때 보이는 한 줄: 「10월 14일 (화) · 총 1시간 12분 · 최대 연속 45분」
 export function dayDetail(d) {
   if (!d || typeof d.date !== 'string') return '';
   const sec = Math.max(0, Number(d.seconds) || 0), long = Math.max(0, Number(d.longest) || 0);
-  if (!sec) return `${dayLabel(d.date)} · 집중 기록 없음`;
-  return `${dayLabel(d.date)} · 총 ${fmtDuration(sec)} · 최대 연속 ${fmtDuration(Math.min(long || sec, sec))}`;
+  if (!sec) return `${dayLabel(d.date)} · ${t('overlay.focus_none')}`;
+  return t('overlay.focus_detail', { day: dayLabel(d.date), total: fmtDuration(sec), longest: fmtDuration(Math.min(long || sec, sec)) });
 }
 // 기록 보기 머리: 주 「10월 12일 ~ 18일」(달이 바뀌면 「9월 28일 ~ 10월 4일」) · 달 「2026년 10월」
 export function rangeTitle(tab, r) {
   const a = parseDay(r?.from), z = parseDay(r?.to);
   if (!a || !z) return '';
-  if (tab === 'month') return `${a.getFullYear()}년 ${a.getMonth() + 1}월`;
-  const head = `${a.getMonth() + 1}월 ${a.getDate()}일`;
-  const tail = a.getMonth() === z.getMonth() ? `${z.getDate()}일` : `${z.getMonth() + 1}월 ${z.getDate()}일`;
+  if (tab === 'month') return t('overlay.ym', { y: a.getFullYear(), m: a.getMonth() + 1 });
+  const head = t('date.md', { m: a.getMonth() + 1, d: a.getDate() });
+  const tail = a.getMonth() === z.getMonth() ? t('overlay.d_only', { d: z.getDate() }) : t('date.md', { m: z.getMonth() + 1, d: z.getDate() });
   return `${head} ~ ${tail}`;
 }
 

@@ -16,7 +16,7 @@ test('denied: status 400 과 data.error 를 채워 화면이 이유를 보여 �
   assert.equal(r.data.error, DENIED_WHY);
   assert.doesNotMatch(DENIED_WHY, /연결/);
   // 채팅 실패 문구는 400 + data.error 면 그 이유를 쓴다(renderer.js·panel.js)
-  assert.match(read('../renderer/renderer.js'), /r\?\.status === 400 && r\.data\?\.error \? `못 보냈어요: \$\{r\.data\.error\}`/);
+  assert.match(read('../renderer/renderer.js'), /r\?\.status === 400 && r\.data\?\.error \? t\('overlay\.not_sent', \{ why: r\.data\.error \}\)/);
   assert.match(read('../renderer/panel.js'), /const why = r\?\.status === 400 && typeof r\.data\?\.error === 'string'/);
   // 대시보드: 데몬에 닿지 못했을 때(status 없음)만 「연결되지 않았어요」
   assert.match(read('../renderer/panel.js'), /error = r\?\.error && !r\?\.status \? `\$\{who\(\)\}에 연결되지 않았어요\.`/); // 이름은 고른 캐릭터

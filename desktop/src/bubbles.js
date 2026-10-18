@@ -1,5 +1,7 @@
 // 말풍선 큐 — 순수 로직. 렌더러와 테스트가 같이 쓴다.
 import { normQuick } from './quick-ask.js';
+import { t } from './i18n.js';
+import { ui } from './lang.js';
 
 export const KINDS = ['info', 'todo', 'proposal', 'done', 'error'];
 export const DEFAULT_TTL = 12000;
@@ -65,8 +67,8 @@ export function tourButtons(b) {
   const last = b.tour.step >= b.tour.total;
   // 카드 버튼 규칙: 그만은 왼쪽, 다음·끝은 오른쪽
   return [
-    ...(last ? [] : [{ cmd: 'stop', label: '그만 볼래요' }]),
-    { cmd: 'next', label: last ? '끝' : `다음 (${b.tour.step}/${b.tour.total})`, primary: true },
+    ...(last ? [] : [{ cmd: 'stop', label: t('overlay.tour_stop') }]),
+    { cmd: 'next', label: last ? t('overlay.tour_end') : t('overlay.tour_next', { step: b.tour.step, total: b.tour.total }), primary: true },
   ];
 }
 
@@ -108,12 +110,12 @@ export function clickTarget(b) {
 export function linkLabel(url) {
   try {
     const u = new URL(url);
-    if (u.protocol === 'slack:' || /(^|\.)slack\.com$/.test(u.hostname)) return '슬랙에서 보기';
-    if (/\/pull\/\d+/.test(u.pathname)) return 'PR 보기';
-    if (/(^|\.)teams\.(microsoft|live)\.com$/.test(u.hostname)) return 'Teams 참가';
-    if (/^outlook\.(office365|office|live)\.com$/.test(u.hostname) && /calendar/.test(u.pathname + u.search)) return '일정 열기';
+    if (u.protocol === 'slack:' || /(^|\.)slack\.com$/.test(u.hostname)) return t('overlay.link_slack');
+    if (/\/pull\/\d+/.test(u.pathname)) return t('overlay.link_pr');
+    if (/(^|\.)teams\.(microsoft|live)\.com$/.test(u.hostname)) return t('overlay.link_teams');
+    if (/^outlook\.(office365|office|live)\.com$/.test(u.hostname) && /calendar/.test(u.pathname + u.search)) return t('overlay.link_event');
   } catch { /* 아래로 */ }
-  return '열기';
+  return t('overlay.link_open');
 }
 
 // 머지 추가질문 입력 정리
@@ -144,27 +146,25 @@ export const isWaitingApproval = (b) => !!b && b.kind === 'proposal' && !b.decid
 export function approvalButtons(b) {
   if (!isWaitingApproval(b)) return [];
   if (b.actions === 'merge') return [
-    { decision: 'merge', label: '✓ 머지', primary: true, disabled: !!b.blocked, title: b.blocked ? `머지할 수 없어요 — ${b.blocked}` : '머지해요(squash)' },
-    { decision: 'decline', label: '✗ 안 함', title: '머지 안 함 (PR은 열어둠)' },
-    { decision: 'ask', label: '추가질문', title: '머지 전에 이 PR 에 대해 물어보기' },
+    { decision: 'merge', label: t('overlay.merge_btn'), primary: true, disabled: !!b.blocked, title: b.blocked ? t('overlay.merge_blocked', { why: b.blocked }) : t('overlay.merge_title') },
+    { decision: 'decline', label: t('overlay.decline_btn'), title: t('overlay.decline_title') },
+    { decision: 'ask', label: t('overlay.ask_btn'), title: t('overlay.ask_title') },
   ];
   if (b.actions === 'action') return [
-    { decision: 'confirm', label: '✓ 실행', primary: true, title: '실행하면 바로 보내져요' },
-    { decision: 'cancel', label: '✗ 취소', title: '보내지 않고 카드를 닫아요' },
+    { decision: 'confirm', label: t('overlay.run_btn'), primary: true, title: t('overlay.run_title') },
+    { decision: 'cancel', label: t('overlay.cancel_btn'), title: t('overlay.cancel_title') },
   ];
   return [
-    { decision: 'confirm', label: '허용', primary: true, title: '이번 한 번만 허용' },
-    ...(b.always ? [{ decision: 'always', label: '항상 허용', title: '같은 종류는 앞으로 묻지 않고 허용' }] : []),
-    { decision: 'cancel', label: '거부', title: '실행하지 않아요' },
+    { decision: 'confirm', label: t('overlay.allow'), primary: true, title: t('overlay.allow_once') },
+    ...(b.always ? [{ decision: 'always', label: t('overlay.allow_always'), title: t('overlay.allow_always_title') }] : []),
+    { decision: 'cancel', label: t('overlay.deny'), title: t('overlay.deny_title') },
   ];
 }
 
 // 아침 질문 「어제 남은 N개, 오늘도 할까요?」 답(말풍선·패널 오늘 할 일 탭 위 안내 공용). keep·demote 는 POST /today/carry, open 은 패널만 연다
-export const CARRY_CHOICES = [
-  { cmd: 'keep', label: '그대로 둘게요', primary: true, title: '어제 남은 일을 오늘 할 일에 그대로 둬요' },
-  { cmd: 'demote', label: '이번 주로 내려요', title: '아직 안 끝난 어제 일을 이번 주로 옮겨요' },
-  { cmd: 'open', label: '하나씩 볼게요', title: '오늘 할 일 탭에서 하나씩 골라요' },
-];
+// 글은 부를 때 지금 언어로(lang.js carry_*)
+const carryChoice = (cmd, extra = {}) => ({ cmd, get label() { return ui(`carry_${cmd}`); }, get title() { return ui(`carry_${cmd}_title`); }, ...extra });
+export const CARRY_CHOICES = [carryChoice('keep', { primary: true }), carryChoice('demote'), carryChoice('open')];
 export const isCarryDecision = (v) => v === 'keep' || v === 'demote';
 export const carryButtons = (b) => (b?.carry && !b.decided ? CARRY_CHOICES : []);
 

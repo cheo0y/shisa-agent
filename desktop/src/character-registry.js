@@ -10,6 +10,7 @@ import { CANNED_DEFAULTS } from './canned.js';
 import { SISA_SAY } from './ai-onboard.js';
 import { SISA_TOUR } from './tour.js';
 import { language, setLanguage } from './lang.js';
+import { t } from './i18n.js';
 import { CHARACTER_LINES_JA } from './character-lines.ja.js';
 
 // 언어마다 기본 캐릭터 대사 정적 사본(데몬 lines.<언어>.json 과 같다 — 데몬 목록이 오기 전·데몬 없이 켤 때). 한국어는 character-lines.js + 시사 코드 기본값
@@ -102,7 +103,7 @@ export function applyCharacters(data) {
     if (builtin !== !!e.builtin) continue;
     if (!builtin && !/^u-[a-z0-9]{4,32}$/.test(e.id)) continue;
     const l = effectiveLines(e);
-    const name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : (builtin ? BASE.characters[e.id].name : '새 캐릭터');
+    const name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : (builtin ? BASE.characters[e.id].name : t('overlay.new_character'));
     CHARACTERS[e.id] = builtin
       ? { ...BASE.characters[e.id], name }
       : { name, custom: true, media: isObj(e.media) ? { ...e.media } : {}, frames: isObj(e.frames) ? { ...e.frames } : {}, clips: isObj(e.clips) ? structuredClone(e.clips) : {} };

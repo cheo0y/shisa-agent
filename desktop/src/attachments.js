@@ -1,12 +1,13 @@
 // 채팅 첨부(이미지·PDF·글·그 밖 아무 파일) — 순수 로직. 화면은 renderer/attach-tray.js, 메인은 cy-attach:// 와 IPC.
 // 흐름: 붙이면(📎·드래그·⌘V) 바로 데몬에 올리고(POST /chat/attachments → id), 보낼 때 그 id 들을 말에 붙인다.
 // 받은 말의 첨부는 cy-attach://chat/<대화 id>/<저장 이름> 으로 그린다(메인이 데몬에서 읽어 준다 — 첨부 폴더 밖은 못 읽음).
+import { t } from './i18n.js';
 
 export const ATTACH_SCHEME = 'cy-attach';
 // 크기·합·개수 상한은 없다(데몬도 없다)
 export const ATTACH_ERRORS = {
-  empty: (name) => `「${name}」은(는) 빈 파일이에요`,
-  folder: '폴더는 붙일 수 없어요 — 파일을 골라 주세요',
+  empty: (name) => t('overlay.att_empty', { name }),
+  get folder() { return t('overlay.att_folder'); },
 };
 
 const ATTACH_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -32,7 +33,7 @@ export function guessKind(name, mime = '') {
   return 'file';
 }
 export const KIND_ICON = { image: '🖼️', pdf: '📕', text: '📝', file: '📎' };
-export const KIND_LABEL = { image: '이미지', pdf: 'PDF', text: '글 파일', file: '파일' };
+export const KIND_LABEL = { get image() { return t('overlay.att_image'); }, pdf: 'PDF', get text() { return t('overlay.att_text'); }, get file() { return t('overlay.att_file'); } };
 
 // 붙이려는 파일들을 지금 목록에 더한다: 빈 파일은 빼고, 같은 파일(이름·크기·수정 시각) 두 번은 한 번만.
 // files: [{ name, size, type, lastModified }] → { add: 고른 것, errors: 사용자에게 보일 이유 }
@@ -42,7 +43,7 @@ export function admitFiles(current, files) {
   const seen = new Set(list.map((x) => x.sig).filter(Boolean));
   for (const f of Array.isArray(files) ? files : []) {
     if (!f || typeof f.name !== 'string') continue;
-    const name = f.name || '이름 없는 파일';
+    const name = f.name || t('overlay.att_noname');
     const size = Number(f.size) || 0;
     const sig = `${name}\u0000${size}\u0000${f.lastModified ?? ''}`;
     if (seen.has(sig)) continue;
@@ -80,7 +81,7 @@ export function pastedName(file, now = new Date()) {
   if (name && !/^image\.(png|jpe?g|gif|webp|tiff?)$/i.test(name)) return name;
   const ext = (name.match(/\.([a-z]+)$/i)?.[1] ?? String(file?.type ?? '').split('/')[1] ?? 'png').toLowerCase().replace('jpeg', 'jpg');
   const p = (n) => String(n).padStart(2, '0');
-  return `스크린샷 ${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}.${p(now.getMinutes())}.${p(now.getSeconds())}.${ext}`;
+  return `${t('overlay.att_screenshot')} ${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}.${p(now.getMinutes())}.${p(now.getSeconds())}.${ext}`;
 }
 
 // 보내기 전에 그림 줄이기: 긴 변 2000px 넘거나 3.5MB 넘으면 → { width, height }(비율 유지), 아니면 null.
@@ -134,8 +135,8 @@ export function resolveAttachUrl(url) {
 export function chipView(a) {
   const kind = a?.kind ?? 'file';
   const size = fmtSize(a?.size);
-  const state = a?.status === 'uploading' ? '올리는 중…' : a?.status === 'error' ? (a.error || '못 올렸어요') : '';
-  return { icon: KIND_ICON[kind] ?? KIND_ICON.file, name: a?.name ?? '', size, state, title: [a?.name, `${KIND_LABEL[kind] ?? '파일'} · ${size}`, state].filter(Boolean).join('\n') };
+  const state = a?.status === 'uploading' ? t('overlay.att_uploading') : a?.status === 'error' ? (a.error || t('overlay.att_failed')) : '';
+  return { icon: KIND_ICON[kind] ?? KIND_ICON.file, name: a?.name ?? '', size, state, title: [a?.name, `${KIND_LABEL[kind] ?? KIND_LABEL.file} · ${size}`, state].filter(Boolean).join('\n') };
 }
 
 // 보내기: 아직 올리는 중·실패한 칩이 있으면 못 보낸다 → { ids, waiting, failed }
@@ -166,5 +167,5 @@ export function cleanUpload(name, mime, bytes) {
 export function attachSummary(list) {
   const l = Array.isArray(list) ? list : [];
   if (!l.length) return '';
-  return `📎 ${l[0].name}${l.length > 1 ? ` 외 ${l.length - 1}개` : ''}`;
+  return `📎 ${l[0].name}${l.length > 1 ? t('overlay.att_more', { n: l.length - 1 }) : ''}`;
 }

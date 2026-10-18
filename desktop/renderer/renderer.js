@@ -14,6 +14,7 @@ import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
 import { ui, setLanguage } from '../src/lang.js';
+import { t, bindLanguage } from '../src/i18n.js';
 import { BubbleExpiry } from '../src/bubble-expiry.js';
 import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
 import { createPressTracker, missedClick, missedPress, staleHold } from '../src/press.js';
@@ -389,7 +390,7 @@ function fillEl(item, b) {
     if (more) {
       const m = document.createElement('span');
       m.className = 'note muted more-waiting';
-      m.textContent = `+${more}개 더 기다려요`;
+      m.textContent = t('overlay.more_waiting', { n: more });
       meta.append(m);
     }
   } else if (b.tour) {
@@ -505,12 +506,12 @@ async function decide(b, action) {
       pending: false,
       decided: true,
       kind: action === 'approve' ? 'done' : 'info',
-      text: action === 'approve' ? '승인했어요. 진행할게요.' : '보류해둘게요.',
+      text: action === 'approve' ? t('overlay.approved') : t('overlay.held'),
       ttlMs: 4000,
     });
     if (it) schedule(it);
   } else {
-    queue.update(b.id, { pending: false, note: '전송 실패 — 다시 눌러주세요' });
+    queue.update(b.id, { pending: false, note: t('overlay.send_fail_decide') });
   }
   render();
 }
@@ -530,10 +531,10 @@ async function mergeDecide(id, action) {
       queue.update(id, { pending: false, decided: true, kind: action === 'merge' ? 'done' : 'info', text: action === 'merge' ? localSay(charA.id).mergeDone : localSay(charA.id).mergeDeclined, ttlMs: 6000, ...(action === 'merge' ? { image: 'merge_complete' } : {}) });
       schedule(current(id));
     } else if (r?.status === 409 || r?.status === 404) {
-      queue.update(id, { pending: false, decided: true, kind: 'info', text: r?.data?.error || '이미 처리됐어요', ttlMs: 6000 });
+      queue.update(id, { pending: false, decided: true, kind: 'info', text: r?.data?.error || t('overlay.already_done'), ttlMs: 6000 });
       schedule(current(id));
     } else {
-      queue.update(id, { pending: false, note: '전송 실패 — 다시 눌러 주세요' });
+      queue.update(id, { pending: false, note: t('overlay.send_fail') });
     }
   }
   render();
@@ -544,7 +545,7 @@ async function actionDecide(id, decision) {
   const b = current(id);
   if (!b?.actionId || b.pending) return;
   const perm = b.actions === 'permission';
-  queue.update(id, { pending: true, note: perm ? (decision === 'cancel' ? '거부하는 중…' : '허용하는 중…') : decision === 'confirm' ? '보내는 중…' : null, thinking: true });
+  queue.update(id, { pending: true, note: perm ? (decision === 'cancel' ? t('overlay.denying') : t('overlay.allowing')) : decision === 'confirm' ? t('overlay.sending') : null, thinking: true });
   render();
   let r;
   try { r = await cy.actionDecide(b.actionId, decision); } catch { r = { ok: false }; }
@@ -553,11 +554,11 @@ async function actionDecide(id, decision) {
     const st = r?.data?.action?.status;
     if (r?.ok || r?.status === 409 || r?.status === 404) {
       const msg = r?.data?.action?.result?.message;
-      const text = st === 'done' ? `✅ ${msg || (perm ? '허용했어요' : '보냈어요')}` : st === 'failed' ? `⚠️ ${msg || '실패했어요'}` : st === 'cancelled' ? (perm ? '✗ 거부했어요 — 실행하지 않았어요' : '✗ 취소했어요 — 보내지 않았어요') : st === 'expired' ? '⌛ 만료됐어요' : (r?.data?.error || '이미 처리됐어요');
+      const text = st === 'done' ? `✅ ${msg || (perm ? t('overlay.allowed') : t('overlay.sent'))}` : st === 'failed' ? `⚠️ ${msg || t('overlay.failed')}` : st === 'cancelled' ? (perm ? t('overlay.perm_cancelled') : t('overlay.st_cancelled')) : st === 'expired' ? t('overlay.expired') : (r?.data?.error || t('overlay.already_done'));
       queue.update(id, { pending: false, decided: true, thinking: false, note: null, kind: st === 'done' ? 'done' : st === 'failed' ? 'error' : 'info', text, detail: undefined, ttlMs: 8000 });
       schedule(current(id));
     } else {
-      queue.update(id, { pending: false, thinking: false, note: '전송 실패 — 다시 눌러 주세요' });
+      queue.update(id, { pending: false, thinking: false, note: t('overlay.send_fail') });
     }
   }
   render();
@@ -570,8 +571,8 @@ function buildMergeAsk(id) {
   const input = document.createElement('input');
   input.type = 'text';
   input.autocomplete = 'off';
-  input.placeholder = '질문';
-  input.setAttribute('aria-label', '머지 전에 물어보기');
+  input.placeholder = t('overlay.merge_ask_ph');
+  input.setAttribute('aria-label', t('overlay.merge_ask_label'));
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); input.value = ''; return closeMergeAsk(id, true); }
     if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
@@ -616,7 +617,7 @@ async function sendMergeAsk(id, q) {
   const b = current(id);
   if (!b?.proposalId) return;
   closeMergeAsk(id, true);
-  queue.update(id, { pending: true, thinking: true, note: '생각 중…' });
+  queue.update(id, { pending: true, thinking: true, note: t('overlay.thinking') });
   render();
   let r;
   try { r = await cy.mergeAsk(b.proposalId, q); } catch { r = { ok: false }; }
@@ -626,7 +627,7 @@ async function sendMergeAsk(id, q) {
     // 데몬도 같은 id 로 답 말풍선을 보낸다(✓/✗ 유지). 먼저 온 쪽으로 채운다
     queue.update(id, { pending: false, thinking: false, note: null, text: r.data.reply });
   } else {
-    queue.update(id, { pending: false, thinking: false, note: r?.data?.error || '못 물어봤어요 — 다시 해 주세요' });
+    queue.update(id, { pending: false, thinking: false, note: r?.data?.error || t('overlay.ask_fail') });
   }
   render();
 }
@@ -707,7 +708,13 @@ function applyUiLang() {
   set('ask-more', { title: ui('ask_more'), 'aria-label': ui('ask_more_label') });
   set('focus-stop', { text: ui('focus_stop') });
   set('doing-label', { text: ui('doing') });
-  set('caption-stop', { title: ui('stop') });
+  set('caption-stop', { title: ui('stop'), 'aria-label': t('overlay.stop_label') });
+  set('focus', { 'aria-label': t('overlay.focus_aria') });
+  set('doing', { 'aria-label': t('overlay.doing_aria'), title: ui('open_todos') });
+  set('ask-tray', { 'aria-label': t('overlay.tray_aria') });
+  set('focus-label', { text: ui('focus_on') }); // 집중 중이면 drawFocus 가 곧 그때 글로
+  set('focus-toggle', { text: ui('focus_pause') });
+  document.title = ui('app_name', who());
 }
 function takeCharacters(data) {
   if (!data || !applyCharacters(data)) return;
@@ -804,7 +811,7 @@ function drawDoing() {
   doingEl.hidden = !v;
   if (v) {
     doingText.textContent = v.text;
-    doingEl.title = v.more ? `진행 중: ${doingTodos.filter((t) => t.doing === true).map((t) => t.title).join(', ')}` : '할 일 보기';
+    doingEl.title = v.more ? t('overlay.doing_list', { list: doingTodos.filter((x) => x.doing === true).map((x) => x.title).join(', ') }) : ui('open_todos');
   }
   if (was !== !!v) requestAnimationFrame(recheckHit);
 }
@@ -855,7 +862,7 @@ function syncChat() {
 
 function showReply(r) {
   const { text, truncated } = summarizeReply(r.text);
-  const b = { id: `chat-${r.chatId}`, text: text || '(빈 답)', kind: r.error ? 'error' : 'info', ttlMs: r.stopped ? 5000 : 20000 };
+  const b = { id: `chat-${r.chatId}`, text: text || t('overlay.empty_reply'), kind: r.error ? 'error' : 'info', ttlMs: r.stopped ? 5000 : 20000 };
   // 캐릭터 대화방(스레드)의 답 — "패널에서 보기"는 그 대화를 연다
   if (r.threadId) b.open = { section: 'chat', id: r.threadId };
   else if (truncated) b.panelSection = 'chat';
@@ -890,7 +897,7 @@ async function sendChat(text, ids = []) {
   if (r?.ok && r.chatId) dispatchChat({ type: 'accepted', chatId: r.chatId, clientId, ...(r.threadId ? { threadId: r.threadId, follow: true } : {}) });
   else {
     dispatchChat({ type: 'unsent', clientId });
-    showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? `못 보냈어요: ${r.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`, error: true });
+    showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? t('overlay.not_sent', { why: r.data.error }) : t('overlay.not_connected', { who: who() }), error: true });
   }
 }
 
@@ -987,7 +994,7 @@ askInput.addEventListener('keydown', async (e) => {
     askSending = true;
     try {
       const st = await tray.ready(); // 올리는 중인 건 끝날 때까지
-      if (st.failed) { showReply({ chatId: `att-${Date.now()}`, text: '못 올린 첨부가 있어요 — ✕ 로 빼고 다시 보내 주세요', error: true }); return; }
+      if (st.failed) { showReply({ chatId: `att-${Date.now()}`, text: t('overlay.att_unsent'), error: true }); return; }
       ids = st.ids;
       tray.take();
     } finally { askSending = false; }
@@ -1236,3 +1243,14 @@ wrap.addEventListener('contextmenu', (e) => {
   resetPress(); // 메뉴가 떠 있는 동안 mouseup 이 안 오므로 누름 상태를 미리 푼다
   cy.characterMenu();
 });
+
+// ---- 화면 글 언어(src/i18n.js): 메인이 'lang' 을 보내면 늘 보이는 글·말풍선 단추·집중·진행 중·캡션을 바로 다시 ----
+function rerenderLang() {
+  applyUiLang();
+  for (const input of document.querySelectorAll('.merge-ask input')) { input.placeholder = t('overlay.merge_ask_ph'); input.setAttribute('aria-label', t('overlay.merge_ask_label')); }
+  if (queue.visible().some((x) => x.id === QUICK_ID)) showBubble(quickBubble(brain, charA.id, !!focus?.active));
+  render();
+  drawFocus();
+  syncChat();
+}
+bindLanguage(cy, rerenderLang, { whoName: () => who() });

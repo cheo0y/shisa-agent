@@ -3,6 +3,8 @@
 //   뇌가 있으면: 캐릭터 더블클릭 = 말 걸기, 패널·세션 창 입력
 //   없으면: 더블클릭 = 고르는 질문 칩(quick-ask.js, 「응원해 줘」만 춤), 입력 대신 연결 안내 카드(숨길 수 있다 · 정해진 말·할 일 보기는 그대로)
 
+import { t } from './i18n.js';
+
 const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
 const tri = (v) => (v === true ? true : v === false ? false : null);
 const str = (v, max = 200) => (typeof v === 'string' ? v.slice(0, max) : '');
@@ -76,25 +78,21 @@ export const sameView = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b
 export function noBrainBubble(view) {
   const login = view?.provider === 'claude-code' && view?.known;
   const text = login
-    ? 'Claude Code 로그인이 아직이에요. 로그인하면 저랑 얘기할 수 있어요'
+    ? t('overlay.nobrain_login')
     : view?.local
-      ? '지금은 AI 없이 쓰는 중이라 정해진 말만 할 수 있어요. 설정에서 뇌(AI)를 연결하면 무엇이든 물어볼 수 있어요'
-      : '자유롭게 얘기하려면 뇌(AI)를 연결해 주세요. AI 없이도 할 일과 회의 알림은 그대로 돼요';
-  return { id: 'local-no-brain', text, kind: 'info', ttlMs: 9000, open: { section: 'setup', id: 'brain' }, openLabel: '연결하기' };
+      ? t('overlay.nobrain_local')
+      : t('overlay.nobrain_none');
+  return { id: 'local-no-brain', text, kind: 'info', ttlMs: 9000, open: { section: 'setup', id: 'brain' }, openLabel: t('overlay.connect') };
 }
 
 // 입력창 자리에 보일 연결 안내 카드
 export function connectCard(view) {
   return {
-    title: view?.provider === 'claude-code' && view?.known ? 'Claude Code 로그인이 필요해요' : view?.local ? '지금은 AI 없이 쓰는 중이에요' : '아직 대화할 AI(뇌)가 연결되지 않았어요',
-    lines: [
-      'AI는 선택이에요. 대화하고 싶으면 **Claude Code** 나 **Codex** 로그인, 또는 **Gemini·OpenAI·Claude API·Genspark 키** 중 하나를 연결하면 돼요.',
-      '연결하면: 캐릭터 더블클릭으로 말 걸기 · 이 채팅 · 브리핑 요약',
-      '지금도 되는 것: 할 일 보기 · 오늘 할 일 표 · 회의 알림 · 아래 정해진 말',
-    ],
-    button: '연결하기',
-    hide: '숨기기',
-    reopen: 'AI 연결 안내 보기',
+    title: view?.provider === 'claude-code' && view?.known ? t('overlay.card_login') : view?.local ? t('overlay.card_local') : t('overlay.card_none'),
+    lines: [t('overlay.card_line1'), t('overlay.card_line2'), t('overlay.card_line3')],
+    button: t('overlay.connect'),
+    hide: t('overlay.card_hide'),
+    reopen: t('overlay.card_reopen'),
   };
 }
 

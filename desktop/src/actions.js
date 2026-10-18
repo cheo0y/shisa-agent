@@ -1,5 +1,6 @@
 // 확인 카드(회의 응답 등)·도구 승인 카드(type tool_permission) — 순수 로직. 패널 채팅·오버레이 말풍선이 같이 쓴다.
 // 데몬이 보낸 PendingAction 을 정리하고, 카드 모양(글·버튼·상태 줄)을 정한다. 실행은 늘 사용자가 누를 때만.
+import { t } from './i18n.js';
 
 export const ACTION_STATUSES = ['pending', 'running', 'done', 'failed', 'cancelled', 'expired'];
 const ID = /^[\w-]{1,64}$/;
@@ -26,23 +27,24 @@ export function normalizeMerge(m) {
   };
 }
 
-const REVIEW = { APPROVED: ['승인됨', 'ok'], CHANGES_REQUESTED: ['변경 요청', 'error'], REVIEW_REQUIRED: ['리뷰 필요', 'warn'] };
+const REVIEW = { APPROVED: ['review_ok', 'ok'], CHANGES_REQUESTED: ['review_changes', 'error'], REVIEW_REQUIRED: ['review_required', 'warn'] };
 // 머지 카드 줄: [{ label, value, tone }] — tone: ok(통과·충돌 없음·승인) · warn(대기·확인 중) · error(실패·충돌·변경 요청) · muted
 export function mergeRows(m) {
   if (!m) return [];
   const c = m.checks;
   const total = c.pass + c.pending + c.fail;
-  const checks = !total ? ['검사 없음', 'muted']
-    : c.fail ? [`✗ ${c.fail}개 실패${c.failing.length ? ` — ${c.failing.join(', ')}` : ''} · 통과 ${c.pass}${c.pending ? ` · 대기 ${c.pending}` : ''}`, 'error']
-      : c.pending ? [`⏳ ${c.pending}개 대기 중 · 통과 ${c.pass}`, 'warn'] : [`✓ ${c.pass}개 통과`, 'ok'];
-  const conflict = m.mergeable === 'MERGEABLE' ? ['✓ 충돌 없음', 'ok'] : m.mergeable === 'CONFLICTING' ? ['✗ 충돌 있음', 'error'] : ['확인 중', 'warn'];
-  const review = REVIEW[m.review] ?? ['리뷰 없음', 'muted'];
+  const checks = !total ? [t('overlay.checks_none'), 'muted']
+    : c.fail ? [t(c.failing.length ? 'overlay.checks_fail_names' : 'overlay.checks_fail', { n: c.fail, names: c.failing.join(', '), pass: c.pass }) + (c.pending ? t('overlay.checks_fail_wait', { n: c.pending }) : ''), 'error']
+      : c.pending ? [t('overlay.checks_pending', { n: c.pending, pass: c.pass }), 'warn'] : [t('overlay.checks_pass', { n: c.pass }), 'ok'];
+  const conflict = m.mergeable === 'MERGEABLE' ? [t('overlay.conflict_none'), 'ok'] : m.mergeable === 'CONFLICTING' ? [t('overlay.conflict_yes'), 'error'] : [t('overlay.conflict_checking'), 'warn'];
+  const rv = REVIEW[m.review];
+  const review = rv ? [t(`overlay.${rv[0]}`), rv[1]] : [t('overlay.review_none'), 'muted'];
   return [
-    { label: '대상', value: `${m.base} ← ${m.head}`, tone: 'muted', code: true },
-    { label: '검사', value: checks[0], tone: checks[1] },
-    { label: '충돌', value: conflict[0], tone: conflict[1] },
-    { label: '리뷰', value: review[0], tone: review[1] },
-    ...(m.draft ? [{ label: '상태', value: '초안(draft)', tone: 'warn' }] : []),
+    { label: t('overlay.row_target'), value: `${m.base} ← ${m.head}`, tone: 'muted', code: true },
+    { label: t('overlay.row_checks'), value: checks[0], tone: checks[1] },
+    { label: t('overlay.row_conflict'), value: conflict[0], tone: conflict[1] },
+    { label: t('overlay.row_review'), value: review[0], tone: review[1] },
+    ...(m.draft ? [{ label: t('overlay.row_state'), value: t('overlay.draft'), tone: 'warn' }] : []),
   ];
 }
 // 패널·오버레이에서 누를 수 있는 결정: confirm(실행·허용) · always(항상 허용 — 도구 승인만) · cancel(취소·거부)
@@ -54,7 +56,7 @@ export function normalizeAction(raw) {
   const c = raw.card && typeof raw.card === 'object' ? raw.card : {};
   const card = {
     icon: str(c.icon, 8) || '⚙️',
-    title: str(c.title, 200) || str(raw.summary, 200) || '(내용 없음)',
+    title: str(c.title, 200) || str(raw.summary, 200) || t('overlay.no_content'),
     when: str(c.when, 40),
     verb: str(c.verb, 40),
     question: str(c.question, 200),
@@ -147,11 +149,11 @@ export const foldedPermission = (a) => APPROVAL(a) && a.status !== 'pending' && 
 
 // 결정이 끝난 도구 승인이 여럿이면(한 턴에 셸 명령 14번 …) 한 줄로 묶는다: 「🔐 셸 명령 14번 · 파일 쓰기 1번 허용 · 1번 취소 ▸」.
 // → { group: 묶을 카드(2개 이상일 때만) | null, summary, rest: 그 밖(기다리는 카드·머지 카드·하나뿐인 접힌 카드) }. 순서는 그대로
-const KIND_BY_TOOL = { Bash: '셸 명령', Write: '파일 쓰기', Edit: '파일 편집', MultiEdit: '파일 편집', NotebookEdit: '노트북 편집' };
+const KIND_BY_TOOL = { Bash: 'kind_bash', Write: 'kind_write', Edit: 'kind_edit', MultiEdit: 'kind_edit', NotebookEdit: 'kind_notebook' };
 export function approvalKind(a) {
-  if (KIND_BY_TOOL[a.toolName]) return KIND_BY_TOOL[a.toolName];
-  if (a.card?.icon === '🖥️') return '셸 명령';
-  return (a.card?.title ?? '').split(' — ')[0].replace(/ 실행$/, '').trim() || '도구';
+  if (KIND_BY_TOOL[a.toolName]) return t(`overlay.${KIND_BY_TOOL[a.toolName]}`);
+  if (a.card?.icon === '🖥️') return t('overlay.kind_bash');
+  return (a.card?.title ?? '').split(/ — |：/)[0].replace(/ 실행$|の実行$/, '').trim() || t('overlay.kind_tool');
 }
 export function approvalSummary(cards) {
   const done = new Map();
@@ -162,8 +164,8 @@ export function approvalSummary(cards) {
     else if (a.status === 'expired') expired++;
     else other++;
   }
-  const kinds = [...done].sort((x, y) => y[1] - x[1]).map(([k, n]) => `${k} ${n}번`);
-  const parts = [kinds.length ? `${kinds.join(' · ')} 허용` : '', denied ? `${denied}번 거부` : '', expired ? `${expired}번 취소` : '', other ? `${other}번 실패` : ''].filter(Boolean);
+  const kinds = [...done].sort((x, y) => y[1] - x[1]).map(([k, n]) => t('overlay.sum_kind', { kind: k, n }));
+  const parts = [kinds.length ? t('overlay.sum_allowed', { kinds: kinds.join(' · ') }) : '', denied ? t('overlay.sum_denied', { n: denied }) : '', expired ? t('overlay.sum_expired', { n: expired }) : '', other ? t('overlay.sum_failed', { n: other }) : ''].filter(Boolean);
   return `🔐 ${parts.join(' · ')}`;
 }
 export function foldApprovals(cards) {
@@ -173,16 +175,9 @@ export function foldApprovals(cards) {
   return { group: folded, summary: approvalSummary(folded), rest: list.filter((a) => !folded.includes(a)) };
 }
 
-const PERM_LINE = {
-  done: '✅ 허용했어요',
-  cancelled: '✗ 거부했어요 — 실행하지 않았어요',
-  expired: '⌛ 응답이 없어 취소했어요 — 실행하지 않았어요',
-};
-const STATUS_LINE = {
-  running: '⏳ 보내는 중…',
-  cancelled: '✗ 취소했어요 — 보내지 않았어요',
-  expired: '⌛ 30분이 지나 만료됐어요 — 보내지 않았어요',
-};
+// 글은 부를 때 지금 언어로
+const PERM_LINE = { done: 'perm_done', cancelled: 'perm_cancelled', expired: 'perm_expired' };
+const STATUS_LINE = { running: 'st_running', cancelled: 'st_cancelled', expired: 'st_expired' };
 
 // 카드 모양: 머리(📅 〈제목〉 (10/15 목 10:00)), 물음(**수락**으로 응답할까요? 주최자에게 알림이 가요), 메모, 버튼, 상태 줄
 // local: 이 창에서 누른 뒤 응답을 기다리는 중('confirming'|'cancelling') 또는 오류 글({ error })
@@ -195,14 +190,14 @@ export function cardView(a, local = null) {
   const pending = a.status === 'pending';
   let status = null, tone = 'muted';
   if (perm && a.status !== 'pending') {
-    status = a.status === 'done' ? `✅ ${a.result?.message || '허용했어요'}` : a.status === 'expired' && a.result?.message ? `⌛ ${a.result.message} — 실행하지 않았어요` : PERM_LINE[a.status] ?? a.status;
+    status = a.status === 'done' ? `✅ ${a.result?.message || t('overlay.allowed')}` : a.status === 'expired' && a.result?.message ? t('overlay.perm_expired_msg', { msg: a.result.message }) : PERM_LINE[a.status] ? t(`overlay.${PERM_LINE[a.status]}`) : a.status;
     tone = a.status === 'done' ? 'ok' : 'muted';
-  } else if (perm && local) status = local === 'cancelling' ? '거부하는 중…' : local === 'confirming' || local === 'always' ? '허용하는 중…' : null;
-  else if (a.status === 'done') { status = `✅ ${a.result?.message || '보냈어요'}`; tone = 'ok'; }
-  else if (a.status === 'failed') { status = `⚠️ ${a.result?.message || '실패했어요'}`; tone = 'error'; }
-  else if (STATUS_LINE[a.status]) status = STATUS_LINE[a.status];
-  else if (local === 'confirming') status = '⏳ 보내는 중…';
-  else if (local === 'cancelling') status = '취소하는 중…';
+  } else if (perm && local) status = local === 'cancelling' ? t('overlay.denying') : local === 'confirming' || local === 'always' ? t('overlay.allowing') : null;
+  else if (a.status === 'done') { status = `✅ ${a.result?.message || t('overlay.sent')}`; tone = 'ok'; }
+  else if (a.status === 'failed') { status = `⚠️ ${a.result?.message || t('overlay.failed')}`; tone = 'error'; }
+  else if (STATUS_LINE[a.status]) status = t(`overlay.${STATUS_LINE[a.status]}`);
+  else if (local === 'confirming') status = t('overlay.st_running');
+  else if (local === 'cancelling') status = t('overlay.cancelling');
   if (local && typeof local === 'object' && local.error) { status = `⚠️ ${local.error}`; tone = 'error'; }
   return {
     head,
@@ -223,29 +218,25 @@ export function cardView(a, local = null) {
 
 // 머지 승인 카드: 머리(🔀 #268 제목 · 레포), 줄(대상·검사·충돌·리뷰), ✓ 머지 / ✗ 안 함, 결과 한 줄(머지 커밋 링크)
 // 실패한 검사·충돌·초안이면 ✓ 는 꺼지고(blocked) 이유를 보인다 — 데몬도 거부한다
-const MERGE_LINE = {
-  running: '⏳ 머지하는 중…',
-  cancelled: '✗ 머지 안 함 — PR은 열어 뒀어요',
-  expired: '⌛ 만료됐어요',
-};
+const MERGE_LINE = { running: 'merge_running', cancelled: 'merge_cancelled', expired: 'expired' };
 export function mergeView(a, local = null) {
   const c = a.card;
   const m = c.merge ?? null;
   const pending = a.status === 'pending';
   const busy = local === 'confirming' || local === 'cancelling' || a.status === 'running';
   let status = null, tone = 'muted', link = null;
-  if (a.status === 'done') { status = '🎉 머지했어요'; tone = 'ok'; link = a.result?.link || null; }
-  else if (a.status === 'failed') { status = `⚠️ ${a.result?.message || '머지하지 못했어요'}`; tone = 'error'; }
-  else if (MERGE_LINE[a.status]) status = MERGE_LINE[a.status];
-  else if (local === 'confirming') status = '⏳ 머지하는 중…';
-  else if (local === 'cancelling') status = '안 하는 중…';
+  if (a.status === 'done') { status = t('overlay.merged'); tone = 'ok'; link = a.result?.link || null; }
+  else if (a.status === 'failed') { status = `⚠️ ${a.result?.message || t('overlay.merge_failed')}`; tone = 'error'; }
+  else if (MERGE_LINE[a.status]) status = t(`overlay.${MERGE_LINE[a.status]}`);
+  else if (local === 'confirming') status = t('overlay.merge_running');
+  else if (local === 'cancelling') status = t('overlay.declining');
   if (local && typeof local === 'object' && local.error) { status = `⚠️ ${local.error}`; tone = 'error'; }
   const blocked = m?.blocked ?? '';
   return {
     head: `${c.icon || '🔀'} ${c.title}`,
     sub: m ? m.repo : '',
     url: m?.url || '',
-    question: pending ? (blocked ? '' : '머지할까요? ✓ 를 누르면 squash 머지하고 브랜치를 지워요') : '',
+    question: pending ? (blocked ? '' : t('overlay.merge_question')) : '',
     blocked: pending ? blocked : '',
     comment: '',
     status, tone, link,
@@ -265,8 +256,8 @@ export function mergeView(a, local = null) {
 export function mergeButtons(a, local = null) {
   const blocked = a.card.merge?.blocked;
   return [
-    { decision: 'confirm', label: local === 'confirming' ? '머지하는 중…' : '✓ 머지', primary: true, disabled: !!blocked, title: blocked ? `머지할 수 없어요 — ${blocked}` : 'squash 머지하고 브랜치를 지워요' },
-    { decision: 'cancel', label: local === 'cancelling' ? '안 하는 중…' : '✗ 안 함', title: '머지하지 않아요(PR은 열어 둠)' },
+    { decision: 'confirm', label: local === 'confirming' ? t('overlay.merging') : t('overlay.merge_btn'), primary: true, disabled: !!blocked, title: blocked ? t('overlay.merge_blocked', { why: blocked }) : t('overlay.merge_btn_title') },
+    { decision: 'cancel', label: local === 'cancelling' ? t('overlay.declining') : t('overlay.decline_btn'), title: t('overlay.decline_btn_title') },
   ];
 }
 
@@ -274,21 +265,21 @@ export function mergeButtons(a, local = null) {
 export function actionButtons(a, local = null) {
   if (a.type !== PERMISSION) {
     return [
-      { decision: 'confirm', label: local === 'confirming' ? '보내는 중…' : '실행', primary: true },
-      { decision: 'cancel', label: '취소' },
+      { decision: 'confirm', label: local === 'confirming' ? t('overlay.sending') : t('overlay.run'), primary: true },
+      { decision: 'cancel', label: t('overlay.cancel') },
     ];
   }
   return [
-    { decision: 'confirm', label: local === 'confirming' ? '허용하는 중…' : '허용', primary: true, title: '이번 한 번만 허용' },
-    ...(a.card.always ? [{ decision: 'always', label: local === 'always' ? '저장하는 중…' : '항상 허용', title: `항상 허용: ${a.card.always}` }] : []),
-    { decision: 'cancel', label: '거부', danger: true, title: '실행하지 않고 모델에 거부했다고 알려요' },
+    { decision: 'confirm', label: local === 'confirming' ? t('overlay.allowing') : t('overlay.allow'), primary: true, title: t('overlay.allow_once') },
+    ...(a.card.always ? [{ decision: 'always', label: local === 'always' ? t('overlay.saving') : t('overlay.allow_always'), title: t('overlay.allow_always_scope', { scope: a.card.always }) }] : []),
+    { decision: 'cancel', label: t('overlay.deny'), danger: true, title: t('overlay.deny_model_title') },
   ];
 }
 
 // 말풍선 한 줄(오버레이): 물음까지
 export function bubbleText(a) {
   const v = cardView(a);
-  return v.question ? `${v.head} — ${v.question}` : `${v.status ?? ''} — ${v.head}`;
+  return v.question ? t('overlay.line_q', { head: v.head, q: v.question }) : t('overlay.line_status', { status: v.status ?? '', head: v.head });
 }
 
 // 확인/취소 결과(IPC 응답) → 다음 카드 + 오류
@@ -299,11 +290,11 @@ export function decideResult(a, decision, r) {
     // 머지 카드가 그대로 기다리는 중이면(막힘·벌써 머지 중) 데몬이 준 이유를 보인다
     return { action: now, error: a.type === MERGE && now.status === 'pending' && r.data.error ? str(r.data.error, 300) : null };
   }
-  if (r?.status === 404) return { action: a, error: '이 카드를 못 찾았어요' };
-  if (r?.status === 409) return { action: a, error: a.type === MERGE && r?.data?.error ? r.data.error : '이미 처리된 카드예요' };
-  if (a.type === MERGE) return { action: a, error: decision === 'cancel' ? '보내지 못했어요 — 다시 눌러 주세요' : r?.data?.error || '머지 요청을 보내지 못했어요 — 다시 눌러 주세요' };
-  if (a.type === PERMISSION) return { action: a, error: decision === 'cancel' ? '거부하지 못했어요 — 다시 눌러 주세요' : '허용하지 못했어요 — 다시 눌러 주세요' };
-  return { action: a, error: decision === 'confirm' ? '보내지 못했어요 — 다시 눌러 주세요' : '취소하지 못했어요' };
+  if (r?.status === 404) return { action: a, error: t('overlay.err_404') };
+  if (r?.status === 409) return { action: a, error: a.type === MERGE && r?.data?.error ? r.data.error : t('overlay.err_409') };
+  if (a.type === MERGE) return { action: a, error: decision === 'cancel' ? t('overlay.err_send') : r?.data?.error || t('overlay.err_merge_send') };
+  if (a.type === PERMISSION) return { action: a, error: decision === 'cancel' ? t('overlay.err_deny') : t('overlay.err_allow') };
+  return { action: a, error: decision === 'confirm' ? t('overlay.err_send') : t('overlay.err_cancel') };
 }
 
 // 오버레이: SSE action 으로 카드가 끝난 걸 알면(패널·Slack 등 다른 곳에서 눌렀을 때) 캐릭터의 승인 말풍선을 결과 한 줄로.
@@ -319,13 +310,13 @@ export function bubbleAfterAction(raw) {
     return {
       id: `merge:${a.mergeId}`,
       waitingOnly: true,
-      patch: { pending: false, decided: true, thinking: false, note: null, blocked: undefined, kind: a.status === 'done' ? 'done' : a.status === 'failed' ? 'error' : 'info', text: `${v.status} — ${v.head}`, ttlMs: 8000 },
+      patch: { pending: false, decided: true, thinking: false, note: null, blocked: undefined, kind: a.status === 'done' ? 'done' : a.status === 'failed' ? 'error' : 'info', text: t('overlay.line_status', { status: v.status, head: v.head }), ttlMs: 8000 },
     };
   }
   const v = cardView(a);
   return {
     id: `action:${a.id}`,
     actionId: a.id,
-    patch: { pending: false, decided: true, thinking: false, note: null, detail: undefined, open: undefined, kind: a.status === 'done' ? 'done' : a.status === 'failed' ? 'error' : 'info', text: `${v.status} — ${v.head}`, ttlMs: 8000 },
+    patch: { pending: false, decided: true, thinking: false, note: null, detail: undefined, open: undefined, kind: a.status === 'done' ? 'done' : a.status === 'failed' ? 'error' : 'info', text: t('overlay.line_status', { status: v.status, head: v.head }), ttlMs: 8000 },
   };
 }

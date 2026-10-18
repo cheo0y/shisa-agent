@@ -3,6 +3,7 @@
 // {next} {open} {done} {total} {rest} 는 그때 숫자·제목으로 바뀐다.
 // 고른 캐릭터가 시사가 아니면 그 캐릭터 말(character-canned.js)이 기본이다. 사용자가 고친 말은 캐릭터와 상관없이 그대로.
 import { CHARACTER_CANNED } from './character-canned.js';
+import { t } from './i18n.js';
 
 export const CANNED = [
   { id: 'today', label: '오늘 할 일 얼마나 했어요?' },
@@ -139,10 +140,15 @@ export const CANNED_CATALOG = [
   ] },
 ];
 
+// 단추 이름·묶음 설명은 부를 때 지금 언어로(표 overlay.canned_<id> · overlay.canned_hint_<key>). 시사 기본 말(lines)은 캐릭터 대사 쪽
+const hintKey = (key) => `overlay.canned_hint_${key.replace(':', '_')}`;
+for (const c of CANNED) Object.defineProperty(c, 'label', { get: () => t(`overlay.canned_${c.id}`), enumerable: true });
+for (const g of CANNED_CATALOG) { const had = !!g.hint; Object.defineProperty(g, 'hint', { get: () => (had ? t(hintKey(g.key)) : ''), enumerable: true }); }
+
 export const CANNED_DEFAULTS = Object.fromEntries(CANNED_CATALOG.map((g) => [g.key, g.lines]));
 export const CANNED_KEYS = CANNED_CATALOG.map((g) => g.key);
 
-const FALLBACK = ['오늘도 천천히 해 봐요.'];
+const fallback = () => [t('overlay.canned_fallback')];
 
 export function plainTitle(t) {
   const s = String(t ?? '').replace(/[*_`~[\]()<>#|\\]/g, '').replace(/\s+/g, ' ').trim();
@@ -180,7 +186,7 @@ function linesFor(key, override, character) {
   const own = override?.[key];
   if (Array.isArray(own) && own.length) return own;
   const byChar = Object.hasOwn(CHARACTER_CANNED, character ?? '') ? CHARACTER_CANNED[character][key] : null;
-  return byChar?.length ? byChar : (CANNED_DEFAULTS[key] || FALLBACK);
+  return byChar?.length ? byChar : (CANNED_DEFAULTS[key] || fallback());
 }
 
 function usable(pool, c) {
@@ -210,7 +216,7 @@ export function cannedPool(kind, c, override, character) {
     case 'what': return { key: 'what', pool: pick('what') };
     case 'where': return { key: 'where', pool: pick('where') };
     case 'ai': return { key: 'ai', pool: pick('ai') };
-    default: return { key: 'fallback', pool: FALLBACK };
+    default: return { key: 'fallback', pool: fallback() };
   }
 }
 
