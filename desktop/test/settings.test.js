@@ -124,7 +124,7 @@ test('캐릭터 한 번 클릭 → 패널, 더블클릭 → 말 걸기(뇌가 �
   const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(r, /clickTimer = setTimeout\(\(\) => \{\s*clickTimer = null;\s*hideAsk\(\);\s*cy\.togglePanel\(\);/);
   assert.match(r, /function onCharacterClick\(\) \{\s*if \(clickTimer\) \{\s*clearTimeout\(clickTimer\);\s*clickTimer = null;\s*talk\(\);/);
-  assert.match(r, /function talk\(\) \{\s*if \(brain\.ready === false\) return noBrain\(\);\s*showAsk\(\);/);
+  assert.match(r, /function talk\(\) \{[\s\S]*?dblclickAction\(\{ ready: brain\.ready, askOpen, quickShown \}\);\s*if \(a === 'close'\) return closeQuick\(\);\s*if \(a === 'quick'\) return noBrain\(\);\s*showAsk\(\);/); // 열려 있으면 다시 더블클릭 = 닫기(quick-ask.test.js)
   assert.match(r, /dispatchActivity\(\{ type: 'localDance', on: true, clip, variant \}\)/); // 데몬이 꺼져 있을 때 칩 춤·응원은 고른 영상(clip)과 앱이 고른 번호(variant)
   const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
   assert.match(m, /hover \? \{ kind: 'hover' \}/);

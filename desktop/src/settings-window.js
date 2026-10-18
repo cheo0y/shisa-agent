@@ -1,19 +1,19 @@
 // 설정 창(메인 프로세스 쪽): 창 하나 + 이 창에서만 받는 IPC. 일렉트론 객체는 main.js 가 넘긴다(시험은 가짜로).
 // 모델·브리핑 출처 저장(PUT /settings) · 연결 상태(GET /connections, POST /connections/check) · 패널의 설치 안내·모델 탭 열기.
-import { sanitizeSettingsPatch, sanitizeAppPrefs, okCheckId, okPanelTarget, sanitizeCharacterBody, okMediaSlot, okStoredFile } from './settings.js';
+import { WEATHER_ATTRIBUTION, sanitizeSettingsPatch, sanitizeAppPrefs, okCheckId, okPanelTarget, sanitizeCharacterBody, okMediaSlot, okStoredFile } from './settings.js';
 import { okCharacterId } from './character.js';
 import { cleanUpload } from './attachments.js';
 import { sanitizeGuidelineAdd, sanitizeGuidelinePatch, okGuidelineId } from './guidelines.js';
 import { okBrainId, okCap } from './disconnect.js';
-import { okCalendarId } from './calendars.js';
+import { okCalendarId, okCalendarName, okCalendarUrl } from './calendars.js';
 import { denied } from './denied.js';
 
 export const SETTINGS_SIZE = { width: 720, height: 760 };
 
 // deps: { BrowserWindow, ipcMain, shell, request(method, path, body?, timeoutMs?), preload, html, fromOurs(e), debug?, openPanel?(section), caps?(),
 //         sisa?() 앱의 AI 저장(publicView), disconnectBrain?(id), disconnectConnector?(cap), copyText?(text),
-//         calendars?() 연결된 캘린더(가린 이름), removeCalendar?(id) 하나 빼기,
-//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck }, set(patch) } 「이 앱」 칸,
+//         calendars?() 연결된 캘린더(별칭·가린 이름·결과), addCalendar?({ name?, url }) 더하기, renameCalendar?(id, name), toggleCalendar?(id, on), removeCalendar?(id) 하나 빼기,
+//         appPrefs?: { get() → { version, openAtLogin: { available, on, hint }, updateCheck, panelOverlay }, set(patch) } 「이 앱」 칸,
 //         upload?(method, path, name, mime, bytes) 파일 바이트 그대로 올리기(캐릭터 그림) }
 export function setupSettings(deps) {
   let win = null;
@@ -52,6 +52,7 @@ export function setupSettings(deps) {
     const p = isMine(e) ? sanitizeSettingsPatch(patch) : null;
     return p ? deps.request('PUT', '/settings', p) : denied();
   });
+  ipcMain.handle('settings-chat-models', (e) => (isMine(e) ? deps.request('GET', '/chat/models', undefined, 20000) : denied()));
   ipcMain.handle('connections-get', (e) => (isMine(e) ? deps.request('GET', '/connections', undefined, 20000) : denied()));
   // claude·services 는 SDK 를 띄우거나 경량 모델을 한 번 부른다 — 넉넉히
   ipcMain.handle('connections-check', (e, id) => {
@@ -76,8 +77,22 @@ export function setupSettings(deps) {
   ipcMain.handle('settings-brain-disconnect', (e, id) => (isMine(e) && okBrainId(id) && deps.disconnectBrain ? deps.disconnectBrain(id) : denied()));
   ipcMain.handle('settings-connector-disconnect', (e, cap) => (isMine(e) && okCap(cap) && deps.disconnectConnector ? deps.disconnectConnector(cap) : denied()));
   // 캘린더 여러 개: 목록(가린 이름만) · 하나 빼기(id). 빼는 일은 main 이(패널과 같은 함수)
+  // 날씨 지역 검색(데몬 GET /weather/search → Open-Meteo Geocoding). 글자는 60자까지
+  ipcMain.handle('settings-weather-search', (e, q) => {
+    const t = typeof q === 'string' ? q.replace(/\s+/g, ' ').trim() : '';
+    return isMine(e) && t && t.length <= 60 ? deps.request('GET', `/weather/search?q=${encodeURIComponent(t)}`, undefined, 15000) : denied();
+  });
+  // 출처 링크(「날씨: Open-Meteo」·CC BY 4.0): 정해 둔 두 주소만 기본 브라우저로
+  ipcMain.on('settings-open-source', (e, which) => {
+    const url = { weather: WEATHER_ATTRIBUTION.url, license: WEATHER_ATTRIBUTION.licenseUrl }[which];
+    if (isMine(e) && url) deps.shell?.openExternal?.(url);
+  });
   ipcMain.handle('settings-calendars', (e) => (isMine(e) && deps.calendars ? deps.calendars() : denied()));
   ipcMain.handle('settings-calendar-remove', (e, id) => (isMine(e) && okCalendarId(id) && deps.removeCalendar ? deps.removeCalendar(id) : denied()));
+  ipcMain.handle('settings-calendar-add', (e, b) => (isMine(e) && b && typeof b === 'object' && okCalendarUrl(b.url) && (b.name === undefined || okCalendarName(b.name)) && deps.addCalendar
+    ? deps.addCalendar({ url: b.url.trim(), ...(typeof b.name === 'string' && b.name.trim() ? { name: b.name } : {}) }) : denied()));
+  ipcMain.handle('settings-calendar-rename', (e, id, name) => (isMine(e) && okCalendarId(id) && okCalendarName(name) && deps.renameCalendar ? deps.renameCalendar(id, name) : denied()));
+  ipcMain.handle('settings-calendar-toggle', (e, id, on) => (isMine(e) && okCalendarId(id) && typeof on === 'boolean' && deps.toggleCalendar ? deps.toggleCalendar(id, on) : denied()));
   ipcMain.handle('settings-copy', (e, text) => (isMine(e) && typeof text === 'string' && text && deps.copyText ? deps.copyText(text) : denied()));
   // [설치 안내]·[AI 고르기] → 패널의 그 탭
   ipcMain.on('settings-open-panel', (e, section) => {

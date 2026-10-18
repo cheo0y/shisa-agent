@@ -34,7 +34,10 @@ export function dueTone(due, now = Date.now()) {
   return left < 0 ? 'over' : left <= 2 ? 'soon' : '';
 }
 
-// 데몬 manualProjects + 할 일 → 카드. 묶인 열린 할 일은 todos(대시보드 열린 할 일)에서 찾는다
+// 프로젝트 안 순서(projectOrder 작은 것 위, 없는 건 뒤). 같으면 받은 순서 그대로
+const byProjectOrder = (a, b) => (Number.isFinite(a.t.projectOrder) ? a.t.projectOrder : Infinity) - (Number.isFinite(b.t.projectOrder) ? b.t.projectOrder : Infinity) || a.i - b.i;
+
+// 데몬 manualProjects + 할 일 → 카드. 묶인 열린 할 일은 todos(대시보드 열린 할 일)에서 찾아 프로젝트 순서대로
 export function shapeManualProjects(list, todos = [], now = Date.now()) {
   const open = arr(todos).filter((t) => t && typeof t === 'object' && str(t.id) && str(t.title));
   return arr(list)
@@ -55,7 +58,7 @@ export function shapeManualProjects(list, todos = [], now = Date.now()) {
         todos: Number.isInteger(p.todos) && p.todos >= 0 ? p.todos : 0,
         openTodos: Number.isInteger(p.openTodos) && p.openTodos >= 0 ? p.openTodos : 0,
         fromCalendar: src ? { calendar: str(src.calendar), title: str(src.title), eventId: src.eventId } : null,
-        linked: open.filter((t) => t.projectId === p.id).map((t) => ({ id: t.id, title: t.title, priority: t.priority })),
+        linked: open.filter((t) => t.projectId === p.id).map((t, i) => ({ t, i })).sort(byProjectOrder).map(({ t }) => ({ id: t.id, title: t.title, priority: t.priority })),
       };
     });
 }
@@ -65,6 +68,59 @@ export function todoCountText(p) {
   if (!p.todos) return '할 일 없음';
   if (!p.openTodos) return `할 일 다 끝냄 (${p.todos}개)`;
   return `할 일 ${p.openTodos}개 남음 · 모두 ${p.todos}개`;
+}
+
+// ---- 카드 안 할 일 순서(끌기·↑↓) ----
+// 저장해 둔(또는 막 바꾼) 순서 ids 를 지금 줄에 입힌다: 없어진 id 는 빼고, 새로 생긴 줄은 맨 아래
+export function applyOrder(linked, ids) {
+  const list = arr(linked);
+  if (!Array.isArray(ids) || !ids.length) return list;
+  const at = new Map(ids.map((id, i) => [id, i]));
+  return list.map((t, i) => ({ t, i })).sort((a, b) => (at.get(a.t.id) ?? Infinity) - (at.get(b.t.id) ?? Infinity) || a.i - b.i).map(({ t }) => t);
+}
+// id 하나를 to 자리로(0 = 맨 위, 범위 밖은 끝에 붙인다). 그대로면 같은 배열 내용
+export function moveId(ids, id, to) {
+  const rest = arr(ids).filter((x) => x !== id);
+  if (rest.length === arr(ids).length) return arr(ids).slice();
+  const i = Math.max(0, Math.min(rest.length, Math.round(Number(to)) || 0));
+  return [...rest.slice(0, i), id, ...rest.slice(i)];
+}
+// ↑(-1)·↓(+1): 한 칸 옮긴 순서. 맨 위·맨 아래에서 더 못 가면 null
+export function stepId(ids, id, delta) {
+  const i = arr(ids).indexOf(id);
+  const j = i + Math.sign(delta);
+  if (i < 0 || j < 0 || j >= ids.length) return null;
+  return moveId(ids, id, j);
+}
+// 끄는 중: 줄들의 세로 가운데(rows = [{ id, mid }], 화면 순서) 와 포인터 y → 끄는 줄이 들어갈 자리(끄는 줄을 뺀 목록 기준)
+export function dropSlot(rows, dragId, y) {
+  return arr(rows).filter((r) => r.id !== dragId && r.mid < y).length;
+}
+export const sameOrder = (a, b) => arr(a).length === arr(b).length && arr(a).every((x, i) => x === b[i]);
+// 메인(IPC)에서 한 번 더 보는 순서 본문: 글 id 만, 겹치면 거절
+export function sanitizeOrderIds(v) {
+  if (!Array.isArray(v) || !v.length || v.some((x) => typeof x !== 'string' || !x)) return null;
+  return new Set(v).size === v.length ? v.slice() : null;
+}
+
+// ---- 카드끼리 순서(카드 머리 ⋮⋮ 끌기·화살표 키·↑↓) ----
+// 끌기 시작 문턱(CSS px). 누르고 이만큼 움직여야 끌기로 친다(클릭·터치패드 떨림과 구분, 고DPI 에서도 CSS px 라 같다)
+export const CARD_DRAG_START_PX = 5;
+export const pastDragStart = (dx, dy, px = CARD_DRAG_START_PX) => Math.hypot(Number(dx) || 0, Number(dy) || 0) >= px;
+// 카드 그리드(여러 열이어도)에서 끄는 카드가 들어갈 자리(끄는 카드를 뺀 목록 기준).
+// rects = [{ id, left, top, width, height }] 화면 순서. 한 열이면 세로 가운데로, 여러 열이면 읽는 순서(위 줄 → 같은 줄 왼쪽)로 센다:
+// 포인터보다 위 줄에 있거나(아래 끝이 포인터 위), 같은 줄인데 가로 가운데가 포인터 왼쪽이면 앞 카드
+export function gridSlot(rects, dragId, x, y) {
+  const others = arr(rects).filter((r) => r && r.id !== dragId);
+  if (!others.length) return 0;
+  const oneColumn = arr(rects).every((r) => Math.abs(r.left - arr(rects)[0].left) < 2);
+  if (oneColumn) return others.filter((r) => r.top + r.height / 2 < y).length;
+  return others.filter((r) => y > r.top + r.height || (y >= r.top && x > r.left + r.width / 2)).length;
+}
+// 메인(IPC)에서 한 번 더 보는 프로젝트 순서 본문: 프로젝트 id 모양만, 겹치면 거절
+export function sanitizeProjectOrderIds(v) {
+  const ids = sanitizeOrderIds(v);
+  return ids && ids.every((x) => okProjectId(x)) ? ids : null;
 }
 
 // ---- 만들기·고치기 창 ----

@@ -91,7 +91,7 @@ export function sanitizeTodoPatch(v, { allowStatus = true } = {}) {
   for (const k of ['link', 'note']) if (v[k] === null || typeof v[k] === 'string') out[k] = v[k] === null ? null : v[k];
   if (v.description === null || typeof v.description === 'string') out.description = v.description === null ? null : v.description;
   if (v.doing === null || typeof v.doing === 'boolean') out.doing = v.doing; // (진행중) 토글: true·false·null(자동)
-  if (v.today === null || typeof v.today === 'boolean') out.today = v.today; // 오늘 할 일로 고르기(true)·빼기(false·null)
+  if (v.today === null || typeof v.today === 'boolean') out.today = v.today; // 예전 오늘 할 일 넣기(true = P1)·빼기(false·null = P2). 패널은 priority 로 보낸다
   if (v.projectId === null || (typeof v.projectId === 'string' && /^proj:[\w-]{1,80}$/.test(v.projectId))) out.projectId = v.projectId; // 직접 만든 프로젝트에 묶기·빼기(null)
   if (allowStatus && (v.status === 'open' || v.status === 'done')) out.status = v.status;
   return Object.keys(out).length ? out : null;
@@ -127,8 +127,15 @@ export function patchToday(today, id, change) {
   if (change === null) return { ...today, items: today.items.filter((x) => x?.id !== id) };
   if (!change || typeof change !== 'object') return today;
   if (today.items.some((x) => x?.id === id)) return { ...today, items: today.items.map((x) => (x?.id === id ? { ...x, ...change } : x)) };
-  return typeof change.title === 'string' && change.title ? { ...today, items: [...today.items, { id, done: false, priority: 2, ...change }] } : today;
+  return typeof change.title === 'string' && change.title ? { ...today, items: [...today.items, { id, done: false, priority: 1, ...change }] } : today;
 }
 
-// 이 줄이 오늘 할 일인가(오늘 날짜로 골랐나)
-export const isToday = (t, date) => !!date && t?.today === date;
+// 오늘 할 일 = 우선순위 1(오늘 꼭). 넣기 = 1 로, 빼기 = 2(이번 주)로
+export const TODAY_PRIORITY = 1;
+export const OUT_OF_TODAY = 2;
+
+// 이 줄이 오늘 할 일인가(우선순위 1 오늘 꼭). date 는 예전 호출 호환으로 받기만 한다
+export const isToday = (t, _date) => t?.priority === TODAY_PRIORITY;
+// 오늘 할 일 넣기·빼기 패치(할 일 탭 줄의 「오늘」·오늘 할 일 탭)
+export const todayPatch = (on) => ({ priority: on ? TODAY_PRIORITY : OUT_OF_TODAY });
+

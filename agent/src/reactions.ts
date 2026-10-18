@@ -1,7 +1,8 @@
 // 캐릭터 반응: 그림 말풍선(스티커)·진행 보고·새 할 일·하루 진행률·"할 거 많다"·머지 승인.
 // core/main 이 사건을 알려 주면 여기서 규칙(하루 한 번, 문턱, 반나절 한 번 …)을 적용해 말풍선을 낸다.
 // 하루 한 번 규칙은 작은 JSON 기록(~/.cy-agent/reactions.json)에 남겨 재시작해도 유지한다.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { writeFileAtomic } from "./fs-atomic.ts";
 import { dirname } from "node:path";
 import { execFile } from "node:child_process";
 import type { Bubble, BubbleImage } from "./bus.ts";
@@ -142,9 +143,7 @@ export class Reactions {
     this.log.merges = Object.fromEntries(merges.map((m) => [m.id, m]));
     try {
       mkdirSync(dirname(this.opts.logPath), { recursive: true });
-      const tmp = `${this.opts.logPath}.tmp`;
-      writeFileSync(tmp, JSON.stringify(this.log, null, 1));
-      renameSync(tmp, this.opts.logPath);
+      writeFileAtomic(this.opts.logPath, JSON.stringify(this.log, null, 1), { tmp: `${this.opts.logPath}.tmp` });
     } catch (e: any) {
       console.warn("[reactions] 기록 저장 실패:", e?.message ?? e);
     }

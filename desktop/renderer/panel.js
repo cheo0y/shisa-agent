@@ -1,14 +1,19 @@
 // 패널 렌더러 — 대시보드(개요·프로젝트·할 일·오늘 할 일)와 채팅. 네트워크는 전부 메인을 거친다.
+import { hasCoder as canCodeWith } from '../src/caps.js';
 import DOMPurify from './vendor/purify.js';
 import { Marked } from './vendor/marked.js';
 import { createMarkdown } from '../src/markdown.js';
 import { shapeDashboard, overlayHidden, priorityLabel, SECTIONS, SECTION_LABELS, normalizeSection, relativeTime, clockTime, visibleSections, connectorChipView } from '../src/dashboard.js';
 import { needsSetup, stepForCap } from '../src/setup.js';
 import { isFeature, isAgent, buildWalk, agentSteps } from '../src/setup-flow.js';
-import { renderSetup, clearApiDraft, readSlot, clearSlot } from './setup-view.js';
+import { renderSetup, clearApiDraft, readSlot, clearMailDraft, resetCalendarEditor } from './setup-view.js';
+import { mailConnected, mailConnectedText, withMailAccount, withoutMailAccount } from '../src/mail-connect.js';
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
 import { createProjectsView } from './projects-view.js';
+import { createCalendarView } from './calendar-view.js';
+import { CALTAB_TEXT, cardRowOn, cardFolded } from '../src/calendar-tab.js';
+import { calendarRowState } from '../src/calendars.js';
 import { connectorAction, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { CANNED, cannedReply, connectSteps, hubItem, slotOk, EXTRAS } from '../src/ai-onboard.js';
 import { SETUP_FLOW_VERSION, isSetupPhase, phaseAfterBrain, backPhase, restorePhase, agentFrom, NO_AI } from '../src/setup-plan.js';
@@ -16,7 +21,8 @@ import { brainView, connectCard, chatLock } from '../src/brain-state.js';
 import { initialChat, chatReducer, isBusy, isRunning, busyLabel, busyThreads, sendButton, stopTargets, localState, queuedChats, queuedLabel, sentLabel } from '../src/chat.js';
 import { stamp, withDayDividers } from '../src/chat-time.js';
 import { KIND_ICONS, KIND_LABELS, normThread, normThreads, upsertThread, groupThreads, filterThreads, initSeen, isUnread, markSeen, pruneSeen, unreadCount, pickInitial, neighborThread, afterRemoval, mergeMessages, appendLocal, tagLocal, dropLocal, dropFailed, markSent, isDoubleSend, todoChip, okThreadId, editTarget, dropFrom } from '../src/threads.js';
-import { PRIORITIES, mergeRecentDone, newTodoBody, overlayTodos, descriptionPatch, isDoing, patchToday, isToday } from '../src/todos.js';
+import { PRIORITIES, mergeRecentDone, newTodoBody, overlayTodos, descriptionPatch, isDoing, patchToday, isToday, todayPatch, TODAY_PRIORITY } from '../src/todos.js';
+import { CARRY_CHOICES } from '../src/bubbles.js';
 import { createClickSorter, toggleOpen, dropTarget, autoScrollDelta, reorderLocal, isNoopMove, keyMove, detailView, LONG_PRESS, MOVE_SLOP } from '../src/todo-rows.js';
 import { openEdit, fillDescription, editKey, editPatch } from '../src/todo-edit.js';
 import { originPlan, todoPlan } from '../src/origin.js';
@@ -25,7 +31,7 @@ import { BACKLOG, rulesChip, overlayRules, hitsLabel, readBacklogOpen, writeBack
 import { attachSlashMenu } from './slash-menu.js';
 import { createAttachTray } from './attach-tray.js';
 import { attachUrl, chipView, attachSummary } from '../src/attachments.js';
-import { cleanModels } from '../src/session.js';
+import { cleanChatModels, pickGroups, encodePick, decodePick, pickSendOpts, okPickModel } from '../src/chat-pick.js';
 import { normalizeActions, upsertAction, placeActions, cardView, decideResult, aroundAnswer, foldedPermission, foldApprovals } from '../src/actions.js';
 import { normalizePermissionRules, ruleUsage, withoutPending } from '../src/permissions.js';
 import { normAgents, agentStrip, agentCard, canStopAgent, placeAgents, agentsSig, normSessions, sessionCard, placeSessions, sessionsSig, sessionsPlaceSig } from '../src/agents.js';
@@ -105,6 +111,8 @@ function h(sel, props, ...kids) {
 const focusView = createFocusView({ h, cy });
 // 직접 만든 프로젝트: 프로젝트 탭 위쪽 카드와 ＋ 만들기 창(새로 만들기·일정에서 가져오기)
 const projectsView = createProjectsView({ h, cy, fill: (el, ...k) => fill(el, ...k), onChanged: () => loadSoon(), openSettings: () => cy.openSettings() });
+// 캘린더 탭: 주·월·일 보기와 일정 카드(일정 → 프로젝트·할 일)
+const calendarView = createCalendarView({ h, cy, fill: (el, ...k) => fill(el, ...k), el: $('sec-calendar'), openSetup: () => openSetup(stepForCap('calendar')), openProject: (ev) => projectsView.openFromPick(ev), onChanged: () => loadSoon() });
 
 // replaceChildren 에 null 을 넣으면 화면에 "null" 글자가 찍힌다
 function fill(el, ...kids) {
@@ -119,7 +127,8 @@ let error = null;
 let connected = false;
 // 이 컴퓨터의 Claude Code·Codex(모르면 있다고 본다)
 let caps = { claude: null, codex: null };
-const hasCoder = () => caps.claude !== false;
+// 코드 작업을 맡길 수 있나: 데몬이 본 코드 작업 AI(Claude Code·Codex)가 준비됐나(brain.coder). 아직 모르면 이 컴퓨터의 CLI 로 짐작
+const hasCoder = () => (typeof brain.coder === 'boolean' ? brain.coder : canCodeWith(caps));
 let section = 'overview';
 try { section = normalizeSection(localStorage.getItem('section')) ?? 'overview'; } catch { /* 저장소 없음 */ }
 let setupPhase = 'name'; // name·brain·ai-key·extras·connect·done (setup-plan.js — 키·토큰은 저장하지 않는다)
@@ -139,10 +148,12 @@ let keyStatus = '';
 let keyNote = ''; // 키는 맞지만 알릴 말(Genspark 무료 플랜 → 크레딧 필요)
 let gskFound = false; // gsk login 한 Genspark 키가 이 맥에 있나
 let afterConnect = ''; // 'claudecode'·'codexcli': 그 도구 연결을 마치면 시사의 AI로 쓴다
-let setupCalendars = []; // 연결된 캘린더(main calendar-list: 가린 이름만, 주소 없음)
+let setupCalendars = []; // 저장된 캘린더(main calendar-list: 별칭·가린 이름·결과, 주소 없음). 데몬 설정 파일 기준이라 어디서 들어와도 같다
+const calendarScreen = () => setupPhase === 'extras' || (setupPhase === 'connect' && (setupLink === 'gcal' || setupLink === 'outlook'));
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
+let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
-let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {}, codeModel: 'default' };
+let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {} };
 // 예전 화면 위치(ai-offer·agent·pick·walk)는 불러오지 않는다
 try {
   setupPhase = restorePhase(localStorage.getItem('setupPhase'));
@@ -231,6 +242,19 @@ async function loadCalendars() {
   if (section === 'setup') renderSetupView(false);
 }
 
+// 캘린더 더하기·별칭·켜기/끄기·빼기 하나: main 이 돌려준 저장 목록으로 바꾸고 설치 표시(done)도 다시 읽는다. 다시 그리기는 편집기가 한다
+async function calendarOp(fn) {
+  let r;
+  try { r = await fn(); } catch { r = null; }
+  if (Array.isArray(r?.items)) setupCalendars = r.items;
+  try {
+    const got = await cy.sisaGet();
+    if (got && typeof got === 'object') sisa = { ...sisa, ...got, done: got.done || {} };
+  } catch { /* 다음에 다시 읽는다 */ }
+  loadSoon();
+  return r ?? { ok: false };
+}
+
 function clampSetupCursor() {
   const n = stepsNow().length;
   if (n === 0) return;
@@ -255,7 +279,7 @@ function goto(s) {
   try { localStorage.setItem('section', section); } catch { /* 무시 */ }
   for (const b of nav.children) b.setAttribute('aria-selected', String(b.dataset.section === section));
   for (const x of SECTIONS) $(`sec-${x}`).hidden = x !== section;
-  $('content').classList.toggle('fill', section === 'chat');
+  $('content').classList.toggle('fill', section === 'chat' || section === 'calendar');
   $('content').classList.toggle('chat-on', section === 'chat');
   $('content').classList.toggle('setup-on', section === 'setup'); // 설치: 버튼 줄은 맨 아래 고정, 내용만 스크롤
   $('title').textContent = SECTION_LABELS[section];
@@ -265,6 +289,8 @@ function goto(s) {
     if (setupPhase === 'brain') detectAgents();
   }
   if (section === 'models') loadSisa();
+  if (section === 'calendar') calendarView.show();
+  else if (prevSection === 'calendar') calendarView.hide();
   if (section === 'chat') {
     scrollChat(true);
     renderChatLock();
@@ -468,6 +494,43 @@ function connectorActions(c) {
     }),
   ];
 }
+// 캘린더 카드: 캘린더마다 줄(색 점 · 별칭 · 결과 · 켜기/끄기). 끄고 켜는 건 설치 탭·설정 창과 같은 연결 켜기/끄기(바로 적용)
+let cardWant = {}; // 캘린더 id → 누른 값(응답·새 대시보드가 오기 전까지)
+let cardOpen = null; // 사용자가 펼치거나 접었나(null = 캘린더 수로)
+try { const v = localStorage.getItem('conn.calendarsOpen'); cardOpen = v === null ? null : v === '1'; } catch { /* 저장소 없음 */ }
+let cardNote = '';
+function calendarCardRows(rows) {
+  for (const r of rows) if (Object.hasOwn(cardWant, r.id) && cardWant[r.id] === r.enabled) delete cardWant[r.id]; // 반영됐다
+  const folded = cardFolded(rows.length, cardOpen);
+  const fold = h('button.ghost.small.conn-cal-fold', {
+    type: 'button', 'aria-expanded': String(!folded),
+    onclick: () => { cardOpen = folded; try { localStorage.setItem('conn.calendarsOpen', cardOpen ? '1' : '0'); } catch { /* 저장소 없음 */ } renderAll(); },
+  }, `${CALTAB_TEXT.cardFold(rows.length)} ${folded ? '▸' : '▾'}`);
+  return h('div.conn-cals', null, fold,
+    folded ? null : h('ul.conn-cal-list', null, rows.map((r) => {
+      const on = cardRowOn(r, cardWant);
+      const st = calendarRowState({ ...r, enabled: on, phase: on && !r.enabled ? 'pending' : r.phase });
+      return h(`li.conn-cal${on ? '' : '.off'}${st.tone === 'fail' ? '.fail' : ''}.c-${r.color}`, { dataset: { cal: r.id } },
+        h('span.cal-dot', { 'aria-hidden': 'true' }),
+        h('span.conn-cal-name', { text: r.name }),
+        h('span.conn-cal-state.small', { text: st.text, title: st.text }),
+        h('button.conn-cal-switch', {
+          type: 'button', role: 'switch', 'aria-checked': String(on), 'aria-label': CALTAB_TEXT.cardToggle(r.name, on), title: CALTAB_TEXT.cardToggle(r.name, on),
+          onclick: async () => {
+            cardWant = { ...cardWant, [r.id]: !on };
+            cardNote = '';
+            renderAll();
+            let res;
+            try { res = await cy.calendarToggle(r.id, !on); } catch { res = null; }
+            if (!res?.ok) { delete cardWant[r.id]; cardNote = res?.error || CALTAB_TEXT.cardToggleFail; }
+            if (Array.isArray(res?.items)) setupCalendars = res.items; // 설치 탭 목록도 같이
+            setupKey = '';
+            loadSoon();
+          },
+        }, h('span.knob', { 'aria-hidden': 'true' })));
+    })),
+    cardNote ? h('div.small.conn-sync-fail', { role: 'status', text: cardNote }) : null);
+}
 function renderConnectors(list) {
   if (!list?.length) return null; // 예전 데몬: 필드가 없으면 카드도 없다
   return [
@@ -477,7 +540,8 @@ function renderConnectors(list) {
         c.ready && c.detail ? h('span.muted.small.conn-detail', { text: c.detail }) : null,
         h('span.spacer'),
         ...connectorActions(c)),
-      c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
+      c.cap === 'calendar' && c.calendars?.length ? calendarCardRows(c.calendars)
+      : c.ready && connectorChipView(c).hint ? h(`div.conn-hint.small${c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? '.conn-sync-fail' : '.muted'}`, { role: c.sync?.phase === 'failed' || connectorChipView(c).tone === 'warn' ? 'status' : null }, h('span', { text: connectorChipView(c).hint })) : null,
       c.ready || c.mode === 'off' ? null : h('div.conn-hint.muted.small', null,
         h('span', { text: !c.detail || c.detail === '연결 안 됨' ? '연결 안 됨' : `연결 안 됨. ${c.detail}` }))))),
     connNote ? h('p.small.conn-note', { role: 'status', text: connNote }) : null,
@@ -565,13 +629,13 @@ function renderSetupView(resetScroll) {
     return;
   }
   clampSetupCursor();
-  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}`;
+  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}|${JSON.stringify(mailConnected(vm.connectors))}|${JSON.stringify(setupMail)}`;
   if (!resetScroll && key === setupKey && $('sec-setup').childElementCount) {
     watchAgentLogin();
     return;
   }
   setupKey = key;
-  if (setupPhase === 'extras') loadCalendars();
+  if (calendarScreen()) loadCalendars();
   const top = resetScroll ? 0 : ($('sec-setup').querySelector('.setup-scroll')?.scrollTop ?? 0);
   const redraw = (scroll) => { setupKey = ''; renderSetupView(scroll); };
   renderSetup($('sec-setup'), {
@@ -683,11 +747,13 @@ function renderSetupView(resetScroll) {
     },
     onOpenExtra: (id) => {
       if (!EXTRAS.includes(id) || !hubItem(id)) return;
-      if (id === 'gcal' || id === 'outlook') { clearSlot(id); setupSlotError = null; } // 하나 더 추가할 때 앞 주소가 남지 않게
       setupLink = id;
       afterConnect = '';
       setupPhase = 'connect';
       setupCursor = 0;
+      // 캘린더 카드: 저장된 캘린더가 있으면 바로 목록 단계로(안내는 「이전」으로 다시 볼 수 있다)
+      if ((id === 'gcal' || id === 'outlook') && setupCalendars.length) setupCursor = Math.max(0, connectSteps(id, connectAgentNow()).length - 1);
+      if (id === 'gcal' || id === 'outlook') resetCalendarEditor();
       agentLoginState = { loggedIn: false, installed: null };
       saveSetup();
       redraw(true);
@@ -695,32 +761,61 @@ function renderSetupView(resetScroll) {
     // 더 연결하기의 [연결 해제]: 그 커넥터를 끄고(구글·Outlook 은 캘린더 하나) 「연결됨」 표시도 뗀다
     servers: Object.fromEntries((vm.connectors || []).filter((c) => c.server).map((c) => [c.cap, c.server])),
     onCopyText: (text) => cy.copyText(text),
-    // 연결된 캘린더: 하나 더 추가(같은 안내를 다시) · 하나 빼기(그 주소만, 마지막이면 캘린더 연결 해제)
-    calendars: setupCalendars,
-    slotError: setupSlotError,
-    onAddCalendar: (id) => {
-      if (id !== 'gcal' && id !== 'outlook') return;
-      clearSlot(id);
-      setupSlotError = null;
-      setupLink = id;
-      afterConnect = '';
-      setupPhase = 'connect';
-      setupCursor = 0;
-      saveSetup();
-      redraw(true);
+    // 메일(앱 비밀번호): 데몬이 로그인해 보고 되면 저장한다. 결과·실패 이유는 카드 아래에
+    mail: {
+      mail: mailConnected(vm.connectors),
+      busy: setupMail.busy,
+      result: setupMail.result,
+      noAi: (sisa.provider || NO_AI) === NO_AI,
+      onOpen: (url) => { try { cy.openLink(url); } catch { /* 무시 */ } },
+      onConnect: async (body, why) => {
+        if (setupMail.busy) return; // 확인하는 중에 또 누르면(연타) 두 번 로그인하지 않게
+        if (!body) { setupMail = { busy: false, result: { ok: false, text: why } }; redraw(false); return; }
+        setupMail = { busy: true, result: null };
+        redraw(false);
+        let r;
+        try { r = await cy.mailConnect(body); } catch { r = { ok: false, error: '연결하지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
+        if (r?.ok) {
+          clearMailDraft();
+          setupMail = { busy: false, result: { ok: true, text: mailConnectedText(r) } };
+          vm = { ...vm, connectors: withMailAccount(vm.connectors, r) }; // 목록에 바로 붙인다(폼은 비움)
+          loadSoon();
+        } else setupMail = { busy: false, result: { ok: false, text: r?.error || '연결하지 못했어요.' } };
+        redraw(false);
+      },
+      // 계정 하나 빼기: 그 계정 비밀번호·가져온 메일만 지운다(마지막이면 메일 연결이 꺼짐)
+      onRemove: async (id) => {
+        let r;
+        try { r = await cy.mailRemove(id); } catch { r = { ok: false, error: '빼지 못했어요. 잠시 뒤에 다시 해 주세요.' }; }
+        // 다른 계정을 연결하는 중(busy)이면 그 표시는 그대로 둔다(연결 버튼이 다시 살아나 두 번 누르지 않게)
+        if (r?.ok) {
+          setupMail = { busy: setupMail.busy, result: setupMail.busy ? null : { ok: true, text: `**${r.account} 계정을 뺐어요.**` } };
+          vm = { ...vm, connectors: withoutMailAccount(vm.connectors, id) };
+          loadSoon();
+        } else setupMail = { busy: setupMail.busy, result: setupMail.busy ? null : { ok: false, text: r?.error || '빼지 못했어요.' } };
+        redraw(false);
+        return r;
+      },
+      onDisconnect: async () => {
+        let r;
+        try { r = await cy.connectorDisconnect('mail'); } catch { r = { ok: false }; }
+        if (r?.ok) {
+          setupMail = { busy: setupMail.busy, result: null };
+          loadSoon();
+          setTimeout(() => redraw(false), 1500);
+        }
+        return r;
+      },
     },
-    onRemoveCalendar: async (id) => {
-      let r;
-      try { r = await cy.calendarRemove(id); } catch { r = { ok: false }; }
-      if (r?.ok) {
-        try {
-          const got = await cy.sisaGet();
-          if (got && typeof got === 'object') sisa = { ...sisa, ...got, done: got.done || {} };
-        } catch { /* 다음에 다시 읽는다 */ }
-        loadSoon();
-        setTimeout(() => { setupCalendars = Array.isArray(r.items) ? r.items : setupCalendars; redraw(false); }, 1500); // 뺐다는 글을 잠깐 보여 주고 목록을 다시
-      }
-      return r;
+    // 저장된 캘린더(「더 연결할까요?」 카드 요약 · 캘린더 카드 안 목록). 더하기·별칭·켜기/끄기·빼기 뒤엔 main 이 준 목록으로 바로
+    calendars: setupCalendars,
+    calendar: {
+      items: setupCalendars,
+      redraw: () => redraw(false),
+      onAdd: (body) => calendarOp(() => cy.calendarAdd(body)),
+      onRename: (id, name) => calendarOp(() => cy.calendarRename(id, name)),
+      onToggle: (id, on) => calendarOp(() => cy.calendarToggle(id, on)),
+      onRemove: (id) => calendarOp(() => cy.calendarRemove(id), true),
     },
     onDisconnectExtra: async (_id, cap) => {
       let r;
@@ -831,15 +926,9 @@ function renderSetupView(resetScroll) {
           redraw(true);
           return;
         }
-        const url = (setupLink === 'gcal' || setupLink === 'outlook') ? readSlot(setupLink) : '';
-        let mark = null;
-        try { mark = await cy.sisaMark(setupLink, url); } catch { /* 표시만 남긴다 */ }
-        if (mark?.duplicate) {
-          // 같은 주소는 한 번만: 그 칸에 머물며 알린다(칸을 고치면 사라진다)
-          setupSlotError = { id: setupLink, value: url, text: mark.error || '이미 연결된 캘린더예요.' };
-          redraw(false);
-          return;
-        }
+        const calCard = setupLink === 'gcal' || setupLink === 'outlook';
+        // 캘린더는 「＋ 캘린더 추가」의 [연결]이 이미 저장했다. 완료는 저장된 캘린더가 있을 때만 표시를 남기고 목록으로
+        try { await cy.sisaMark(setupLink, ''); } catch { /* 표시만 남긴다 */ }
         setupSlotError = null;
         if ((afterConnect === 'claudecode' && setupLink === 'claude') || (afterConnect === 'codexcli' && setupLink === 'codex')) {
           afterConnect = '';
@@ -850,7 +939,7 @@ function renderSetupView(resetScroll) {
           const got = await cy.sisaGet();
           if (got && typeof got === 'object') sisa = { ...sisa, ...got, hasKey: !!got.hasKey, done: got.done || {} };
         } catch { /* 목록은 돌아간다 */ }
-        sisa.done = { ...(sisa.done || {}), [setupLink]: true };
+        if (!calCard) sisa.done = { ...(sisa.done || {}), [setupLink]: true };
         // 뇌 고르기에서 설치 안내로 들어왔으면 다음(더 연결하기)으로, 더 연결하기에서 왔으면 그 목록으로
         setupPhase = 'extras';
         setupCursor = 0;
@@ -1016,7 +1105,7 @@ let todoMsg = null; // { ok, text }
 let todosStale = false;
 let addPriority = 2;
 let addDraft = '';
-let todayPriority = 2; // 오늘 할 일 탭의 추가 칸
+let carryBusy = false; // 오늘 할 일 탭 위 「어제 남은 N개」 답을 보내는 중
 let todayDraft = '';
 
 const why = (r) => (typeof r?.data?.error === 'string' ? r.data.error : r?.status ? `HTTP ${r.status}` : `${who()} 연결 확인`);
@@ -1053,17 +1142,16 @@ function moveTodo(id, priority, beforeId) {
     () => setRawTodos(reorderLocal(rawTodos(), id, priority, beforeId)));
 }
 
-// scope 'today': 오늘 할 일 탭에서 추가. 같은 할 일로 만들고 오늘로 고른다
+// scope 'today': 오늘 할 일 탭에서 추가 = 우선순위 1(오늘 꼭) 할 일로 만든다
 function addTodo(scope = 'todos') {
   const today = scope === 'today';
-  const date = vm.today?.date || '';
-  const body = newTodoBody(today ? todayDraft : addDraft, today ? todayPriority : addPriority);
+  const body = newTodoBody(today ? todayDraft : addDraft, today ? TODAY_PRIORITY : addPriority);
   if (!body) return;
   if (today) todayDraft = ''; else addDraft = '';
   const input = $(today ? 'today-add-input' : 'todo-add-input');
   if (input) input.value = '';
-  const shown = today && date ? { ...body, today: date } : body; // 응답 전에도 오늘 묶음에 보이게
-  mutate({ kind: 'add', tempId: `tmp:${opSeq + 1}`, body: shown }, () => cy.todoAdd(today ? { ...body, today: true } : body), '추가 실패', (r) => {
+  const shown = body; // P1 이면 응답 전에도 오늘 할 일에 보인다
+  mutate({ kind: 'add', tempId: `tmp:${opSeq + 1}`, body: shown }, () => cy.todoAdd(body), '추가 실패', (r) => {
     if (typeof r.data?.id !== 'string') return;
     setRawTodos([{ id: r.data.id, source: 'user', userEdited: false, ...shown }, ...rawTodos()]);
     if (today) raw = { ...raw, today: patchToday(raw.today, r.data.id, { title: body.title, priority: body.priority, source: 'user', done: false }) };
@@ -1074,20 +1162,35 @@ function addTodo(scope = 'todos') {
   });
 }
 
-// 줄의 '오늘' 토글: 할 일을 오늘 할 일로 고르거나 뺀다(할 일은 그대로)
+// 줄의 '오늘' 토글: 오늘 할 일에 넣기 = 우선순위 1(오늘 꼭)로, 빼기 = 2(이번 주)로(할 일은 그대로)
 function toggleToday(t) {
-  const date = vm.today?.date;
-  if (!date) return;
-  const on = isToday(t, date);
-  mutate({ kind: 'edit', id: t.id, patch: { today: on ? null : date }, rule: true }, () => cy.todoEdit(t.id, { today: !on }), '오늘 할 일 바꾸기 실패', () => {
-    setRawTodos(rawTodos().map((x) => {
-      if (x.id !== t.id) return x;
-      const { today: _drop, ...rest } = x;
-      return on ? rest : { ...x, today: date };
-    }));
-    raw = { ...raw, today: patchToday(raw.today, t.id, on ? null : { title: t.title, priority: t.priority, source: t.source, done: false }) };
+  const on = isToday(t);
+  const patch = todayPatch(!on);
+  mutate({ kind: 'edit', id: t.id, patch }, () => cy.todoEdit(t.id, patch), '오늘 할 일 바꾸기 실패', () => {
+    setRawTodos(rawTodos().map((x) => (x.id === t.id ? { ...x, ...patch, userEdited: true } : x)));
+    raw = { ...raw, today: patchToday(raw.today, t.id, on ? null : { title: t.title, priority: TODAY_PRIORITY, source: t.source, done: false }) };
   });
 }
+
+// 오늘 할 일 탭 위 「어제 남은 N개, 오늘도 할까요?」: keep 그대로 · demote 이번 주로 · open 은 이 탭 그대로(하나씩 「오늘」을 눌러 뺀다)
+async function carryDecide(cmd) {
+  if (cmd === 'open') { carryHidden = vm.today?.date || ''; renderTodos(); return; }
+  carryBusy = true;
+  renderTodos();
+  let r;
+  try { r = await cy.todayCarry(cmd); } catch { r = { ok: false }; }
+  carryBusy = false;
+  if (r?.ok) {
+    const moved = Number(r.data?.moved) || 0;
+    todoMsg = { ok: true, text: cmd === 'demote' ? (moved ? `어제 남은 ${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '어제 남은 일을 오늘도 그대로 둘게요' };
+    if (raw?.today) { const { carry: _c, ...rest } = raw.today; raw = { ...raw, today: rest }; }
+    loadSoon();
+  } else {
+    todoMsg = { ok: false, text: `고르지 못했어요: ${why(r)}` };
+  }
+  renderAll();
+}
+let carryHidden = ''; // 「하나씩 볼게요」를 누른 날: 안내 단추는 접고 한 줄만 남긴다
 
 function completeTodo(t) {
   const item = { id: t.id, title: t.title, source: t.source, priority: t.priority, link: t.linkRaw || undefined, note: t.note || undefined, userEdited: t.userEdited };
@@ -1237,14 +1340,13 @@ function doingButton(t) {
   });
 }
 
-// '오늘' 토글: 켜져 있으면 오늘 할 일(오늘 할 일 탭에도 같은 줄), 누르면 고르기·빼기
+// '오늘' 토글: 켜져 있으면 오늘 할 일(우선순위 오늘 꼭), 누르면 넣기(오늘 꼭으로)·빼기(이번 주로)
 function todayButton(t) {
-  const date = vm.today?.date;
-  if (!date) return null;
-  const on = isToday(t, date);
+  if (!vm.today?.date) return null;
+  const on = isToday(t);
   return h(`button.ghost.row-today${on ? '.on' : ''}`, {
     type: 'button', text: '오늘', disabled: t.pending, 'aria-pressed': String(on),
-    title: on ? '오늘 할 일에서 빼기(할 일은 남아요)' : '오늘 할 일로 고르기', 'aria-label': `${on ? '오늘 할 일에서 빼기' : '오늘 할 일로'}: ${t.title}`,
+    title: on ? '오늘 할 일에서 빼기(이번 주로 내려요)' : '오늘 할 일에 넣기(오늘 꼭으로 올려요)', 'aria-label': `${on ? '오늘 할 일에서 빼기' : '오늘 할 일에 넣기'}: ${t.title}`,
     onclick: () => toggleToday(t),
   });
 }
@@ -1331,7 +1433,7 @@ const todaySec = $('sec-today');
 const isListSection = () => section === 'todos' || section === 'today';
 const listSec = () => (section === 'today' ? todaySec : todosSec);
 const listGroups = () => (section === 'today' ? vm.todayGroups : vm.todoGroups);
-const listTodos = () => (section === 'today' ? visibleTodos().filter((t) => isToday(t, vm.today?.date)) : visibleTodos());
+const listTodos = () => (section === 'today' ? visibleTodos().filter((t) => isToday(t)) : visibleTodos());
 const ADD_INPUTS = ['todo-add-input', 'today-add-input'];
 let composing = false;
 for (const sec of [todosSec, todaySec]) {
@@ -1381,46 +1483,63 @@ function todoListKids() {
   return kids;
 }
 
-// 오늘 할 일: 날짜·남은 수 머리 + 할 일 탭과 같은 추가 칸·우선순위 묶음 + 오늘 끝낸 것
+// 오늘 할 일: 날짜·남은 수 머리 + (어제 남은 것 물음) + 추가 칸(오늘 꼭으로 생김) + 「오늘 꼭」 줄 + 오늘 끝낸 것
 function todayListKids() {
   const t = vm.today ?? { date: '', items: [] };
-  const groups = dragGroups && section === 'today' ? withEmptyGroups(vm.todayGroups) : vm.todayGroups;
+  const groups = dragGroups && section === 'today' ? withEmptyGroups(vm.todayGroups, [TODAY_PRIORITY]) : vm.todayGroups;
   const open = vm.stats.todayOpen, total = vm.stats.todayTotal;
   const kids = [
     h('div.today-head', null,
       h('h2', { text: t.date ? `${t.date} 오늘 할 일` : '오늘 할 일' }),
       h('span.muted', { text: total ? `남은 ${open} · 전체 ${total}` : '아직 없어요. 일정을 보고 적어 보세요.' }),
       focusView.bar('today')),
-    addForm('today'),
   ];
+  if (t.carry?.n) kids.push(carryBox(t));
+  kids.push(addForm('today'));
   if (todoMsg) kids.push(h(`div.result.${todoMsg.ok ? 'ok' : 'err'}`, { role: 'status', text: todoMsg.text }));
   if (total && !groups.length) kids.push(h('div.empty', { text: '오늘 할 일을 다 끝냈어요' }));
-  kids.push(...groups.map(todoGroup));
+  kids.push(...groups.map((g) => todoGroup(g, 'today')));
   if (vm.todayDone.length) {
     kids.push(h('div.group.done', null,
       h('h2', null, h('span', { text: '오늘 끝냄' }), h('span.chip', { text: String(vm.todayDone.length) })),
       h('div.card.todos', null, vm.todayDone.map(doneRow))));
   }
-  if (!total) kids.push(h('div.muted.small', { text: '할 일 탭에서 줄의 「오늘」을 눌러 골라도 돼요.' }));
+  kids.push(h('div.muted.small.today-hint', { text: total ? '줄의 「오늘」을 다시 누르면 오늘 할 일에서 빠져 이번 주로 가요.' : '할 일 탭에서 줄의 「오늘」을 누르거나 우선순위를 「오늘 꼭」으로 바꿔도 여기 들어와요.' }));
   kids.push(focusView.foot('today'));
   return kids;
 }
 
-function withEmptyGroups(groups) {
+function withEmptyGroups(groups, keep = [1, 2, 3, BACKLOG]) {
   const out = [...groups];
-  for (const p of [1, 2, 3, BACKLOG]) if (!out.some((g) => g.priority === p)) out.push({ priority: p, label: priorityLabel(p), items: [] });
+  for (const p of keep) if (!out.some((g) => g.priority === p)) out.push({ priority: p, label: priorityLabel(p), items: [] });
   return out.sort((a, b) => a.priority - b.priority);
 }
 
+// 「어제 남은 N개, 오늘도 할까요?」 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요]
+function carryBox(t) {
+  const q = `어제 남은 ${t.carry.n}개, 오늘도 할까요?`;
+  if (carryHidden && carryHidden === t.date) {
+    return h('div.carry-box.folded', { role: 'status' }, h('span', { text: `${q} 줄의 「오늘」을 누르면 이번 주로 내려가요.` }),
+      h('button.ghost.small', { type: 'button', text: '다시 고르기', onclick: () => { carryHidden = ''; renderTodos(); } }));
+  }
+  return h('div.carry-box', { role: 'group', 'aria-label': q },
+    h('span.q', { text: q }),
+    h('span.carry-actions', null, CARRY_CHOICES.map((c) => h(`button${c.primary ? '.primary' : '.ghost'}`, {
+      type: 'button', text: c.label, title: c.title, disabled: carryBusy, dataset: { carry: c.cmd }, onclick: () => carryDecide(c.cmd),
+    }))));
+}
+
 // 우선순위 묶음. 백로그(P4)는 기본 접힘(기억) — 접혀 있어도 끌어 놓을 칸은 남는다
-function todoGroup(g) {
+function todoGroup(g, scope = 'todos') {
   const collapsed = isCollapsed(g.priority, backlogOpen);
   const head = g.priority === BACKLOG
     ? h('h2.backlog-head', {
       role: 'button', tabindex: '0', 'aria-expanded': String(!collapsed), title: collapsed ? '펼치기' : '접기',
       onclick: toggleBacklog, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBacklog(); } },
     }, h('span.caret', { text: collapsed ? '▸' : '▾' }), h('span', { text: g.label }), h('span.chip', { text: String(g.items.length) }))
-    : h('h2', null, h('span', { text: g.label }), h('span.chip', { text: String(g.items.length) }));
+    : h('h2', null, h('span', { text: g.label }),
+      g.priority === TODAY_PRIORITY && scope !== 'today' ? h('span.muted.small.prio-today', { text: '(오늘 할 일)', title: '「오늘 꼭」은 오늘 할 일 탭에 그대로 보여요' }) : null,
+      h('span.chip', { text: String(g.items.length) }));
   const body = collapsed
     ? h('div.card.todos.drop-empty.collapsed', null, g.items.length ? null : h('div.muted.small', { text: '끌어 놓기' }))
     : h(`div.card.todos${g.items.length ? '' : '.drop-empty'}`, null, g.items.length ? g.items.map(todoRow) : h('div.muted.small', { text: '끌어 놓기' }));
@@ -1482,7 +1601,7 @@ function addForm(scope = 'todos') {
   });
   return h('div.todo-add', null,
     input,
-    prioritySelect(today ? todayPriority : addPriority, (p) => { if (today) todayPriority = p; else addPriority = p; }),
+    today ? null : prioritySelect(addPriority, (p) => { addPriority = p; }), // 오늘 할 일 탭에서 적으면 늘 「오늘 꼭」
     h('button.primary', { type: 'button', text: '추가', onclick: () => addTodo(scope) }));
 }
 
@@ -2102,6 +2221,7 @@ function selectThread(id, opts = {}) {
 function newChat() {
   if (section !== 'chat') goto('chat');
   if (showArchived) toggleArchived(false);
+  newChatPick = ''; // 새 대화는 기본에서
   selectThread(null);
   drafts.set(null, '');
   chatInput.value = '';
@@ -2267,6 +2387,7 @@ async function deleteThread(id) {
 // 머리말: 종류 아이콘 · 제목(눌러서 이름 바꾸기) · 할 일 대화면 그 할 일 칩
 function renderThreadHead() {
   const t = currentThread();
+  renderPickSelect(); // 그 대화에 기억한 뇌·모델
   $('th-kind').textContent = t ? KIND_ICONS[t.kind] ?? '' : '💬';
   if (thTitleInput.hidden) {
     thTitle.textContent = t ? t.title : '새 대화';
@@ -2350,6 +2471,7 @@ function metaEl(m, status) {
   return h('div.msg-meta', null,
     m.via === 'cli' ? h('span.via-cli', { text: 'Claude Code', title: '터미널의 Claude Code(claude --resume)에서 이어 간 말을 불러온 거예요' }) : null,
     m.edited ? h('span.edited', { text: '수정됨', title: `${stamp(m.edited)?.title ?? ''} 고쳐서 다시 보낸 말이에요`.trim() }) : null,
+    m.by ? h('span.by', { text: m.by, title: '이 답을 한 AI·모델' }) : null,
     st?.status ? h(`span.st${st.tone ? `.s-${st.tone}` : ''}`, { 'data-s': st.status, ...(st.title ? { title: st.title } : {}) }) : null, timeEl(m.at));
 }
 
@@ -2467,8 +2589,7 @@ async function saveEdit() {
     }
   } else {
     const clientId = newClientId();
-    const model = $('chat-model').hidden ? null : $('chat-model').value || null;
-    const opts = { clientId, ...(model ? { model } : {}) };
+    const opts = { clientId }; // 고른 뇌·모델은 그 대화에 기억돼 있다(데몬이 쓴다)
     try { r = await cy.chatEdit(tid, e.n, text, opts); } catch { r = { ok: false }; }
     // 그 턴이 띄운 백그라운드 에이전트가 아직 돈다 — 멈춰도 되는지 묻는다(안 멈추면 옛 물음의 결과가 새 답 뒤에 끼어든다)
     if (r?.status === 409 && r.data?.error === 'agents_running') {
@@ -2709,7 +2830,8 @@ function renderChat(opts = {}) {
     items.push(h('div.msg-row.assistant', null,
       h(`div.msg.assistant${m.error ? '.error' : ''}`, null,
         md(h('div'), m.text),
-        m.show ? h('button.go', { type: 'button', text: `${SECTION_LABELS[m.show]} 보기`, onclick: () => goto(m.show) }) : null),
+        m.show ? h('button.go', { type: 'button', text: `${SECTION_LABELS[m.show]} 보기`, onclick: () => goto(m.show) }) : null,
+        m.retry ? h('button.go.retry', { type: 'button', text: '기본 모델로 다시 보내기', onclick: () => retryDefault(m.retry) }) : null),
       metaEl(m)));
     for (const a of cards.after) items.push(actionCard(a));
     sessionsAfter(mi);
@@ -2782,6 +2904,7 @@ function applyBrain(v) {
   if (!v || typeof v !== 'object') return;
   const was = brain.ready;
   brain = v;
+  applyCoderButtons();
   if (was !== brain.ready) {
     renderChatLock();
     if (section === 'chat') renderChat();
@@ -2789,7 +2912,7 @@ function applyBrain(v) {
   if (section === 'setup') renderSetupView(false);
 }
 cy.brain?.().then(applyBrain).catch(() => {});
-cy.onBrain?.(applyBrain);
+cy.onBrain?.((b) => { applyBrain(b); loadChatModels(); }); // 뇌가 바뀌면 드롭다운의 「기본」·목록도
 
 // AI 없이 고른 말: 내 말은 바로 「보냄」, 시사는 1~2초 입력 중(점 세 개)을 보이고 답한다
 let cannedTyping = null; // 답을 기다리는 타이머(입력 중 표시)
@@ -2822,7 +2945,6 @@ async function loadSisa() {
         done: got.done || {},
         connected: Array.isArray(got.connected) ? got.connected : [],
         chatModels: got.chatModels && typeof got.chatModels === 'object' ? got.chatModels : {},
-        codeModel: typeof got.codeModel === 'string' ? got.codeModel : 'default',
       };
     }
   } catch { /* 키 없으면 채팅을 막는다 */ }
@@ -2899,8 +3021,9 @@ async function sendChat() {
   renderChat();
   scrollChat(true);
   let r;
-  const model = $('chat-model').hidden ? null : $('chat-model').value || null;
-  try { r = await cy.chatSend(text, { threadId: tid, clientId, ...(model ? { model } : {}), ...(atts.length ? { attachments: atts.map((a) => a.id) } : {}) }); } catch { r = { ok: false }; }
+  // 고른 뇌·모델: 이미 있는 대화는 데몬이 기억한 것을 쓰고, 새 대화면 첫 말과 함께 보내 그 대화에 기억시킨다
+  const pick = tid === null ? pickSendOpts(newChatPick) : {};
+  try { r = await cy.chatSend(text, { threadId: tid, clientId, ...pick, ...(atts.length ? { attachments: atts.map((a) => a.id) } : {}) }); } catch { r = { ok: false }; }
   if (r?.ok && r.chatId) {
     messages = tagLocal(messages, { text, at, clientId }, r.chatId); // 대기 중·지금 보내기·취소가 이 말을 찾게
     messages = dropFailed(messages); // 앞서 못 보낸 말·실패 줄은 이제 걷는다
@@ -2911,6 +3034,8 @@ async function sendChat() {
       selectedId = r.threadId;
       store.set('thread', selectedId);
       drafts.delete(null);
+      if (pick.provider) threads = upsertThread(threads, { ...(currentThread() ?? { id: r.threadId, updated: new Date().toISOString() }), pick: { provider: pick.provider, ...(pick.pickModel ? { model: pick.pickModel } : {}) } });
+      newChatPick = '';
       loadThreadsSoon();
       renderThreadList();
       renderThreadHead();
@@ -2936,19 +3061,79 @@ function autosize() {
   chatInput.style.overflowY = chatInput.scrollHeight + 2 > 260 ? 'auto' : 'hidden';
 }
 chatInput.addEventListener('input', () => { autosize(); drafts.set(selectedId, chatInput.value); renderSendButton(); });
-// 모델 고르기(작업 세션 창과 같은 목록). 고른 건 이 컴퓨터에 기억, 목록에 없어졌으면 대화 기본값
-async function loadChatModels() {
-  const sel = $('chat-model');
-  const res = await cy.listModels?.().catch(() => null);
-  const models = res?.ok ? cleanModels(res.data) : null;
-  sel.hidden = !models;
-  if (!models) return;
-  let saved = null;
-  try { saved = localStorage.getItem('chatModel'); } catch { /* 무시 */ }
-  sel.replaceChildren(...models.choices.map((c) => h('option', { value: c.id, text: c.label })));
-  sel.value = models.choices.some((c) => c.id === saved) ? saved : models.defaults.chat;
+// 모델 고르기(입력줄 옆 작은 드롭다운): 지금 뇌·연결된 다른 뇌의 모델(데몬 GET /chat/models). 고른 건 그 대화에 기억(데몬 chat_threads.pick),
+// 새 대화는 기본에서 시작하고 첫 말과 함께 보낸다. 준비 안 된 뇌는 비활성 + 이유
+// var: renderThreadHead 가 이 줄보다 먼저 불려도 되게(let 이면 초기화 전 접근 오류)
+var chatModelList = null; // cleanChatModels 결과
+var newChatPick = ''; // 아직 스레드가 없는 새 대화에서 고른 값(encodePick 모양)
+const pickSel = $('chat-model'), pickCustom = $('chat-model-custom');
+const pickValueNow = () => (selectedId ? encodePick(currentThread()?.pick) : newChatPick);
+function renderPickSelect() {
+  const pickSel = $('chat-model');
+  if (!chatModelList) { pickSel.hidden = true; return; }
+  const cur = pickValueNow();
+  const { head, groups } = pickGroups(chatModelList, cur);
+  const opt = (r) => h('option', { value: r.value, text: r.text, ...(r.disabled ? { disabled: true } : {}) });
+  pickSel.replaceChildren(opt(head), ...groups.map((g) => h('optgroup', { label: g.label, ...(g.note ? { title: g.note } : {}) }, g.rows.map(opt))));
+  pickSel.value = cur;
+  if (pickSel.value !== cur) pickSel.value = '';
+  const sel = pickSel.selectedOptions[0];
+  pickSel.title = sel && sel.value ? `이 대화는 ${sel.textContent} 로 보내요` : '이 대화에 쓸 AI·모델(기본은 설정의 모델)';
+  pickSel.classList.toggle('picked', !!cur);
+  pickSel.hidden = false;
 }
-$('chat-model').addEventListener('change', () => { try { localStorage.setItem('chatModel', $('chat-model').value); } catch { /* 무시 */ } });
+async function loadChatModels(fresh = false) {
+  const res = await cy.chatModels?.(fresh).catch(() => null);
+  chatModelList = res?.ok ? cleanChatModels(res.data) : null;
+  renderPickSelect();
+}
+// 그 대화에 기억(없는 대화면 새 대화 값으로). 실패하면 원래대로
+async function applyPick(value) {
+  const p = decodePick(value);
+  if (!selectedId) { newChatPick = value; renderPickSelect(); return; }
+  const id = selectedId;
+  let r;
+  try { r = await cy.chatThreadEdit(id, { pick: p ? { provider: p.provider, ...(p.model ? { model: p.model } : {}) } : null }); } catch { r = { ok: false }; }
+  if (r?.ok && r.data?.thread) threads = upsertThread(threads, r.data.thread);
+  else if (!r?.ok) showAttError(r?.data?.error ? `모델을 못 바꿨어요: ${r.data.error}` : '모델을 못 바꿨어요');
+  renderPickSelect();
+}
+pickSel.addEventListener('change', () => {
+  const p = decodePick(pickSel.value);
+  if (p?.custom) {
+    pickCustom.dataset.provider = p.provider;
+    pickCustom.value = '';
+    pickCustom.placeholder = '모델 이름';
+    pickCustom.hidden = false;
+    pickCustom.focus();
+    return;
+  }
+  pickCustom.hidden = true;
+  applyPick(pickSel.value);
+});
+pickSel.addEventListener('focus', () => { if (!chatModelList) loadChatModels(); });
+pickCustom.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { pickCustom.hidden = true; renderPickSelect(); return; }
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  const m = pickCustom.value.trim();
+  if (!okPickModel(m)) { showAttError('모델 이름은 영문·숫자·.-_:/ 로 100자까지예요'); return; }
+  pickCustom.hidden = true;
+  applyPick(`${pickCustom.dataset.provider}|${m}`);
+});
+// 고른 모델이 답하지 못함 → 그 말을 기본으로 다시(그 턴을 고쳐 보내는 길 — 기억도 기본으로)
+async function retryDefault(retry) {
+  const tid = selectedId;
+  if (!tid || !retry) return;
+  let r;
+  try { r = await cy.chatEdit(tid, retry.n, retry.text, { clientId: newClientId(), useDefault: true }); } catch { r = { ok: false }; }
+  if (!r?.ok) { showAttError('다시 보내지 못했어요'); return; }
+  const t = currentThread();
+  if (t?.pick) { const { pick: _p, ...rest } = t; threads = upsertThread(threads, rest); }
+  messages = messages.filter((m) => !(m.local && m.retry));
+  renderPickSelect();
+  loadMessages();
+}
 loadChatModels();
 // `/` 로 시작하면 슬래시 명령 자동완성(열려 있는 동안 Enter 는 넣기 — 아래 보내기보다 먼저 가로챈다)
 if (cy.listCommands) attachSlashMenu(chatInput, { listCommands: () => cy.listCommands() });
@@ -2998,7 +3183,7 @@ function onChatEvent(ev) {
   const tid = typeof ev?.threadId === 'string' ? ev.threadId : null;
   if (!tid || !['done', 'error', 'stopped'].includes(ev.status)) return; // stopped: "답을 멈췄어요" 시스템 줄을 다시 불러온다
   if (tid === selectedId) {
-    if (ev.status === 'error') { messages = appendLocal(messages, { role: 'assistant', text: ev.text || '답을 못 만들었어요.', at: new Date().toISOString(), error: true }); renderChat(); }
+    if (ev.status === 'error') { messages = appendLocal(messages, { role: 'assistant', text: ev.text || '답을 못 만들었어요.', at: new Date().toISOString(), error: true, ...(ev.retry ? { retry: ev.retry } : {}) }); renderChat(); }
     // 새 답은 맨 아래 — 승인 카드를 보느라 위에 있어도 답으로 내려간다
     Promise.resolve(loadMessages()).finally(() => scrollChat(true));
     loadAgentsSoon();
@@ -3043,7 +3228,7 @@ cy.onChat(onChatEvent);
 cy.onThreads?.(onThreadsEvent);
 cy.onAgents?.((p) => { if (p?.threadId && p.threadId === selectedId) loadAgentsSoon(); });
 cy.onAction?.(onActionEvent);
-cy.onDashboard(loadSoon);
+cy.onDashboard(() => { loadSoon(); calendarView.changed(); });
 // id(선택): 오버레이 말풍선(새 할 일)에서 연 그 할 일을 펼친다
 cy.onSection(({ section: s, id } = {}) => {
   if (s === 'chat' && typeof id === 'string' && id) { openThread(id); return; } // 말풍선(호버 답) → 그 대화
@@ -3114,12 +3299,15 @@ cy.onConnection(({ connected: c }) => {
 });
 
 // ↻ 새로고침: 화면 다시 그리기 + 데몬이 슬랙·메일을 지금 다시 읽어 새 할 일을 넣는다(결과는 캐릭터 말풍선)
-$('refresh').addEventListener('click', () => { cy.refreshSources?.(); load(); loadThreads(); if (selectedId) { loadMessages(); loadAgents(); } });
+$('refresh').addEventListener('click', () => { cy.refreshSources?.(); load(); if (section === 'calendar') calendarView.reload(true); loadThreads(); if (selectedId) { loadMessages(); loadAgents(); } });
 $('open-session')?.addEventListener('click', () => cy.openSession?.());
-// 이 컴퓨터에 Claude Code 가 없으면(Gemini·GPT 키·로컬) 코드 관련 버튼(작업 세션)은 숨긴다
+// 코드 작업 AI(Claude Code·Codex)가 준비되지 않았으면(Gemini·GPT 키·로컬) 코드 관련 버튼(작업 세션)은 숨긴다
+function applyCoderButtons() {
+  for (const id of ['open-session']) { const b = $(id); if (b) b.hidden = !hasCoder(); }
+}
 function applyCaps(c) {
   if (c && typeof c === 'object' && 'claude' in c) caps = { claude: c.claude, codex: c.codex };
-  for (const id of ['open-session']) { const b = $(id); if (b) b.hidden = !hasCoder(); }
+  applyCoderButtons();
   if (section === 'chat') renderChat();
 }
 cy.caps?.().then(applyCaps).catch(() => {});
@@ -3160,7 +3348,6 @@ function applySisa(v) {
     canned: v.canned && typeof v.canned === 'object' ? v.canned : sisa.canned,
     connected: Array.isArray(v.connected) ? v.connected : sisa.connected,
     chatModels: v.chatModels && typeof v.chatModels === 'object' ? v.chatModels : sisa.chatModels,
-    codeModel: typeof v.codeModel === 'string' ? v.codeModel : sisa.codeModel,
   };
   renderChatLock();
 }

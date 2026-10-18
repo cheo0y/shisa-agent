@@ -14,7 +14,9 @@ import { HOME_DIR, type Config } from "./config.ts";
 import { classify, connectorServerUrls } from "./mcp-health.ts";
 import { argv as ghArgv, runGh } from "./gh.ts";
 import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./connectors.ts";
-import type { CalendarState } from "./calendar-state.ts";
+import { calendarPartsLine, type CalendarState } from "./calendar-state.ts";
+import type { MailState } from "./mail-sync.ts";
+import type { WeatherState } from "./weather.ts";
 import { hasUserMcpServer } from "./mcp.ts";
 import { authFailText, brainAuthFailed, brainCreditNeeded, brainKeyReady, creditFailText, type KeyProvider } from "./providers.ts";
 import { NEEDS_CLAUDE_MCP } from "./feature-brain.ts";
@@ -83,6 +85,8 @@ export type ConnectionsDeps = {
   lastRun?: (kind: RunKind) => Run | undefined;
   kg?: () => { phase: string; reason?: string; step?: string } | undefined;
   calendar?: () => CalendarState; // 캘린더 동기화 상태(calendar-sync.ts): 연결됨 줄·캘린더 동기화 줄이 실제 결과를 따른다
+  weather?: () => WeatherState;   // 날씨 알리미(weather.ts): 고른 지역·마지막으로 가져온 때·기온·실패 이유
+  mail?: () => MailState;         // 메일(IMAP) 동기화 상태(mail-sync.ts): 메일 줄이 가져온 메일 수·실패 이유를 따른다
 };
 
 const worst = (xs: ConnState[]): ConnState => (["error", "warn", "unknown", "ok", "off"] as ConnState[]).find((s) => xs.includes(s)) ?? "unknown";
@@ -101,7 +105,7 @@ export function sdkLoggedIn(s: Pick<SdkProbe, "account" | "error">): boolean {
 
 export class Connections {
   private cfg: Config;
-  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar">;
+  private d: Required<Omit<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail" | "weather">> & Pick<ConnectionsDeps, "lastRun" | "kg" | "calendar" | "mail" | "weather">;
   http: Record<string, HttpProbe> = {};
   sdk?: SdkProbe;
   ghr?: GhProbe;
@@ -120,6 +124,8 @@ export class Connections {
       env: deps.env ?? process.env,
       lastRun: deps.lastRun,
       calendar: deps.calendar,
+      mail: deps.mail,
+      weather: deps.weather,
       kg: deps.kg,
     };
   }
@@ -189,7 +195,7 @@ export class Connections {
     if (keyIssue) rows.push({ id: "brain", label: "뇌(브리핑·채팅 모델)", group: "core", check: "local", checkedAt: at, state: "warn", detail: keyIssue });
     else rows.push({
       id: "brain", label: "뇌(브리핑·채팅 모델)", group: "core", check: "local", checkedAt: at, state: brainOk ? "ok" : "error",
-      detail: brainOk ? `${BRAIN_LABEL[provider] ?? provider}${provider === "local" ? " — 할 일 정리만, 도구 없음" : provider === "codex" ? " — 브리핑·채팅·뒤에서 하는 정리(MCP·코드 고치기는 Claude Code)" : ""}`
+      detail: brainOk ? `${BRAIN_LABEL[provider] ?? provider}${provider === "local" ? " — 할 일 정리만, 도구 없음" : provider === "codex" ? " — 브리핑·채팅·뒤에서 하는 정리(MCP 는 Claude Code)" : ""}`
         : provider === "codex" ? "codex 명령을 찾을 수 없어요" : provider === "genspark" ? "Genspark 키가 없어요(gsk login 을 하거나 키를 붙여 넣어 주세요)" : `${BRAIN_LABEL[provider] ?? provider} API 키가 없어요`,
     });
 
@@ -216,7 +222,7 @@ export class Connections {
       const row: ConnRow = {
         id: `connector:${cap}`, label: st.label, group: "service", check: "local", checkedAt: at, doc: st.doc,
         used: st.mode !== "off", state: st.mode === "off" ? "off" : st.ready ? "ok" : "error", detail: st.detail,
-        summary: st.mode === "off" ? "연결 안 함" : st.mode === "api" ? "직접 연결(API)" : `MCP (${x.mode === "mcp" ? x.server : ""})`,
+        summary: st.mode === "off" ? "연결 안 함" : st.mode === "api" ? "직접 연결(API)" : st.mode === "imap" ? "직접 연결(IMAP, 읽기만)" : `MCP (${x.mode === "mcp" ? x.server : ""})`,
         briefing: brief([cap as Capability]),
         ...(x.mode === "mcp" ? { server: x.server } : {}),
       };
@@ -243,9 +249,25 @@ export class Connections {
       }
       // 캘린더: 설정만 보고 「연결됨」이라 하지 않는다. 가져오는 중·못 가져온 이유를 같은 줄에
       const cs = cap === "calendar" && x.mode !== "off" && st.ready ? this.d.calendar?.() : undefined;
+      // ICS 캘린더가 여럿이거나 별칭이 있으면 캘린더마다: 「회사: 일정 5개 / 개인: 못 가져옴 / 가족: 꺼 둠」(이유는 error 칸에)
+      const parts = cs && cs.phase !== "pending" ? calendarPartsLine(cs, false) : "";
       if (cs?.phase === "pending") row.detail = `${row.detail} · 일정 가져오는 중`;
-      else if (cs?.phase === "ok") row.detail = `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
-      else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
+      else if (cs?.phase === "ok") row.detail = parts ? `${row.detail} · ${parts}` : `${row.detail} · 일정 ${cs.meetings ?? 0}개 가져옴`;
+      else if (cs?.phase === "failed" && cs.code !== "brain") { row.state = "error"; row.detail = parts ? `${row.detail} · ${parts}` : `${row.detail} · 일정을 가져오지 못했어요`; row.error = cs.reason; }
+      // 메일(IMAP): 설정만 보고 「연결됨」이라 하지 않는다. 가져온 메일 수·못 가져온 이유를 같은 줄에. AI 가 없으면 할 일로는 못 뽑는다
+      // 계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통」, 일부만 못 가져오면 주황(warn) + 「주소: 이유」, 다 못 가져오면 빨강
+      const ms = cap === "mail" && x.mode === "imap" && st.ready ? this.d.mail?.() : undefined;
+      const multi = x.mode === "imap" && x.accounts.length > 1;
+      if (ms?.phase === "pending") row.detail = `${row.detail} · 메일 가져오는 중`;
+      else if (ms?.phase === "ok") {
+        const stale = ms.at ? now.getTime() - Date.parse(ms.at) > 60 * 60e3 : false;
+        row.detail = multi
+          ? `메일 ${x.mode === "imap" ? x.accounts.length : 0}개 계정 · 최근 메일 ${ms.count ?? 0}통 (${ago(ms.at, now)}, 읽기만)`
+          : `${row.detail} · 최근 ${ms.sinceHours ?? 24}시간 메일 ${ms.count ?? 0}통 가져옴 (${ago(ms.at, now)})`;
+        if (ms.reason) { row.state = "warn"; row.error = ms.reason; }
+        else if (stale) { row.state = "warn"; row.detail = `${row.detail} · 오래됐어요`; }
+      } else if (ms?.phase === "failed") { row.state = "error"; row.detail = `${row.detail} · 메일을 가져오지 못했어요 (${ago(ms.at, now)})`; row.error = ms.reason; }
+      if (x.mode === "imap" && provider === "local") row.detail = `${row.detail} · AI를 연결하면 메일에서 할 일을 뽑아요`;
       // MCP 연결은 Claude Code 뇌로만 읽는다 — 다른 뇌면 등록돼 있어도 브리핑에 안 들어간다
       if (x.mode === "mcp" && provider !== "claude-code") {
         row.state = row.state === "error" ? "error" : "warn";
@@ -272,6 +294,7 @@ export class Connections {
       : { id: "slack-ingest", label: "Slack 수집", group: "local", check: "local", checkedAt: at, state: "off", detail: "Slack 이 직접 연결(API)이 아니라 수집하지 않아요" });
     rows.push(conns.calendar.mode !== "off" ? (this.d.calendar ? this.calendarRow(this.d.calendar(), now) : this.runRow("calendar", "캘린더 동기화", "calendar", 90, now))
       : { id: "calendar", label: "캘린더 동기화", group: "local", check: "local", checkedAt: at, state: "off", detail: "캘린더 연결 안 함" });
+    if (this.d.weather) rows.push(weatherRow(this.d.weather(), now));
     const kgRow = this.runRow("kg", "지식그래프(KG)", "kg", 3 * 60, now);
     const k = this.d.kg?.();
     if (k) {
@@ -292,9 +315,10 @@ export class Connections {
     const base = { id: "calendar", label: "캘린더 동기화", group: "local" as const, check: "local" as CheckId, checkedAt: now.toISOString() };
     if (s.phase === "off") return { ...base, state: "off", detail: "캘린더 연결 안 함" };
     if (s.phase === "pending") return { ...base, state: "unknown", detail: "일정을 가져오는 중이에요" };
-    if (s.phase === "failed") return { ...base, state: s.code === "brain" ? "warn" : "error", detail: `가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}`, error: s.reason ?? "이유를 몰라요" };
+    const parts = calendarPartsLine(s, false);
+    if (s.phase === "failed") return { ...base, state: s.code === "brain" ? "warn" : "error", detail: `가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}${parts ? ` · ${parts}` : ""}`, error: s.reason ?? "이유를 몰라요" };
     const stale = s.at ? now.getTime() - Date.parse(s.at) > 90 * 60e3 : false;
-    return { ...base, state: stale ? "warn" : "ok", detail: `마지막 성공 ${ago(s.at, now)} · 오늘·내일 일정 ${s.meetings ?? 0}개${stale ? " · 오래됐어요" : ""}` };
+    return { ...base, state: stale ? "warn" : "ok", detail: `마지막 성공 ${ago(s.at, now)} · 오늘·내일 일정 ${s.meetings ?? 0}개${parts ? ` (${parts})` : ""}${stale ? " · 오래됐어요" : ""}` };
   }
 
   // 마지막 run 으로 본 정기 작업 상태: 실패면 빨강, staleMin 넘게 성공이 없으면 주황
@@ -359,4 +383,13 @@ export async function realSdkProbe(opts: { query?: typeof sdkQuery; timeoutMs?: 
 // runs 기록에서 그 종류의 마지막 run
 export function lastRunOf(list: (o: { limit?: number }) => Run[]): (kind: RunKind) => Run | undefined {
   return (kind) => list({ limit: 200 }).find((r) => r.kind === kind);
+}
+
+// 날씨 줄: 「서울 마포구 · 방금 · 14°C」 / 실패 이유. 지역을 안 골랐으면 꺼짐
+export function weatherRow(s: WeatherState, now: Date): ConnRow {
+  const base = { id: "weather", label: "날씨(Open-Meteo)", group: "local" as const, check: "local" as CheckId, checkedAt: now.toISOString() };
+  if (s.phase === "off") return { ...base, state: "off", detail: "지역을 고르지 않아 꺼져 있어요(설정 「날씨」)" };
+  if (s.phase === "pending") return { ...base, state: "unknown", detail: `${s.place} · 아직 가져오지 않았어요` };
+  if (s.phase === "failed") return { ...base, state: s.lastOkAt ? "warn" : "error", detail: `${s.place} · 가져오지 못했어요 (${ago(s.at, now)})${s.lastOkAt ? ` · 마지막 성공 ${ago(s.lastOkAt, now)}` : ""}`, error: s.reason };
+  return { ...base, state: "ok", detail: `${s.place} · ${ago(s.at, now)} · ${Math.round(s.temp)}°C` };
 }

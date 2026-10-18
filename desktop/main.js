@@ -1,6 +1,6 @@
 // 데스크톱 마스코트 — 메인 프로세스.
 // 데몬 SSE 를 여기서 받고 IPC 로 렌더러에 넘긴다. 렌더러는 네트워크 접근 없음.
-import { app, BrowserWindow, Menu, Tray, clipboard, dialog, globalShortcut, ipcMain, nativeImage, net, protocol, screen, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, clipboard, dialog, globalShortcut, ipcMain, nativeImage, net, powerMonitor, protocol, screen, session, shell } from 'electron';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -8,13 +8,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
-import { cleanMergeQuestion, normalizeOpen } from './src/bubbles.js';
+import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
 import { createSSEParser, backoffDelay, isEventStream, createSSEGate } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
 import { normalizeSection } from './src/dashboard.js';
 import { sanitizeTodoPatch } from './src/todos.js';
-import { sanitizeProjectBody, okProjectId } from './src/manual-projects.js';
+import { sanitizeProjectBody, sanitizeOrderIds, sanitizeProjectOrderIds, okProjectId } from './src/manual-projects.js';
 import { okRuleId, sanitizeRulePatch } from './src/todo-rules.js';
 import { clickTarget, pickRun, okRunId, okModelId, cleanMessage } from './src/session.js';
 import { okClientId, okMsgId } from './src/session-inbox.js';
@@ -29,8 +29,9 @@ import { setupSettings } from './src/settings-window.js';
 import { disconnectBrainBody, withBrainBody, withConnectorOff, withoutHubDone, reloadNote, okBrainId, okCap } from './src/disconnect.js';
 import { ATTACH_SCHEME, resolveAttachUrl, cleanAttachIds, cleanUpload, okStoredName } from './src/attachments.js';
 import { agentLogin } from './src/agent-login.js';
-import { createCapsProbe, hasCoder, sameCaps, coderHint } from './src/caps.js';
+import { createCapsProbe, sameCaps, coderHint } from './src/caps.js';
 import { checkLlm, listModels, gskLoginKey, KEY_REQ } from './src/llm-check.js';
+import { okPickModel, okPickProvider, chatPickBody } from './src/chat-pick.js';
 import { KEY_PROVIDERS, normalizeSisa, publicView, withKey, withCli, withGsk, withSkip, withoutProvider, activeProvider, withModels, withVoice, connectedProviders, daemonBrainPatch, withDaemonBrain, settingsBrainBody } from './src/sisa-store.js';
 import { personaFor } from './src/persona.js';
 import { okCharacter, characterName, appName } from './src/character.js';
@@ -38,6 +39,7 @@ import { applyCharacters } from './src/character-registry.js';
 import { normStatus, brainView, sameView } from './src/brain-state.js';
 import { isAskId } from './src/quick-ask.js';
 import { isFocusCmd, DAY_RE, doingTodos } from './src/focus.js';
+import { createHitWatch, wantHitWatch, POLL_MS as HIT_POLL_MS } from './src/hit-watch.js';
 import { tourSteps, tourBubble, TOUR_VERSION } from './src/tour.js';
 import { NEW_DAEMON_CONFIG, cleanSetupPatch, openSetupAtLaunch, setupView } from './src/setup-plan.js';
 import { attachConsole, assembleBundle, collectLogFiles, createRing, formatLogLine, redact, shapeConnectorsSafe } from './src/debug-share.js';
@@ -45,9 +47,12 @@ import { bundlePaths, launchdOwns, spawnDecision, daemonEnv, daemonArgs, loginIt
 import { createDaemonHost, portFree } from './src/daemon-host.js';
 import { RELEASES_API, checkDue, newestRelease, shouldNotify, updateBubble } from './src/update-check.js';
 import { denied } from './src/denied.js';
-import { withCalendarAdded, withCalendarRemoved, calendarRows, calendarUrlById, calendarUrls, hubDoneFor, calendarReloadNote, okCalendarId, CALENDAR_DUP } from './src/calendars.js';
+import { okCalendarColor, okEventsQuery } from './src/calendar-tab.js';
+import { withCalendarColor, withCalendarRemoved, withCalendarRenamed, withCalendarEnabled, withCalendarResults, calendarRows, calendarUrlById, calendarUrls, calendarKind, cardOfKind, hubDoneFor, calendarReloadNote, okCalendarId, okCalendarName, okCalendarUrl, CALENDAR_DUP, CAL_TEXT } from './src/calendars.js';
 import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js';
 import { closeAction, offlineResult } from './src/quit.js';
+import { panelOnActivation } from './src/panel-activation.js';
+import { cleanMailBody, okMailId } from './src/mail-connect.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
 const SQUIRREL = squirrelPlan({ platform: process.platform, argv: process.argv, execPath: process.execPath });
@@ -77,7 +82,7 @@ attachConsole(logRing, console, process);
 const userData = path.join(app.getPath('appData'), 'cy-agent-desktop');
 // 고른 캐릭터(데몬 config.json character)에 따라 「하치와레 비서」처럼. 켤 땐 파일에서, 그 뒤엔 데몬 state 로 바꾼다(onCharacter)
 function configCharacter() {
-  try { return JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8'))?.character; } catch { return null; }
+  try { return JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8').replace(/^\uFEFF/, ''))?.character; } catch { return null; } // BOM: 메모장으로 저장한 파일
 }
 let wantChar = configCharacter(); // 데몬이 고른 id 그대로(사용자 캐릭터는 목록을 받기 전엔 모른다 — 받으면 다시 맞춘다)
 let charId = okCharacter(wantChar);
@@ -109,8 +114,8 @@ function writeSisa(data) {
 }
 
 // 시사 데몬이 읽는 설정(~/.cy-agent/config.json)에 연결을 넣는다. 다른 칸은 건드리지 않는다.
-// 파일이 깨져 있으면 아무것도 쓰지 않는다. 캘린더는 덮어쓰지 않고 더한다(개수 상한 없음). 이미 있는 주소면 'dup'
-function writeConnector(id, url) {
+// 파일이 깨져 있으면 아무것도 쓰지 않는다. 캘린더(gcal·outlook)는 여기서 쓰지 않는다(데몬이 시험 가져오기 뒤에 저장, addCalendar)
+function writeConnector(id) {
   const home = process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent');
   const file = path.join(home, 'config.json');
   let cfg = {};
@@ -122,11 +127,7 @@ function writeConnector(id, url) {
     cfg = { ...NEW_DAEMON_CONFIG }; // 데몬보다 먼저 만든 설정 = 새 설치(마법사를 마칠 때까지 아무것도 읽지 않는다)
   }
   const conns = cfg.connectors && typeof cfg.connectors === 'object' ? { ...cfg.connectors } : {};
-  if (id === 'gcal' || id === 'outlook') {
-    const r = withCalendarAdded({ connectors: conns }, url);
-    if (!r.added) return 'dup';
-    conns.calendar = r.cfg.connectors.calendar;
-  } else if (id === 'jira') {
+  if (id === 'jira') {
     if (conns.issues && typeof conns.issues === 'object' && conns.issues.mode) return false;
     conns.issues = { mode: 'mcp', server: 'atlassian' };
   } else if (id === 'slack') {
@@ -199,37 +200,88 @@ async function disconnectBrain(p) {
 const calendarId = (url) => createHash('sha256').update(url).digest('hex').slice(0, 16);
 function readDaemonConfig() {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'config.json'), 'utf8').replace(/^\uFEFF/, ''));
     return cfg && typeof cfg === 'object' && !Array.isArray(cfg) ? cfg : {};
   } catch {
     return {};
   }
 }
-const calendarList = () => calendarRows(readDaemonConfig(), calendarId);
+// 저장된 캘린더(데몬 설정 파일 기준, 화면 상태가 아니다) + 데몬이 켜져 있으면 캘린더마다 마지막 결과(일정 수·못 가져온 이유·꺼 둠)
+async function calendarList() {
+  const rows = calendarRows(readDaemonConfig(), calendarId);
+  if (!connected || !rows.length) return rows;
+  const r = await request('GET', '/connectors/calendar');
+  return r.ok ? withCalendarResults(rows, r.data) : rows;
+}
 
-// 캘린더 하나 빼기: 그 주소만 config.json 에서 지우고, 연결을 더할 때처럼 데몬에 다시 읽게 알린다.
-// 마지막 하나면 [연결 해제](캘린더 전체)와 같다
-async function removeCalendar(id) {
-  const url = calendarUrlById(readDaemonConfig(), id, calendarId);
-  if (!url) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: calendarList() };
-  const before = calendarUrls(readDaemonConfig());
-  if (before.length <= 1) {
-    const r = await disconnectConnector('calendar');
-    return { ...r, items: calendarList() };
+// 설치 표시(sisa-ai.json done)를 남은 주소에 맞추고 패널에 알린다
+function syncCalendarDone(cfg) {
+  const prev = normalizeSisa(readSisa());
+  const next = { ...prev, done: hubDoneFor(prev.done, calendarUrls(cfg || readDaemonConfig())) };
+  writeSisa(next);
+  sendPanel('sisa', sisaPublic(next));
+}
+
+// 캘린더 하나 더하기(별칭 + 주소): 데몬이 그 캘린더만 시험으로 읽어 보고 되면 저장 → 전체 동기화. 데몬이 꺼져 있으면 확인할 수 없어 안 한다
+async function addCalendar(body) {
+  if (!connected) return { ok: false, error: CAL_TEXT.offline(who()), items: await calendarList() };
+  const r = await post('/connectors/calendar', body, 40_000);
+  if (r.ok && r.data?.ok) {
+    const prev = normalizeSisa(readSisa());
+    const next = { ...prev, done: { ...prev.done, [cardOfKind(calendarKind(body.url))]: true } };
+    writeSisa(next);
+    sendPanel('sisa', sisaPublic(next));
+    sendPanel('dashboard', {}); // 연결 카드(가져오는 중 → 결과)를 바로
+    return { ok: true, id: String(r.data.id ?? ''), name: String(r.data.name ?? ''), events: Number(r.data.events) || 0, done: next.done, items: await calendarList() };
   }
-  const wrote = editDaemonConfig((cfg) => withCalendarRemoved(cfg, url));
-  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: calendarList() };
+  if (r.status === 409) return { ok: false, duplicate: true, error: CALENDAR_DUP, items: await calendarList() };
+  if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), items: await calendarList() };
+  return { ok: false, error: r.status ? `${CAL_TEXT.failed}(${r.status})` : CAL_TEXT.failed, items: await calendarList() };
+}
+
+// 별칭 고치기 · 켜기/끄기: config.json 을 고치고(데몬이 꺼져 있어도) 데몬에 다시 읽게 알린다 → 그 캘린더 일정을 바로 빼거나 다시 가져온다
+async function editCalendar(id, fn) {
+  if (!calendarUrlById(readDaemonConfig(), id, calendarId)) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: await calendarList() };
+  const wrote = editDaemonConfig((cfg) => fn(cfg));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: await calendarList() };
   let reload = null;
   if (wrote && connected) {
     const r = await post('/connectors/reload');
     reload = r.ok ? r.data : null;
   }
-  const prev = normalizeSisa(readSisa());
-  const next = { ...prev, done: hubDoneFor(prev.done, calendarUrls(wrote || readDaemonConfig())) };
-  writeSisa(next);
-  sendPanel('sisa', sisaPublic(next));
   sendPanel('dashboard', {});
-  return { ok: true, items: calendarList(), note: calendarReloadNote(reload, !connected) };
+  return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
+}
+// 캘린더 탭 색 바꾸기: config.json 의 그 캘린더 color 만 고친다(일정을 다시 가져올 일은 없어서 데몬에 알리지 않는다. 다음에 받을 때 새 색)
+function colorCalendar(id, color) {
+  if (!calendarUrlById(readDaemonConfig(), id, calendarId)) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.' };
+  const wrote = editDaemonConfig((cfg) => withCalendarColor(cfg, id, color, calendarId));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.` };
+  return { ok: true };
+}
+const renameCalendar = (id, name) => editCalendar(id, (cfg) => withCalendarRenamed(cfg, id, name, calendarId));
+const toggleCalendar = (id, on) => editCalendar(id, (cfg) => withCalendarEnabled(cfg, id, on, calendarId));
+
+// 캘린더 하나 빼기: 그 주소만 config.json 에서 지우고, 연결을 더할 때처럼 데몬에 다시 읽게 알린다.
+// 마지막 하나면 [연결 해제](캘린더 전체)와 같다
+async function removeCalendar(id) {
+  const url = calendarUrlById(readDaemonConfig(), id, calendarId);
+  if (!url) return { ok: false, error: '그 캘린더를 찾지 못했어요. 이미 빠졌을 수 있어요.', items: await calendarList() };
+  const before = calendarUrls(readDaemonConfig());
+  if (before.length <= 1) {
+    const r = await disconnectConnector('calendar');
+    return { ...r, items: await calendarList() };
+  }
+  const wrote = editDaemonConfig((cfg) => withCalendarRemoved(cfg, url, calendarId));
+  if (wrote === null) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했어요.`, items: await calendarList() };
+  let reload = null;
+  if (wrote && connected) {
+    const r = await post('/connectors/reload');
+    reload = r.ok ? r.data : null;
+  }
+  syncCalendarDone(wrote);
+  sendPanel('dashboard', {});
+  return { ok: true, items: await calendarList(), note: calendarReloadNote(reload, !connected) };
 }
 
 // [연결 해제] 커넥터(Slack·캘린더·메일·이슈): 그 기능만 off(토큰·ICS 주소도 지움) + 다시 읽기. 데몬이 꺼져 있으면 파일에 직접.
@@ -299,32 +351,6 @@ function writeBrainFile(patch) {
   }
 }
 
-// 코딩 작업 모델은 시사 데몬이 읽는 설정(models.code)에 쓴다. 'default' 면 그 칸을 지운다.
-function writeCodeModel(model) {
-  const home = process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent');
-  const file = path.join(home, 'config.json');
-  let cfg = {};
-  try {
-    cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false;
-  } catch (err) {
-    if (err?.code !== 'ENOENT') return false;
-  }
-  const models = cfg.models && typeof cfg.models === 'object' && !Array.isArray(cfg.models) ? { ...cfg.models } : {};
-  if (model === 'default') delete models.code;
-  else models.code = model;
-  const next = { ...cfg };
-  if (Object.keys(models).length) next.models = models;
-  else delete next.models;
-  try {
-    fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(next, null, 2), { mode: 0o600 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 let win = null;
 let panel = null;
 let panelReady = false;
@@ -339,6 +365,7 @@ let debugWin = null;
 let lastDebug = { text: '', qr: '', fileName: '', speech: '' };
 let sessionPick = null; // 창 로드 전에 요청된 run
 let lastState = null;
+let charHidden = false; // 윈도우: 캐릭터 숨김(창은 그대로, 그림만 감춤 — toggleCharacter)
 let lastFocus = null; // 마지막 SSE focus(집중하기) — 앱을 끌 때 집중 중이면 그만하고 끈다
 let focusStopped = false;
 let activeRuns = [];
@@ -361,7 +388,8 @@ async function refreshCaps(force = false) {
   }
   return now;
 }
-const coder = () => hasCoder(capsProbe.get());
+// 코드 작업 AI(데몬 GET /status features.code — Claude Code·Codex)가 준비됐나. 데몬과 끊겼으면 이 컴퓨터의 CLI 로 짐작
+const coder = () => brainNow().coder;
 function coderBubble(feature) {
   send('bubble', { id: `local-coder-${feature}`, text: coderHint(feature), kind: 'info', ttlMs: 12000 });
 }
@@ -375,7 +403,9 @@ function brainNow() {
 function pushBrain() {
   const v = brainNow();
   if (sameView(v, lastBrain)) return;
+  const coderChanged = lastBrain && lastBrain.coder !== v.coder;
   lastBrain = v;
+  if (coderChanged) { rebuildTrayMenu(); createAppMenu(); } // 「작업 세션 열기」 메뉴(코드 작업 AI 가 준비됐을 때만)
   send('brain', v);
   sendPanel('brain', v);
   sendSession('brain', v);
@@ -466,6 +496,14 @@ function initialPosition() {
   return restorePosition(state.pos, areas, SIZE) ?? defaultPosition(screen.getPrimaryDisplay().workArea, SIZE);
 }
 
+// 오버레이를 다시 맨 위로(윈도우만, 보일 때만). moveTop 은 SWP_NOACTIVATE 라 포커스 안 받는 창이 앞 창을 뺏지 않는다.
+// 다시 보일 때·화면 구성 바뀜·절전/잠금 뒤에만 — 주기적으로는 안 한다(카톡 「항상 위」 같은 남의 항상 위 창과 싸우지 않게)
+function keepOnTop(w) {
+  if (process.platform !== 'win32' || !w || w.isDestroyed() || !w.isVisible()) return;
+  w.setAlwaysOnTop(true, 'screen-saver');
+  w.moveTop();
+}
+
 function createWindow() {
   winLoaded = false;
   const { x, y } = initialPosition();
@@ -491,11 +529,16 @@ function createWindow() {
       sandbox: true,
       webSecurity: true,
       spellcheck: false,
+      // 오버레이는 늘 떠 있지만 포커스를 안 받아 Chromium 이 배경 창으로 보고 타이머를 늦춘다 — 말풍선이 제때 안 사라졌다.
+      // 끄면 말풍선 만료·깜빡임 타이머가 제때 돈다(패널·세션 창은 숨겨 둘 때가 많아 그대로 둔다)
+      backgroundThrottling: false,
     },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   win.setIgnoreMouseEvents(true, { forward: true });
+  ignoringMouse = true;
+  wantInteractive = false;
 
   // 외부 탐색/새 창 차단
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -505,10 +548,12 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.showInactive());
+  win.on('show', () => keepOnTop(win)); // showInactive 마다(트레이·메뉴 보이기)
   win.webContents.on('did-finish-load', () => {
     winLoaded = true;
     send('connection', { connected });
-    send('visibility', { hidden: state.bubblesHidden });
+    sendVisibility();
+    sendOverlayPrefs();
     // 화면이 뜨기 전에 온 말풍선(SSE 가 먼저 붙으면 데몬이 다시 보내는 승인·머지 말풍선)을 이제 보낸다 — 버리지 않게
     for (const [c, p] of early.splice(0)) send(c, p);
   });
@@ -536,6 +581,11 @@ function send(channel, payload) {
   if (!win || win.isDestroyed()) return;
   if (!winLoaded && (channel === 'bubble' || channel === 'state' || channel === 'clear' || channel === 'focus')) { early.push([channel, payload]); if (early.length > 50) early.shift(); return; }
   win.webContents.send(channel, payload);
+}
+
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐)와 지금 패널이 보이는지. 캐릭터 창이 다른 창 답 말풍선·2초 호버 입력창을 정한다
+function sendOverlayPrefs() {
+  send('overlay-prefs', { panelOverlay: state.panelOverlay !== false, panelOpen: !!(panel && !panel.isDestroyed() && panel.isVisible()) });
 }
 
 function sendPanel(channel, payload) {
@@ -615,7 +665,9 @@ function createPanel() {
     if (act === 'quit') quitFromClose();
     else panel.hide();
   });
-  panel.on('closed', () => { panel = null; panelReady = false; });
+  panel.on('show', sendOverlayPrefs);
+  panel.on('hide', sendOverlayPrefs);
+  panel.on('closed', () => { panel = null; panelReady = false; sendOverlayPrefs(); });
 }
 
 // id(선택): 그 섹션에서 펼칠 항목(오버레이 새 할 일 말풍선 → 그 할 일)
@@ -941,7 +993,7 @@ function menuTemplate() {
       click: () => {
         state.bubblesHidden = !state.bubblesHidden;
         saveState();
-        send('visibility', { hidden: state.bubblesHidden });
+        sendVisibility();
         rebuildTrayMenu();
       },
     },
@@ -979,12 +1031,23 @@ function createTray() {
 }
 
 // ---- 앱(Dock·Cmd+Tab·메뉴 막대) ----
-// Dock 에 보이는 일반 앱 — Cmd+Tab/Dock 으로 돌아오면 대시보드 패널이 앞으로 온다.
+// Dock 에 보이는 일반 앱. Dock 클릭·다시 실행하면 대시보드 패널이 앞으로 온다(Cmd+Tab·스페이스 전환으로는 안 연다).
 // 오버레이는 비활성 패널이라 앱 활성화와 상관없이 항상 위·모든 Space 에 그대로 있다.
+// 윈도우: 오버레이를 hide → showInactive 하면 Chromium 이 포커스 안 받는 창의 버튼 누름을 삼켜(뗌만 온다)
+// 왼쪽 클릭·끌기·말풍선 버튼이 다 안 먹는다. 그래서 창은 숨기지 않고 렌더러가 그림을 감춘다(감춘 건 클릭 투과)
 function toggleCharacter() {
   if (!win) return;
+  if (process.platform === 'win32') {
+    charHidden = !charHidden;
+    sendVisibility();
+    if (!charHidden) keepOnTop(win);
+    return;
+  }
   if (win.isVisible()) win.hide();
   else win.showInactive();
+}
+function sendVisibility() {
+  send('visibility', { hidden: state.bubblesHidden, character: !charHidden });
 }
 
 function createAppMenu() {
@@ -1020,20 +1083,13 @@ function createAppMenu() {
   ]));
 }
 
-// 앱이 활성화될 때(Cmd+Tab, Dock 클릭, 다시 실행) 패널을 앞으로.
-// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 제외.
+// Dock 클릭·다시 실행만 패널을 연다(src/panel-activation.js). 앱 전환·스페이스 전환·캐릭터 창 포커스로는 열지 않는다.
+// 오버레이 상호작용(호버 입력창 포커스, 우클릭 메뉴)이나 로그인 직후 자동 실행으로 활성화된 건 Dock 활성화도 제외.
 let activationQuietUntil = 0;
 const quietActivation = (ms) => { activationQuietUntil = Math.max(activationQuietUntil, Date.now() + ms); };
 
-function onAppActivated() {
-  if (quitting || Date.now() < activationQuietUntil) return;
-  const focused = BrowserWindow.getFocusedWindow();
-  if (focused && focused === win) return; // 오버레이 입력창 쓰는 중
-  if (focused && focused === sessionWin) return; // 작업 세션 창을 보는 중
-  if (focused && focused === debugWin) return; // 도움 보내기 창
-  if (focused && focused === settingsUi?.window) return; // 설정 창을 보는 중
-  if (panel && panel.isVisible() && focused === panel) return; // 이미 앞
-  showPanel(null);
+function onActivation(kind) {
+  if (panelOnActivation({ kind, now: Date.now(), quietUntil: activationQuietUntil, quitting })) showPanel(null);
 }
 
 function setDockMenu() {
@@ -1093,10 +1149,10 @@ function setupAppActivation() {
     setDockMenu();
   }
   quietActivation(2000); // 시작 직후(로그인 자동 실행) 패널을 띄우지 않음
-  app.on('did-become-active', () => setTimeout(onAppActivated, 50));
-  // Dock 클릭 / 실행 중 다시 열기 — 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
-  app.on('activate', () => { if (!quitting && Date.now() >= activationQuietUntil) showPanel(null); });
-  app.on('second-instance', () => showPanel(null));
+  // did-become-active 로는 열지 않는다: 다른 데스크톱·전체 화면 앱에서 돌아오기만 해도 와서 닫은 패널이 다시 열렸다
+  // Dock 클릭 / 실행 중 다시 열기: 명시적이라 이미 앞에 있어도 연다(시작 직후만 제외)
+  app.on('activate', () => onActivation('dock'));
+  app.on('second-instance', () => onActivation('second-instance'));
 }
 
 // 맥에서 setFocusable 을 바꾸면 창이 처음 위치로 돌아간다. 바꾸기 전 자리를 붙잡아 둔다.
@@ -1206,11 +1262,36 @@ function registerDebugShortcut() {
 // ---- IPC ----
 let drag = null; // { offX, offY, timer, started }
 
+// ---- 클릭 투과(캐릭터 창): 렌더러가 커서 밑이 말풍선·단추인지 보고 set-interactive 로 알린다 ----
+let wantInteractive = false; // 렌더러가 마지막으로 원한 것
+let ignoringMouse = true; // 지금 창이 마우스를 통과시키는 중인가(createWindow 에서 켠다)
+function applyInteractive() {
+  if (!win || win.isDestroyed()) return;
+  if (wantInteractive) { win.setIgnoreMouseEvents(false); ignoringMouse = false; }
+  else if (!drag) { win.setIgnoreMouseEvents(true, { forward: true }); ignoringMouse = true; }
+}
+// 윈도우: forward 의 마우스 훅이 소리 없이 빠지면(메인이 바빴거나 잠금·절전 뒤) mousemove 가 안 와 말풍선 단추가 영영 안 눌린다.
+// 메인이 커서를 직접 물어 렌더러에 알리고(cursor), 투과 중이면 가끔 forward 를 다시 건다(src/hit-watch.js)
+let hitWatch = null;
+function startHitWatch() {
+  if (hitWatch || !wantHitWatch(process.platform, process.env)) return;
+  hitWatch = createHitWatch({
+    cursor: () => screen.getCursorScreenPoint(),
+    bounds: () => win.getBounds(),
+    ignoring: () => ignoringMouse,
+    busy: () => !win || win.isDestroyed() || !win.isVisible() || !winLoaded || !!drag,
+    send: (p) => win.webContents.send('cursor', p),
+    rearm: () => { win.setIgnoreMouseEvents(false); win.setIgnoreMouseEvents(true, { forward: true }); },
+  });
+  setInterval(() => { try { hitWatch.tick(); } catch (e) { console.warn('[hit-watch]', e?.message ?? e); } }, HIT_POLL_MS);
+}
+
 function endDrag() {
   if (!drag) return;
   clearInterval(drag.timer);
   drag = null;
   if (!win) return;
+  applyInteractive(); // 드래그 중에 「이제 투과」가 왔으면 지금 따른다
   const [x, y] = win.getPosition();
   state.pos = { x, y };
   saveState();
@@ -1229,7 +1310,10 @@ function setupIPC() {
     sisa: () => sisaPublic(readSisa()),
     disconnectBrain: (p) => disconnectBrain(p),
     disconnectConnector: (cap) => disconnectConnector(cap),
-    calendars: () => ({ ok: true, items: calendarList() }),
+    calendars: async () => ({ ok: true, items: await calendarList() }),
+    addCalendar: (body) => addCalendar(body),
+    renameCalendar: (id, name) => renameCalendar(id, name),
+    toggleCalendar: (id, on) => toggleCalendar(id, on),
     removeCalendar: (id) => removeCalendar(id),
     copyText: (text) => { clipboard.writeText(text); return { ok: true }; },
     appPrefs,
@@ -1237,10 +1321,10 @@ function setupIPC() {
     preload: path.join(__dirname, 'preload-settings.cjs'),
     html: path.join(__dirname, 'renderer', 'settings.html'),
   });
-  ipcMain.on('set-interactive', (_e, on) => {
-    if (!win) return;
-    if (on) win.setIgnoreMouseEvents(false);
-    else if (!drag) win.setIgnoreMouseEvents(true, { forward: true });
+  ipcMain.on('set-interactive', (e, on) => {
+    if (!win || e.sender !== win.webContents) return;
+    wantInteractive = !!on;
+    applyInteractive();
   });
 
   // 드래그: 커서를 메인에서 폴링 — 빠르게 움직여 창 밖으로 나가도 따라간다
@@ -1319,6 +1403,7 @@ function setupIPC() {
   ipcMain.handle('sisa-use-cli', async (e, agent) => {
     if (!fromOurs(e) || (agent !== 'claude' && agent !== 'codex')) return denied();
     const login = await agentLogin(agent);
+    if (!login?.installed) return { ok: false, error: '실행 파일을 찾지 못했어요. 설치 화면에서 CLI 설치를 확인해 주세요.' };
     if (!login?.loggedIn) return { ok: false, error: `${agent === 'codex' ? 'Codex' : 'Claude Code'} 에 로그인되어 있지 않습니다.` };
     const next = withCli(readSisa(), agent === 'codex' ? 'codexcli' : 'claudecode');
     writeSisa(next);
@@ -1334,12 +1419,17 @@ function setupIPC() {
   });
   ipcMain.handle('sisa-mark', async (e, id, url) => {
     if (!fromOurs(e) || !HUB_IDS.has(id)) return denied();
-    if ((id === 'gcal' || id === 'outlook') && !(typeof url === 'string' && /^https:\/\/\S+\.ics(\?\S*)?$/.test(url) && url.length <= 2000)) return denied();
     const prev = normalizeSisa(readSisa());
-    const wrote = writeConnector(id, url);
+    // 캘린더(gcal·outlook)는 「＋ 캘린더 추가」 [연결]이 저장한다(calendar-add). 여기선 저장된 캘린더가 있을 때만 표시를 남긴다
+    if (id === 'gcal' || id === 'outlook') {
+      const has = calendarRows(readDaemonConfig(), calendarId).some((r) => cardOfKind(r.kind) === id);
+      const done = has ? { ...prev.done, [id]: true } : { ...prev.done };
+      writeSisa({ ...prev, done });
+      return { ok: true, done, configured: false, reload: null };
+    }
+    const wrote = writeConnector(id);
     const done = { ...prev.done, [id]: true };
     writeSisa({ ...prev, done });
-    if (wrote === 'dup') return { ok: false, duplicate: true, error: CALENDAR_DUP, done };
     // 데몬에 다시 읽게 알린다: 캘린더만 바뀌었으면 데몬이 바로 반영해 곧장 가져오고(applied), 다른 연결이면 스스로 다시 켜진다
     let reload = null;
     if (wrote && connected) {
@@ -1353,8 +1443,41 @@ function setupIPC() {
   // [연결 해제] AI(provider = sisa id) · 커넥터(cap)
   ipcMain.handle('sisa-disconnect', (e, provider) => (fromOurs(e) && okBrainId(provider) ? disconnectBrain(provider) : denied()));
   ipcMain.handle('connector-disconnect', (e, cap) => (fromOurs(e) && okCap(cap) ? disconnectConnector(cap) : denied()));
+  // 메일(앱 비밀번호): 데몬이 IMAP 로그인 → 받은편지함을 읽기 전용으로 열어 보고, 되면 config.json 에 저장한다. 비밀번호는 여기서 기록하지 않는다
+  ipcMain.handle('mail-connect', async (e, raw) => {
+    const body = fromOurs(e) ? cleanMailBody(raw) : null;
+    if (!body) return denied();
+    if (!connected) return { ok: false, error: `${who()}가 꺼져 있어서 확인할 수 없어요. ${who()}를 켜고 다시 해 주세요.` };
+    const r = await post('/connectors/mail', body, 60_000);
+    if (r.ok && r.data?.ok) {
+      sendPanel('dashboard', {}); // 연결 카드를 바로
+      return { ok: true, id: String(r.data.id ?? ''), account: r.data.account, preset: r.data.preset, count: r.data.count, filtered: !!r.data.filtered, updated: !!r.data.updated, accounts: r.data.accounts };
+    }
+    if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), ...(r.data.code ? { code: String(r.data.code) } : {}) };
+    return { ok: false, error: r.status ? `연결하지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
+  });
+  // 메일 계정 하나 빼기: 데몬이 그 계정 비밀번호·가져온 메일을 지운다(마지막이면 메일 연결이 꺼짐)
+  ipcMain.handle('mail-remove', async (e, id) => {
+    if (!fromOurs(e) || !okMailId(id)) return denied();
+    if (!connected) return { ok: false, error: `${who()}가 꺼져 있어서 뺄 수 없어요. ${who()}를 켜고 다시 해 주세요.` };
+    const r = await request('DELETE', `/connectors/mail/${id}`);
+    if (r.ok && r.data?.ok) {
+      sendPanel('dashboard', {});
+      return { ok: true, account: String(r.data.account ?? ''), left: Number(r.data.left) || 0 };
+    }
+    if (r.data?.error) return { ok: false, error: String(r.data.error) };
+    return { ok: false, error: r.status ? `빼지 못했어요(${r.status}).` : `${who()}에 닿지 않았어요. 잠시 뒤에 다시 해 주세요.` };
+  });
   // 연결된 캘린더 목록(가린 이름만) · 하나 빼기(id)
-  ipcMain.handle('calendar-list', (e) => (fromOurs(e) ? { ok: true, items: calendarList() } : denied()));
+  // 캘린더: 목록(별칭·가린 주소·결과) · 더하기(별칭 + 주소, 데몬이 시험으로 읽고 저장) · 별칭 고치기 · 켜기/끄기 · 하나 빼기(id)
+  ipcMain.handle('calendar-list', async (e) => (fromOurs(e) ? { ok: true, items: await calendarList() } : denied()));
+  ipcMain.handle('calendar-add', (e, body) => {
+    const b = body && typeof body === 'object' ? body : null;
+    if (!fromOurs(e) || !b || !okCalendarUrl(b.url) || (b.name !== undefined && !okCalendarName(b.name))) return denied();
+    return addCalendar({ url: b.url.trim(), ...(typeof b.name === 'string' && b.name.trim() ? { name: b.name } : {}) });
+  });
+  ipcMain.handle('calendar-rename', (e, id, name) => (fromOurs(e) && okCalendarId(id) && okCalendarName(name) ? renameCalendar(id, name) : denied()));
+  ipcMain.handle('calendar-toggle', (e, id, on) => (fromOurs(e) && okCalendarId(id) && typeof on === 'boolean' ? toggleCalendar(id, on) : denied()));
   ipcMain.handle('calendar-remove', (e, id) => (fromOurs(e) && okCalendarId(id) ? removeCalendar(id) : denied()));
   // 연결된 AI의 쓸 수 있는 모델 목록. 키는 돌려주지 않는다.
   ipcMain.handle('sisa-models', async (e, provider) => {
@@ -1364,22 +1487,16 @@ function setupIPC() {
     const key = data.keys[provider] || (provider === 'genspark' && data.gsk ? gskLoginKey() : '');
     return listModels(provider, key, keyNetFetch);
   });
-  // { chat: {provider, model} | 'none', code: 모델 } 중 온 것만 바꾼다
+  // { chat: {provider, model} | 'none' }. 코드 작업 AI·모델은 설정 창(데몬 PUT /settings)에서만 바꾼다
   ipcMain.handle('sisa-set-models', async (e, pick) => {
     if (!fromOurs(e) || !pick || typeof pick !== 'object') return denied();
     const args = {};
     if ('chat' in pick) args.chat = pick.chat;
-    if ('code' in pick) args.code = pick.code;
     const next = withModels(readSisa(), args);
     if (!next) return denied();
-    let codeSaved = null;
-    if ('code' in args) {
-      codeSaved = writeCodeModel(args.code);
-      if (!codeSaved) return { ok: false, error: `${who()} 설정 파일에 쓰지 못했습니다.` };
-    }
     writeSisa(next);
     const brainSaved = 'chat' in args ? await writeBrain(next) : false;
-    return { ok: true, ...sisaPublic(next), codeSaved, brainSaved };
+    return { ok: true, ...sisaPublic(next), brainSaved };
   });
   ipcMain.handle('sisa-set-voice', (e, patch) => {
     if (!fromOurs(e) || !patch || typeof patch !== 'object') return denied();
@@ -1476,6 +1593,7 @@ function setupIPC() {
   // model: 고른 모델(모양만 여기서, 목록 안인지는 에이전트가 400)
   const withModel = (body, model) => (okModelId(model) ? { ...body, model } : body);
   ipcMain.handle('session-models', (e) => (fromOurs(e) ? request('GET', '/models') : denied()));
+  ipcMain.handle('chat-models', (e, fresh) => (fromOurs(e) ? request('GET', `/chat/models${fresh === true ? '?fresh=1' : ''}`, undefined, 20000) : denied()));
   // 채팅 슬래시 명령 목록(패널·세션 창 자동완성). 데몬이 처음 한 번 SDK 에서 읽느라 느릴 수 있어 넉넉히 기다린다
   ipcMain.handle('slash-commands', (e) => (fromOurs(e) ? request('GET', '/commands', undefined, 30000) : denied()));
   // clientId: 세션 창이 미리 그린 풍선과 데몬 기록을 짝짓는다(모양만 거름) → { msgId, pending } 이면 전달 대기
@@ -1650,11 +1768,28 @@ function setupIPC() {
     if (!fromOurs(e) || !okProjectId(id) || !p) return denied();
     return request('PATCH', `/projects/manual/${encodeURIComponent(id)}`, p);
   });
+  ipcMain.handle('project-order', (e, id, todoIds) => {
+    const ids = sanitizeOrderIds(todoIds);
+    if (!fromOurs(e) || !okProjectId(id) || !ids) return denied();
+    return post(`/projects/manual/${encodeURIComponent(id)}/order`, { todoIds: ids });
+  });
+  // 프로젝트끼리 순서(카드 ⋮⋮ 끌기): 진행 중 프로젝트 id 를 원하는 순서로 모두
+  ipcMain.handle('projects-order', (e, ids) => {
+    const list = sanitizeProjectOrderIds(ids);
+    if (!fromOurs(e) || !list) return denied();
+    return post('/projects/manual/order', { ids: list });
+  });
   ipcMain.handle('project-delete', (e, id) => {
     if (!fromOurs(e) || !okProjectId(id)) return denied();
     return request('DELETE', `/projects/manual/${encodeURIComponent(id)}`);
   });
   // MCP 캘린더는 모델이 중계해서 오래 걸릴 수 있다
+  // 캘린더 탭: 보는 기간의 일정(GET /calendar/events). from·to 는 ISO 시각, fresh 는 새로 받기
+  ipcMain.handle('calendar-events', (e, q) => {
+    if (!fromOurs(e) || !okEventsQuery(q)) return denied();
+    return request('GET', `/calendar/events?from=${encodeURIComponent(q.from)}&to=${encodeURIComponent(q.to)}${q.fresh ? '&fresh=1' : ''}`, undefined, 60_000);
+  });
+  ipcMain.handle('calendar-color', (e, id, color) => (fromOurs(e) && okCalendarId(id) && (color === null || okCalendarColor(color)) ? colorCalendar(id, color) : denied()));
   ipcMain.handle('project-calendar-events', (e) => (fromOurs(e) ? request('GET', '/projects/calendar-events', undefined, 120_000) : denied()));
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기 · 지우기
   ipcMain.handle('todo-rules', (e) => (fromOurs(e) ? request('GET', '/todo-rules') : denied()));
@@ -1677,9 +1812,11 @@ function setupIPC() {
     const threadId = okThreadId(o.threadId) ? o.threadId : null;
     const todoId = typeof o.todoId === 'string' && o.todoId && o.todoId.length <= 500 ? o.todoId : null;
     const hover = e.sender === win?.webContents;
-    const model = okModelId(o.model) ? o.model : null; // 패널에서 고른 모델(목록 안인지는 에이전트가 400)
     const clientId = typeof o.clientId === 'string' && /^[\w-]{1,64}$/.test(o.clientId) ? o.clientId : null; // 패널이 붙인 말 id
-    const r = await post('/chat', { text: text.trim(), ...(hover ? { kind: 'hover' } : { ...(threadId ? { threadId } : {}), ...(todoId ? { todoId } : {}) }), ...(model ? { model } : {}), ...(clientId ? { clientId } : {}), ...(atts.length ? { attachments: atts } : {}) });
+    // 고른 뇌·모델(provider 가 있으면 model 은 그 뇌의 이름 — 맞는지는 데몬이 400) · 없으면 예전 세션 창 모델
+    const pick = hover ? {} : chatPickBody(o);
+    const model = !pick.provider && okModelId(o.model) ? o.model : null;
+    const r = await post('/chat', { text: text.trim(), ...(hover ? { kind: 'hover' } : { ...(threadId ? { threadId } : {}), ...(todoId ? { todoId } : {}) }), ...(model ? { model } : {}), ...pick, ...(clientId ? { clientId } : {}), ...(atts.length ? { attachments: atts } : {}) });
     return {
       ok: r.ok, status: r.status, error: r.error, ...(r.status === 400 && typeof r.data?.error === 'string' ? { data: { error: r.data.error } } : {}),
       chatId: typeof r.data?.chatId === 'string' ? r.data.chatId : null,
@@ -1707,8 +1844,9 @@ function setupIPC() {
     if (!fromOurs(e) || !okThreadId(threadId) || !Number.isInteger(n) || n < 1 || typeof text !== 'string' || !text.trim()) return denied();
     const o = opts && typeof opts === 'object' ? opts : {};
     const clientId = typeof o.clientId === 'string' && /^[\w-]{1,64}$/.test(o.clientId) ? o.clientId : null;
-    const model = okModelId(o.model) ? o.model : null;
-    return post(`/chat/threads/${threadId}/messages/${n}/edit`, { text: text.trim(), ...(o.stopAgents === true ? { stopAgents: true } : {}), ...(clientId ? { clientId } : {}), ...(model ? { model } : {}) });
+    const pick = chatPickBody(o);
+    const model = !pick.provider && okModelId(o.model) ? o.model : null;
+    return post(`/chat/threads/${threadId}/messages/${n}/edit`, { text: text.trim(), ...(o.stopAgents === true ? { stopAgents: true } : {}), ...(clientId ? { clientId } : {}), ...(model ? { model } : {}), ...pick });
   });
   // 줄 서 있는 말 고치기(글만)
   ipcMain.handle('chat-edit-queued', (e, chatId, text) => (fromOurs(e) && CHAT_ID.test(String(chatId)) && typeof text === 'string' && text.trim() ? post(`/chat/${chatId}/edit`, { text: text.trim() }) : denied()));
@@ -1728,6 +1866,11 @@ function setupIPC() {
     const p = {};
     if (typeof patch.title === 'string' && patch.title.trim()) p.title = patch.title.trim();
     if (typeof patch.archived === 'boolean') p.archived = patch.archived;
+    if ('pick' in patch) {
+      if (patch.pick === null) p.pick = null;
+      else if (okPickProvider(patch.pick?.provider)) p.pick = { provider: patch.pick.provider, ...(okPickModel(patch.pick.model) ? { model: patch.pick.model } : {}) };
+      else return denied();
+    }
     return Object.keys(p).length ? post(`/chat/threads/${id}`, p) : denied();
   });
   ipcMain.handle('chat-thread-delete', (e, id) => (fromOurs(e) && okThreadId(id) ? post(`/chat/threads/${id}/delete`) : denied()));
@@ -1783,6 +1926,11 @@ function setupIPC() {
     if (!fromOurs(e) || !okActionId(id) || !['confirm', 'always', 'cancel'].includes(decision)) return denied();
     if (decision === 'always') return post(`/actions/${id}/confirm`, { always: true }, 120_000);
     return post(`/actions/${id}/${decision}`, undefined, 120_000);
+  });
+  // 아침 질문 「어제 남은 N개, 오늘도 할까요?」(말풍선·패널 오늘 할 일 탭 위): keep 그대로 · demote 이번 주로
+  ipcMain.handle('today-carry', (e, decision) => {
+    if (!fromOurs(e) || !isCarryDecision(decision)) return denied();
+    return post('/today/carry', { decision });
   });
   // [항상 허용]으로 저장한 도구 권한 규칙: 목록 · 지우기
   ipcMain.handle('permissions', (e) => (fromOurs(e) ? request('GET', '/permissions') : denied()));
@@ -1999,7 +2147,7 @@ const appPrefs = {
     if (p.manage) {
       try { on = app.getLoginItemSettings(loginTarget()).openAtLogin === true; } catch { on = state.openAtLogin === true; }
     }
-    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false };
+    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, panelOverlay: state.panelOverlay !== false };
   },
   set(patch) {
     if ('openAtLogin' in patch) {
@@ -2014,6 +2162,11 @@ const appPrefs = {
       if (patch.updateCheck) state.updateCheckedAt = 0; // 다시 켜면 바로 한 번
       saveState();
       if (patch.updateCheck) checkForUpdate();
+    }
+    if ('panelOverlay' in patch) {
+      state.panelOverlay = patch.panelOverlay;
+      saveState();
+      sendOverlayPrefs();
     }
     return appPrefs.get();
   },
@@ -2085,6 +2238,14 @@ if (SQUIRREL) {
     setInterval(checkForUpdate, 60 * 60 * 1000);
     refreshCaps(true);
     if (openSetupAtLaunch({ firstRun, env: process.env })) setTimeout(() => showPanel('setup'), 400);
+
+    // 화면 구성 바뀜·절전/잠금 뒤 캐릭터를 다시 맨 위로(윈도우)
+    for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => keepOnTop(win));
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => keepOnTop(win));
+    // 클릭 투과 보강(윈도우): 커서를 직접 물어 hit 검사 · 절전/잠금·화면 바뀜 뒤엔 forward 훅을 바로 다시 건다
+    startHitWatch();
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => hitWatch?.rearmNow());
+    for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => hitWatch?.rearmNow());
 
     // 디스플레이 구성 바뀌면 화면 밖으로 나갔는지 확인
     screen.on('display-removed', () => {

@@ -28,7 +28,12 @@ test('시간 글: 시계·길이·짧게', () => {
 test('normFocus: 모양이 틀리면 null, 숫자 아닌 건 0', () => {
   assert.equal(normFocus(null), null);
   const f = normFocus({ active: { id: 'fs-1', paused: 'no', baseMs: 'x', since: 5 }, today: -3, day: '2026-10-14', now: 9 });
-  assert.deepEqual(f.active, { id: 'fs-1', startedAt: 0, paused: false, baseMs: 0, since: 5, seconds: 0 });
+  assert.deepEqual(f.active, { id: 'fs-1', startedAt: 0, paused: false, baseMs: 0, since: 5, seconds: 0, goalSec: null, todo: null });
+  // 정한 시간·할 일(채팅 「25분 집중할게」·칩): 모양이 맞을 때만
+  const g = normFocus({ active: { id: 'fs-2', goalSec: 1500, todo: { id: 't-1', title: ' 보고서 ' } } }).active;
+  assert.equal(g.goalSec, 1500);
+  assert.deepEqual(g.todo, { id: 't-1', title: '보고서' });
+  assert.equal(normFocus({ active: { id: 'x', goalSec: -1, todo: { id: 1 } } }).active.todo, null);
   assert.equal(f.today, 0);
   assert.equal(normFocus({ active: { paused: true } }).active, null);
   assert.ok(isFocusCmd('pause') && !isFocusCmd('reset'));
@@ -57,6 +62,11 @@ test('캐릭터 말풍선 글: 집중 중/쉬는 중 + 버튼', () => {
   const p = focusBubble({ active: { ...f.active, paused: true, since: null } });
   assert.deepEqual([p.label, p.toggle.cmd, p.toggle.label], ['잠깐 쉬는 중', 'resume', '다시 시작']);
   assert.equal(focusBubble({ active: null }), null);
+  // 할 일로 집중하면 그 제목(길면 줄임)·정한 시간이 있으면 「경과 / 정한 시간」
+  const t = focusBubble({ active: { id: 'a', baseMs: 0, since: null, paused: false, goalSec: 1500, todo: { id: 't', title: '아주 긴 주간 보고서 초안 쓰기' } } });
+  assert.equal(t.label, '아주 긴 주간 보고서…');
+  assert.equal(t.time, '00:00 / 25:00');
+  assert.equal(t.title, '집중 중: 아주 긴 주간 보고서 초안 쓰기');
 });
 
 test('잔디 단계: 0 빈 칸, 30분·1시간·2시간 넘을수록 진하게', () => {

@@ -61,6 +61,8 @@ html, body {
   width: 100%;
 }
 #stack.hidden { display: none; }
+/* 윈도우 캐릭터 숨기기: 창은 둔 채 다 감춘다(감춘 건 마우스에 안 맞아 클릭이 투과된다) */
+body.char-hidden #stage { visibility: hidden; }
 
 .bubble {
   position: relative;
@@ -154,6 +156,9 @@ html, body {
 .bubble .md table { border-collapse: collapse; margin: 3px 0; font-size: 12px; }
 .bubble .md th, .bubble .md td { padding: 3px 7px 3px 0; text-align: left; border-bottom: 1px solid var(--bubble-border); vertical-align: top; }
 .bubble .md th { color: var(--bubble-muted); font-weight: 600; }
+/* 말풍선에 표가 오면 깨지지 않게 줄여 보인다: 말풍선 폭을 넘지 않고, 칸은 한 줄로 자르고 … */
+.bubble .md table { display: block; max-width: 100%; overflow: hidden; }
+.bubble .md th, .bubble .md td { max-width: 9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bubble .md a { color: var(--accent); }
 .bubble .md .c-red { color: #c62828; } .bubble .md .c-green { color: #1b7a3a; } .bubble .md .c-blue { color: #1f5fbf; }
 .bubble .md .c-orange { color: #b35400; } .bubble .md .c-purple { color: #6b3fc4; } .bubble .md .c-gray { color: var(--bubble-muted); }
@@ -206,6 +211,14 @@ html, body {
 .item.leaving { opacity: 0; transform: translateY(-6px) scale(0.95); pointer-events: none; }
 
 .bubble .text { display: inline; }
+/* ✕ 닫기(새 버전 알림 등): 오른쪽 위 모서리, 글과 겹치지 않게 안쪽 여백 */
+.bubble:has(> button.close) { padding-right: 26px; }
+.bubble > button.close {
+  position: absolute; top: 5px; right: 6px; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted, #888);
+  font-size: 11px; line-height: 18px; cursor: pointer; pointer-events: auto;
+}
+.bubble > button.close:hover { background: var(--bubble-border); color: inherit; }
 .bubble .meta {
   display: flex;
   flex-wrap: wrap; /* 머지 승인: ✓ 머지 · ✗ 안 함 · 추가질문 · PR 보기 · 패널에서 보기 */
@@ -447,6 +460,14 @@ html, body {
   pointer-events: none;
   background: transparent;
 }
+/* 우사기: 귀가 길어 같은 상자에 넣으면 몸이 작아 보인다 — 정지 그림만 바닥 기준으로 키워 귀는 상자 위로 나가게 */
+#char-wrap[data-character="usagi"] #char, #char-wrap[data-character="usagi"] #char-closed { transform: scale(1.2); transform-origin: 50% 100%; }
+/* 키운 만큼(상자 140px × 0.2 = 28px) 귀가 위로 나가니, 위의 말풍선·입력창·집중 말풍선도 그만큼 올린다 */
+#char-wrap[data-character="usagi"] { margin-top: 30px; }
+/* 영상도 같이: 영상 속 우사기는 예전 그림 크기(키 약 410/512)라 정지 그림(471 × 1.2)에 맞춰 1.38배, 발이 정지 그림과 같은 높이에 오게 아래로.
+   점심(먹는 장면)은 원본이 커서 1.25배 */
+#char-wrap[data-character="usagi"] .char-video { transform: translateY(11px) scale(1.38); transform-origin: 50% 100%; }
+#char-wrap[data-character="usagi"] .char-video[data-clip*="usagi/lunch"] { transform: scale(1.25); }
 /* 깜빡임: 감은 그림은 늘 디코드된 채 숨어 있다가 잠깐 위로 — src 를 바꾸지 않아 깜빡임 없음 */
 #char-closed { visibility: hidden; }
 #char-wrap.blink-ready.blink #char-closed { visibility: visible; }

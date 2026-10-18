@@ -166,11 +166,12 @@ test('시사 말풍선은 모든 자리에 있다', () => {
   }
 });
 
-test('구글·아웃룩 안내는 주소를 칸에 받고, 쿠키는 묻지 않는다', () => {
+test('구글·아웃룩 안내는 마지막에 캘린더 목록(별칭 + 주소, 여러 개)을 두고, 쿠키는 묻지 않는다', () => {
   for (const id of ['gcal', 'outlook']) {
     const steps = connectSteps(id);
-    assert.equal(steps.at(-1).slots[0].id, id);
-    assert.ok(steps.at(-1).slotNote);
+    assert.equal(steps.at(-1).calendars, id);
+    assert.match(steps.at(-1).identity, /별칭/);
+    assert.match(steps.at(-1).identity, /여러 개/);
     assert.equal(/쿠키|xoxc/.test(all(steps)), false);
   }
 });

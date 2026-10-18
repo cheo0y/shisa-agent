@@ -39,7 +39,7 @@ export function readySources(c: Connectors = CONNECTORS, has: (server: string) =
   const out = new Set<SourceId>();
   for (const cap of CAPABILITIES) {
     const x = c[cap];
-    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.icsUrls.length > 0 : false) : false) out.add(cap);
+    if (x.mode === "mcp" ? has(x.server) : x.mode === "api" ? (x.cap === "slack" ? !!x.userToken : x.cap === "calendar" ? x.calendars.some((e) => e.enabled) : false) : x.mode === "imap" ? x.accounts.some((a) => !!a.password) : false) out.add(cap);
   }
   return out;
 }
@@ -94,13 +94,14 @@ export function briefingTask(c: Connectors | null = CONNECTORS, ready: ReadonlyS
     else steps.push(`${STEP_HEAD.calendar} 위 "오늘·내일 일정"(로컬 캐시)에서 준비가 필요한 회의`);
   }
   if (usable("mail") && mail.mode === "mcp") steps.push(`${STEP_HEAD.mail} 최근 24시간 받은 메일 중 답장/조치가 필요한 것(${tool(mail, "search", "read")})`);
+  else if (usable("mail") && mail.mode === "imap") steps.push(`${STEP_HEAD.mail} 위 "최근 받은 메일"(데몬이 받은편지함에서 읽기 전용으로 가져온 것 — 메일 도구는 없다)에서 답장이나 조치가 필요한 것만 할 일로. 광고·뉴스레터·자동 알림(「광고·뉴스레터·자동 발송으로 보임」·noreply 보낸 사람·단순 공지)은 뺀다. source 는 "mail", source_ref 는 그 줄의 ref, link 는 그 줄의 링크(있으면)`);
   if (usable("slack")) {
     if (slack.mode === "api") steps.push(`${STEP_HEAD.slack} 위 "아직 답 안 한 Slack DM·멘션" 확정 목록(로컬 수집)만 기준으로 한다 — 실시간 Slack 도구는 없다`);
     else if (slack.mode === "mcp") steps.push(`${STEP_HEAD.slack} 위 "아직 답 안 한 Slack DM·멘션" 확정 목록이 있으면 그걸 기준으로 하고, 없을 때만 최근 24시간 나를 멘션한 메시지·DM 중 답 안 한 것(${tool(slack, "search", "history", "replies")})`);
   }
   if (usable("issues") && issues.mode === "mcp") steps.push(`${STEP_HEAD.issues} 나에게 할당된 열린 이슈·리뷰 요청(${tool(issues, "search", "list", "searchPrs")})`);
   steps.push(`${STEP_HEAD.sessions} 맥락: 하다 만 작업, 세션에서 미뤄둔 것`);
-  steps.push("오늘 할 일이 비어 있고 오늘 회의·할 일이 있으면 plan_ops로 오늘 할 일을 채워도 된다(우선순위 포함, 서버에 올리지 않는 로컬)");
+  steps.push("오늘 할 일(= 우선순위 1 오늘 꼭)이 비어 있고 오늘 안에 꼭 해야 하는 회의 준비·할 일이 있으면 plan_ops로 채워도 된다(서버에 올리지 않는 로컬)");
   const skip = skipped.length
     ? `\n${skipped.join("·")}는 MCP 서버가 연결돼 있지 않다 — 찾거나(도구 목록 검색 포함) 부르지 말고 건너뛴다. reply_md 에도 언급하지 않는다.`
     : "";
@@ -109,6 +110,6 @@ ${steps.map((s, i) => `${i + 1}) ${s}`).join("\n")}${skip}
 기존 할 일 중 끝난 게 확인되면 done_todo_ids에 넣어.
 ${TODO_KEY_RULE}
 reply_md는 우선순위별로 묶고 각 항목에 링크를 달아.
-우선순위: 1=오늘 꼭, 2=이번 주, 3=참고(곧 볼 것), 4=언젠가·백로그. 기한이 딱히 없고 중요도도 낮은 것(언젠가 해도 되는 정리·아이디어·참석 여부만 정하면 되는 공지성 행사 등)은 3이 아니라 4로 넣어. 4는 reply_md에서 강조하지 말고 맨 끝에 한 줄로만.
+우선순위: 1=오늘 꼭, 2=이번 주, 3=참고(곧 볼 것), 4=언젠가·백로그. 1(오늘 꼭)은 그대로 사용자의 「오늘 할 일」 목록이 된다. 오늘 안에 해야 하는 것(오늘 마감·오늘 회의 전 준비·오늘 답해야 하는 요청)만 1로 넣고, 급해 보여도 오늘 꼭이 아니면 2로 넣어. 기한이 딱히 없고 중요도도 낮은 것(언젠가 해도 되는 정리·아이디어·참석 여부만 정하면 되는 공지성 행사 등)은 3이 아니라 4로 넣어. 4는 reply_md에서 강조하지 말고 맨 끝에 한 줄로만.
 위 "할 일 규칙"이 있으면 새 할 일에 그대로 따른다(데몬도 다시 적용한다).`;
 }

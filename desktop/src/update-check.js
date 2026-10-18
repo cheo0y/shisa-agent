@@ -107,5 +107,5 @@ export function updateBubble({ version, url, assetUrl, checkout = false, platfor
         ? `새 버전 v${version} 가 나왔어요. 새 dmg 를 받아 응용 프로그램에 덮어 넣으면 돼요. 할 일·기록은 그대로예요.`
         : `새 버전 v${version} 가 나왔어요. 새 버전을 받아 바꿔 주세요. 할 일·기록은 그대로예요.`;
   const link = (!checkout && assetUrl) || url || RELEASES_PAGE;
-  return { id: BUBBLE_ID, kind: 'info', text, link, linkLabel: checkout ? '바뀐 점 보기' : '받으러 가기', ttlMs: 120000 };
+  return { id: BUBBLE_ID, kind: 'info', text, link, linkLabel: checkout ? '바뀐 점 보기' : '받으러 가기', ttlMs: 120000, closable: true };
 }

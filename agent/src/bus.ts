@@ -14,6 +14,7 @@ import { FOCUS_CMDS, DAY_RE, type FocusApi, type FocusCmd } from "./focus.ts";
 import { createReadStream, statSync } from "node:fs";
 import { extname } from "node:path";
 import { ATTACH_ID, attachmentInput, attachmentRef, type Attachment, type ContentBlock } from "./attachments.ts";
+import { parseRange } from "./calendar-view.ts";
 
 export type Mood = "idle" | "thinking" | "working" | "alert";
 export type Bubble = {
@@ -27,6 +28,7 @@ export type Bubble = {
   actionId?: string;
   always?: boolean; // permission: [항상 허용] 버튼도(카드에 규칙 범위가 있을 때만)
   blocked?: string; // merge: ✓ 를 막는 이유(실패한 검사·충돌·초안) — 오버레이는 ✓ 를 끄고 이유를 보인다
+  carry?: { n: number }; // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] (POST /today/carry)
 };
 export type BubbleImage = "merge" | "merge_complete" | "lots" | "daily" | "daily_all_complete" | "daily_half_complete" | "to_do_new";
 export type PanelSection = "overview" | "projects" | "todos" | "today" | "chat";
@@ -43,6 +45,7 @@ export type BusHandlers = {
   todoRestore?(id: string): unknown; // 휴지통에서 되살리기. 휴지통에 없으면 undefined → 404
   todoPurge?(id: string): boolean; // 영구 삭제(휴지통에 있는 것만). false → 404
   todoTrashEmpty?(): number; // 휴지통 비우기 → 지운 개수
+  todayCarry?(decision: "keep" | "demote"): { moved: number } | Promise<{ moved: number }>; // 어제 남은 오늘 꼭: 그대로 · 이번 주로
   todoRevert?(id: string): unknown; // 자동 완료 되돌리기: "missing" → 404, "not_auto" → 409, 그 외 바뀐 할 일 → 200
   // 할 일 팝오버: 묻기(바꾸지 않음) → 적용/거절. 없는 할 일이면 undefined/false → 404
   todoAsk?(id: string, text: string): Promise<unknown>;
@@ -60,8 +63,9 @@ export type BusHandlers = {
   todoReorder?(id: string, priority: number, beforeId?: string): unknown; // "missing" → 404, "bad_before" → 400, 그 외 바뀐 할 일
   projectHide?(id: string): boolean | Promise<boolean>; // 프로젝트 숨기기(id = 경로). 모르는 프로젝트면 false → 404
   projectUnhide?(id: string): boolean | Promise<boolean>; // 숨긴 적 없으면 false → 404
-  // 직접 만든 프로젝트(manual-projects.ts): GET/POST /projects/manual · GET/PATCH/DELETE /projects/manual/:id. 없으면 503
-  manualProjects?: { handle(method: string, id: string | undefined, body: unknown): { status: number; body: unknown } };
+  // 직접 만든 프로젝트(manual-projects.ts): GET/POST /projects/manual · GET/PATCH/DELETE /projects/manual/:id · POST /projects/manual/:id/order(sub "order")
+  // · POST /projects/manual/order(프로젝트끼리 순서, sub "projects-order"). 없으면 503
+  manualProjects?: { handle(method: string, id: string | undefined, body: unknown, sub?: "order" | "projects-order"): { status: number; body: unknown } };
   projectExists?(id: string): boolean; // 할 일의 projectId 확인(없는 프로젝트면 400)
   // 일정에서 프로젝트 만들기: 연결된 캘린더의 고를 일정(지난 며칠 ~ 2주). { connected: false } 면 캘린더 안 붙음. 없으면 503
   calendarPick?(): Promise<unknown>;
@@ -70,7 +74,8 @@ export type BusHandlers = {
   // parentRunId: 세션 창에서 그 run 의 원래 대화로 이어 말할 때(새 채팅 run 이 그 run 에 연결되고 답이 그 run 기록에도)
   // clientId: 패널이 붙인 말 id(낙관적 사본 짝 맞추기). 결과의 queued·position = 같은 스레드의 앞 답을 기다리며 줄 섰나·그 스레드 안의 차례(다른 스레드는 동시에 돈다)
   // attachments: 먼저 올려 둔 첨부 id(POST /chat/attachments). { error: "bad_attachment", message } → 400
-  chat(text: string, opts?: { threadId?: string; todoId?: string; kind?: "chat" | "hover"; parentRunId?: string; model?: string; clientId?: string; attachments?: string[] }): string | { chatId: string; threadId: string; queued?: boolean; position?: number; clientId?: string } | { error: string; message?: string };
+  // pick: 채팅 입력줄에서 고른 뇌·모델(provider·model) — 이번 말에 쓰고 그 대화에 기억. null = 기본으로(useDefault). { error: "bad_model", message } → 400
+  chat(text: string, opts?: { threadId?: string; todoId?: string; kind?: "chat" | "hover"; parentRunId?: string; model?: string; pick?: { provider?: string; model?: string } | null; clientId?: string; attachments?: string[] }): string | { chatId: string; threadId: string; queued?: boolean; position?: number; clientId?: string } | { error: string; message?: string };
   // 채팅 첨부(attachments.ts). 없으면 /chat/attachments* 503
   // stage: 올리기(본문 = 파일 바이트) → { attachment } | { error }(너무 큼·빔) · file: 저장 파일 절대 경로(첨부 폴더 밖·모양이 틀리면 undefined → 404)
   // open: 기본 앱으로 열기
@@ -82,7 +87,7 @@ export type BusHandlers = {
   chatStop?(chatId: string): boolean; // 답하던 대화 멈추기. 모르는·이미 끝난 chatId 면 false → 404. 없으면 503
   chatNow?(chatId: string): boolean; // 기다리던 대화 지금 보내기(그 스레드에서 답하던 건 멈춤). 모르는·이미 끝난 chatId 면 false → 404. 없으면 503
   // 마지막 사용자 말 고치기(그 턴을 다시) · 줄 선 말 고치기(글만). 결과 { error } 면 404(no_thread)·409(그 밖). 없으면 503
-  chatEdit?(threadId: string, n: number, text: string, opts: { stopAgents?: boolean; clientId?: string; model?: string }): Promise<{ error: string; [k: string]: unknown } | Record<string, unknown>>;
+  chatEdit?(threadId: string, n: number, text: string, opts: { stopAgents?: boolean; clientId?: string; model?: string; pick?: { provider?: string; model?: string } | null }): Promise<{ error: string; [k: string]: unknown } | Record<string, unknown>>;
   chatEditQueued?(chatId: string, text: string): { error: string; [k: string]: unknown } | Record<string, unknown>;
   todoExists?(id: string): boolean; // POST /chat 의 todoId 확인용(없는 id면 404)
   chatHistory(): unknown;
@@ -116,6 +121,8 @@ export type BusHandlers = {
   repos?(): unknown; // 세션 창 "새 작업" 레포 목록
   // 세션 창에서 고를 수 있는 모델(models.ts). 요청의 model 은 이 안의 id 만. 없으면 GET /models 503, model 은 무시 못 하고 400
   models?(): { choices: { id: string; label: string; role: string }[]; defaults: { fix: string; chat: string } };
+  // 채팅에서 고를 수 있는 뇌·모델(chat-models.ts). fresh = 목록 다시 받기. 없으면 GET /chat/models 503
+  chatModels?(fresh: boolean): Promise<unknown>;
   // 채팅 슬래시 명령 목록(commands.ts, 캐시 10분). 없으면 GET /commands 503
   commands?(): Promise<{ name: string; description: string; argumentHint: string }[]>;
   newTask?(repo: string, text: string): Promise<{ ok: boolean; status?: number; error?: string; [k: string]: unknown }>; // 명시 요청 제안(승인 대기)
@@ -127,13 +134,26 @@ export type BusHandlers = {
   // 연결 상태(connections.ts). 없으면 503
   connections?: ConnectionsApi;
   // AI 없이 고르는 질문(local-mode.ts QUICK_ASKS → quickAnswer). 모르는 id 면 undefined → 400. 없으면 503
-  localAsk?(id: string): unknown;
+  localAsk?(id: string): unknown; // 「오늘 날씨?」는 예보를 가져오느라 Promise
+  // 날씨 지역 검색(weather.ts Open-Meteo Geocoding): GET /weather/search?q= → { ok, items: [{ name, label, latitude, longitude, timezone, … }] } | { ok: false, error }. 없으면 503
+  weatherSearch?(q: string): Promise<unknown>;
   // 지금 무엇이 연결됐나(status.ts): GET /status. 없으면 503
   status?: () => unknown;
   // 설치 마법사가 config.json 의 connectors 를 고친 뒤: 다시 읽어 바뀌었는지 + (launchd 아래면) 다시 켜는지. POST /connectors/reload. 없으면 503
   connectorsReload?: () => { changed: boolean; restarting: boolean };
   // [연결 해제]: config.json 의 connectors[cap] 을 off 로(토큰·ICS 주소도 지움) + 다시 읽기(disconnect.ts). POST /connectors/disconnect { cap }. 없으면 503
   connectorDisconnect?: (cap: unknown) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
+  // 메일(앱 비밀번호) 계정 추가: 로그인해 보고(LOGIN → EXAMINE INBOX) 되면 config.json 의 accounts 에 붙인다(같은 주소면 그 계정을 바꾼다, mail-connect.ts).
+  // POST /connectors/mail. 비밀번호는 응답에 없다
+  mailConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  // 캘린더(iCal 주소) 하나 더하기: 그 캘린더만 시험으로 읽어 보고 되면 config.json 의 calendars 에 붙인다(calendar-connect.ts). POST /connectors/calendar { url, name? }.
+  // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
+  calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  calendarList?: () => unknown;
+  // 캘린더 탭: 보는 기간의 일정(캘린더마다 id·별칭·색). GET /calendar/events?from=&to=(&fresh=1) — calendar-view.ts. 없으면 503
+  calendarEvents?: (range: { from: string; to: string; fresh: boolean }) => Promise<unknown>;
+  // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
+  mailRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
   guidelines?: GuidelinesApi;
   // 집중하기(focus.ts): GET /focus · GET /focus/stats?from&to · POST /focus/start|pause|resume|stop. 없으면 503
@@ -157,12 +177,29 @@ export type PermissionsApi = { list(): unknown; remove(id: string): boolean };
 export type ThreadsApi = {
   list(opts: { limit: number; before?: string; archived?: boolean }): unknown;
   create(t: { title?: string; kind?: "chat" | "todo" | "hover"; todoId?: string }): unknown; // "no_todo" → 404
-  edit(id: string, patch: { title?: string; archived?: boolean }): unknown;
+  edit(id: string, patch: { title?: string; archived?: boolean; pick?: { provider?: string; model?: string } | null }): unknown;
   remove(id: string): boolean;
   messages(id: string, opts: { limit: number; before?: number }): unknown;
 };
 export type RunsApi = Pick<RunRegistry, "listRuns" | "getRun" | "sendMessage" | "setModel" | "interrupt" | "stop" | "subscribe" | "active">
   & Partial<Pick<RunRegistry, "cancelMessage" | "sendMessageNow">>; // 전달 대기 중인 말 빼기·지금 보내기(없으면 503)
+
+// 채팅 요청의 뇌·모델 고르기: provider(아는 뇌, 로컬 빼고)가 있으면 model 은 그 뇌의 모델 이름(모양만 본다) — 이번 말에 쓰고 그 대화에 기억.
+// provider 가 없으면 model 은 예전처럼 작업 세션 창 모델(GET /models 목록 안, bodyModel) — 이때 pick 은 undefined(그 대화에 기억한 것).
+// useDefault: true 면 null(기본으로 — 기억도 지운다). 그 뇌에 맞는 이름인지는 Chat.send 가 본다(bad_model → 400)
+export const CHAT_PICK_PROVIDERS = ["claude-code", "codex", "anthropic", "gemini", "openai", "genspark"];
+const PICK_MODEL = /^[A-Za-z0-9._:/-]{1,100}$/;
+export function bodyPick(body: any): { provider?: string; model?: string } | null | undefined {
+  if (body?.useDefault !== undefined && typeof body.useDefault !== "boolean") throw new BadRequest("useDefault must be boolean");
+  const provider = body?.provider ?? undefined, model = provider !== undefined ? body?.model ?? undefined : undefined;
+  if (provider !== undefined && (typeof provider !== "string" || !CHAT_PICK_PROVIDERS.includes(provider))) throw new BadRequest(`provider must be one of ${CHAT_PICK_PROVIDERS.join("|")}`);
+  if (model !== undefined && (typeof model !== "string" || !PICK_MODEL.test(model))) throw new BadRequest("model must be a model name ([A-Za-z0-9._:/-], 1-100)");
+  if (body?.useDefault === true) {
+    if (provider !== undefined) throw new BadRequest("useDefault cannot be combined with provider");
+    return null;
+  }
+  return provider !== undefined ? { provider, ...(model ? { model } : {}) } : undefined;
+}
 
 // 요청 본문의 model: 없으면 undefined(기본값), GET /models 목록 밖이면 400
 function bodyModel(h: BusHandlers, body: any): string | undefined {
@@ -442,9 +479,19 @@ export class Bus {
       if (!h.settings) return json(res, 503, { error: "settings unavailable" });
       return json(res, 200, h.settings.get());
     }
+    if (req.method === "GET" && url.pathname === "/weather/search") {
+      if (!h.weatherSearch) return json(res, 503, { error: "weather unavailable" });
+      const q = (url.searchParams.get("q") ?? "").trim();
+      if (!q || q.length > 60) throw new BadRequest("q must be 1~60 chars");
+      return json(res, 200, await h.weatherSearch(q));
+    }
     if (req.method === "GET" && url.pathname === "/connections") {
       if (!h.connections) return json(res, 503, { error: "connections unavailable" });
       return json(res, 200, await h.connections.list());
+    }
+    if (req.method === "GET" && url.pathname === "/chat/models") {
+      if (!h.chatModels) return json(res, 503, { error: "chat models unavailable" });
+      return json(res, 200, await h.chatModels(url.searchParams.get("fresh") === "1"));
     }
     if (req.method === "GET" && url.pathname === "/models") {
       if (!h.models) return json(res, 503, { error: "models unavailable" });
@@ -530,12 +577,21 @@ export class Bus {
       const r = h.characters.handle(method, parts, body, upload);
       return json(res, r.status, r.body);
     }
+    if (req.method === "GET" && url.pathname === "/connectors/calendar") {
+      return h.calendarList ? json(res, 200, h.calendarList()) : json(res, 503, { error: "calendar list unavailable" });
+    }
+    if (req.method === "GET" && url.pathname === "/calendar/events") {
+      if (!h.calendarEvents) return json(res, 503, { error: "calendar events unavailable" });
+      const r = parseRange(url.searchParams);
+      if ("error" in r) return json(res, 400, { error: r.error });
+      return json(res, 200, await h.calendarEvents(r));
+    }
     // 직접 만든 프로젝트 — 쓰기(POST·PATCH·DELETE)는 POST 와 같은 헤더 규칙
     if (req.method === "GET" && url.pathname === "/projects/calendar-events") {
       if (!h.calendarPick) return json(res, 503, { error: "calendar pick unavailable" });
       return json(res, 200, await h.calendarPick());
     }
-    const mp = url.pathname.match(/^\/projects\/manual(?:\/([^/]{1,200}))?$/);
+    const mp = url.pathname.match(/^\/projects\/manual(?:\/([^/]{1,200})(\/order)?)?$/);
     if (mp) {
       const method = req.method ?? "GET";
       if (method !== "GET" && (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://")))) return json(res, 403, { error: "forbidden" });
@@ -543,7 +599,8 @@ export class Bus {
       let id: string | undefined;
       try { id = mp[1] === undefined ? undefined : decodeURIComponent(mp[1]); } catch { throw new BadRequest("bad project id"); }
       const body = method === "POST" || method === "PATCH" ? await readJson(req) : undefined;
-      const r = h.manualProjects.handle(method, id, body);
+      // /projects/manual/order 는 프로젝트끼리 순서(프로젝트 id 는 proj:… 라 겹치지 않는다)
+      const r = id === "order" && !mp[2] ? h.manualProjects.handle(method, undefined, body, "projects-order") : h.manualProjects.handle(method, id, body, mp[2] ? "order" : undefined);
       return json(res, r.status, r.body);
     }
     // 행동 지침 — 쓰기(POST·PUT·DELETE)는 POST 와 같은 헤더 규칙
@@ -555,6 +612,13 @@ export class Bus {
       const body = method === "POST" || method === "PUT" ? await readJson(req) : undefined;
       const r = h.guidelines.handle(method, gl[1], body);
       return json(res, r.status, r.body);
+    }
+    const mr = url.pathname.match(/^\/connectors\/mail\/([\w-]{1,64})$/);
+    if (mr && req.method === "DELETE") {
+      if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });
+      if (!h.mailRemove) return json(res, 503, { error: "mail remove unavailable" });
+      const r = h.mailRemove(mr[1]);
+      return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
     }
     if (req.method === "PUT" && url.pathname === "/settings") {
       if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });
@@ -574,6 +638,16 @@ export class Bus {
         for (const k of Object.keys(body)) if (k !== "cap") throw new BadRequest(`unknown key: ${k}`);
         const r = h.connectorDisconnect(body.cap);
         return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
+      }
+      if (url.pathname === "/connectors/calendar") {
+        if (!h.calendarAdd) return json(res, 503, { error: "calendar add unavailable" });
+        const r = await h.calendarAdd(await readJson(req));
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
+      }
+      if (url.pathname === "/connectors/mail") {
+        if (!h.mailConnect) return json(res, 503, { error: "mail connect unavailable" });
+        const r = await h.mailConnect(await readJson(req));
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
       }
       // 첨부 올리기: 본문 = 파일 바이트, 이름은 x-file-name(encodeURIComponent), 종류는 content-type → 201 { attachment }
       if (url.pathname === "/chat/attachments") {
@@ -609,7 +683,7 @@ export class Bus {
         const body = await readJson(req, false);
         for (const k of Object.keys(body)) if (k !== "id") throw new BadRequest(`unknown key: ${k}`);
         if (typeof body.id !== "string") throw new BadRequest("id required");
-        const answer = h.localAsk(body.id);
+        const answer = await h.localAsk(body.id);
         if (!answer) throw new BadRequest("unknown id");
         return json(res, 200, { ok: true, answer });
       }
@@ -774,6 +848,12 @@ export class Bus {
         h.briefing().catch(() => {}); // 오래 걸리므로 기다리지 않는다
         return json(res, 202, { ok: true });
       }
+      if (url.pathname === "/today/carry") {
+        if (!h.todayCarry) return json(res, 503, { error: "today unavailable" });
+        const body = await readJson(req);
+        if (body.decision !== "keep" && body.decision !== "demote") throw new BadRequest("decision must be keep or demote");
+        return json(res, 200, { ok: true, ...(await h.todayCarry(body.decision)) });
+      }
       if (url.pathname === "/todos/reorder") {
         if (!h.todoReorder) return json(res, 503, { error: "todo reorder unavailable" });
         const body = await readJson(req);
@@ -899,11 +979,12 @@ export class Bus {
         if (threadId !== undefined && (typeof threadId !== "string" || !/^[\w-]{1,64}$/.test(threadId))) throw new BadRequest("threadId must be a thread id");
         if (kind !== undefined && kind !== "chat" && kind !== "hover") throw new BadRequest("kind must be chat|hover");
         if (parentRunId !== undefined && (typeof parentRunId !== "string" || !/^[\w-]{1,64}$/.test(parentRunId))) throw new BadRequest("parentRunId must be a run id");
-        const model = bodyModel(h, body);
-        const opts = { ...(threadId ? { threadId } : {}), ...(todoId ? { todoId } : {}), ...(kind ? { kind } : {}), ...(parentRunId ? { parentRunId } : {}), ...(model ? { model } : {}), ...(clientId ? { clientId } : {}), ...(atts?.length ? { attachments: atts as string[] } : {}) };
+        const pick = bodyPick(body);
+        const model = body.provider === undefined ? bodyModel(h, body) : undefined;
+        const opts = { ...(threadId ? { threadId } : {}), ...(todoId ? { todoId } : {}), ...(kind ? { kind } : {}), ...(parentRunId ? { parentRunId } : {}), ...(model ? { model } : {}), ...(pick !== undefined ? { pick } : {}), ...(clientId ? { clientId } : {}), ...(atts?.length ? { attachments: atts as string[] } : {}) };
         const r = Object.keys(opts).length ? h.chat(text, opts) : h.chat(text);
         if (typeof r === "string") return json(res, 202, { chatId: r });
-        if ("error" in r && r.error === "bad_attachment") return json(res, 400, { error: r.message ?? "bad attachment" });
+        if ("error" in r && (r.error === "bad_attachment" || r.error === "bad_model")) return json(res, 400, { error: r.message ?? r.error.replace("_", " ") });
         if ("error" in r) return json(res, 404, { error: r.error === "no_todo" ? "no such todo" : "no such thread" });
         return json(res, 202, r);
       }
@@ -922,9 +1003,10 @@ export class Bus {
         if (body.stopAgents !== undefined && typeof body.stopAgents !== "boolean") throw new BadRequest("stopAgents must be boolean");
         const clientId = body.clientId ?? undefined;
         if (clientId !== undefined && (typeof clientId !== "string" || !/^[\w-]{1,64}$/.test(clientId))) throw new BadRequest("clientId must match [\\w-]{1,64}");
-        const model = bodyModel(h, body);
-        const r = await h.chatEdit(me[1], Number(me[2]), text, { ...(body.stopAgents ? { stopAgents: true } : {}), ...(clientId ? { clientId } : {}), ...(model ? { model } : {}) });
-        if ("error" in r) return json(res, r.error === "no_thread" ? 404 : 409, r);
+        const pick = bodyPick(body);
+        const model = body.provider === undefined ? bodyModel(h, body) : undefined;
+        const r = await h.chatEdit(me[1], Number(me[2]), text, { ...(body.stopAgents ? { stopAgents: true } : {}), ...(clientId ? { clientId } : {}), ...(model ? { model } : {}), ...(pick !== undefined ? { pick } : {}) });
+        if ("error" in r) return json(res, r.error === "no_thread" ? 404 : r.error === "bad_model" ? 400 : 409, r);
         return json(res, 202, r);
       }
       // 줄 서 있는 말 고치기 — 글만(차례 그대로)
@@ -964,8 +1046,17 @@ export class Bus {
         }
         if (th[2] === "delete") return h.chatThreads.remove(th[1]) ? json(res, 200, { ok: true }) : json(res, 404, { error: "no such thread" });
         const body = await readJson(req);
-        const patch: { title?: string; archived?: boolean } = {};
-        for (const k of Object.keys(body)) if (k !== "title" && k !== "archived") throw new BadRequest(`unknown key: ${k}`);
+        const patch: { title?: string; archived?: boolean; pick?: { provider?: string; model?: string } | null } = {};
+        for (const k of Object.keys(body)) if (k !== "title" && k !== "archived" && k !== "pick") throw new BadRequest(`unknown key: ${k}`);
+        // pick: 이 대화에서 고른 뇌·모델({ provider?, model? }) · null = 기본으로
+        if (body.pick !== undefined) {
+          if (body.pick === null) patch.pick = null;
+          else if (!body.pick || typeof body.pick !== "object" || Array.isArray(body.pick) || Object.keys(body.pick).some((k) => k !== "provider" && k !== "model")) throw new BadRequest("pick must be { provider?, model? } or null");
+          else {
+            if (body.pick.provider === undefined && body.pick.model !== undefined) throw new BadRequest("pick.model needs pick.provider");
+            patch.pick = bodyPick({ provider: body.pick.provider, model: body.pick.model }) ?? null;
+          }
+        }
         const t = title(body.title);
         if (t !== undefined) patch.title = t;
         if (body.archived !== undefined) {

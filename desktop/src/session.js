@@ -108,7 +108,7 @@ export function composerMode(run) {
 export function gateComposer(m, brain = {}) {
   if (!m?.enabled) return m;
   if (m.mode === 'continue' && brain.coder === false) {
-    return { ...m, enabled: false, locked: 'coder', placeholder: 'Claude Code 를 설치하면 이어서 할 수 있어요', hint: '코드 작업 이어 하기는 Claude Code 가 있어야 해요. 설치 탭에서 연결할 수 있어요.' };
+    return { ...m, enabled: false, locked: 'coder', placeholder: 'Claude Code 또는 Codex를 연결하면 이어서 할 수 있어요', hint: '코드 작업 이어 하기는 Claude Code 또는 Codex가 있어야 해요. 설치 탭에서 연결할 수 있어요.' };
   }
   if (brain.ready === false && m.mode !== 'inject') {
     return { ...m, enabled: false, locked: 'brain', placeholder: '뇌(AI)를 연결하면 여기서 이어서 말할 수 있어요', hint: '아직 대화할 AI(뇌)가 연결되지 않았어요. Claude Code·Codex 로그인이나 Gemini·OpenAI·Claude API·Genspark 키 중 하나면 돼요.' };

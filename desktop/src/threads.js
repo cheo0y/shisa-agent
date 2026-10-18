@@ -23,6 +23,9 @@ export function normThread(t) {
     ...(typeof t.preview === 'string' && t.preview ? { preview: t.preview } : {}),
     count: Number.isInteger(t.count) ? t.count : 0,
     ...(t.cliSync === true ? { cliSync: true } : {}), // 터미널 Claude Code 에서 이어 간 말을 불러올 수 있음(머리말 ↻)
+    // 이 대화에서 고른 뇌·모델(입력줄 드롭다운) — 없으면 기본
+    ...(t.pick && typeof t.pick === 'object' && typeof t.pick.provider === 'string' && /^[a-z-]{2,20}$/.test(t.pick.provider)
+      ? { pick: { provider: t.pick.provider, ...(typeof t.pick.model === 'string' && /^[A-Za-z0-9._:/-]{1,100}$/.test(t.pick.model) ? { model: t.pick.model } : {}) } } : {}),
   };
 }
 
@@ -148,6 +151,9 @@ function normMsg(m) {
     if (typeof m.todoTitle === 'string' && m.todoTitle) out.todoTitle = m.todoTitle;
   }
   if (m.via === 'cli' && !m.local) out.via = 'cli'; // 터미널 Claude Code 에서 이어 간 말
+  // 답한 뇌·모델(답 아래 작은 글) · 고른 모델이 답하지 못한 말을 기본으로 다시 보내기(로컬 오류 줄)
+  if (role === 'assistant' && typeof m.by?.label === 'string' && m.by.label.trim()) out.by = m.by.label.trim().slice(0, 80);
+  if (role === 'assistant' && m.local && m.retry && Number.isInteger(m.retry.n) && typeof m.retry.text === 'string') out.retry = { n: m.retry.n, text: m.retry.text };
   if (m.local) out.local = true;
   if (m.local && role === 'user' && m.canned === true) out.canned = true; // AI 없이 고른 말(패널이 바로 답함 — 늘 「보냄」)
   if (m.local && typeof m.chatId === 'string' && m.chatId) out.chatId = m.chatId; // 이 말의 POST /chat chatId(대기 중·지금 보내기·취소)

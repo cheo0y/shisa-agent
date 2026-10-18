@@ -7,6 +7,7 @@ import { setCharacter } from "./characters.ts";
 import type { PendingAction } from "./actions.ts";
 import { Chat, CHAT_PROPOSALS, CHAT_SYSTEM, chatPrompt, threadTitle, todoThreadFor, type ChatEvent, type ChatReply, type Converse } from "./chat.ts";
 import { linkNewTodos } from "./chat.ts";
+import { modelLabel } from "./models.ts";
 
 const sent = (r: ReturnType<Chat["send"]>) => { if ("error" in r) throw new Error(r.error); return r; };
 
@@ -25,7 +26,7 @@ function setup(converse: Converse, cfg = loadConfig()) {
     propose: async (pr) => proposals.push(pr),
     summary: async () => "## 대시보드 요약",
   }, converse);
-  return { store, chat, events, panels, proposals, threads, changed: () => changed };
+  return { store, chat, events, panels, proposals, threads, cfg, changed: () => changed };
 }
 
 const reply = (r: Partial<ChatReply>): ChatReply => ({ reply_md: "응", bubble: "응", show: null, proposals: [], ...r });
@@ -54,7 +55,7 @@ test("chat: 한 번에 하나씩, 같은 스레드의 이전 대화만 맥락으
   assert.equal(seen[0].summary, undefined, "맥락 도구 모드(기본)는 대시보드 요약을 미리 안 만든다 — 모델이 dashboard_summary 로");
   assert.deepEqual(s.store.chatHistory().map((t) => t.text), ["첫째", "답:첫째", "둘째", "답:둘째"]);
   assert.deepEqual(s.events.filter((e) => e.chatId === a).map((e) => e.status), ["thinking", "step", "done"]);
-  assert.deepEqual(s.events.find((e) => e.chatId === b && e.status === "done"), { chatId: b, threadId: a1.threadId, status: "done", text: "답:둘째", show: null });
+  assert.deepEqual(s.events.find((e) => e.chatId === b && e.status === "done"), { chatId: b, threadId: a1.threadId, status: "done", text: "답:둘째", show: null, by: { provider: "claude-code", model: s.cfg.models.general, label: `Claude Code · ${modelLabel(s.cfg.models.general)}` } });
   assert.deepEqual(s.store.threadMessages(a1.threadId).map((t) => t.text), ["첫째", "답:첫째", "둘째", "답:둘째"]);
   assert.ok(s.changed() >= 4);
 });
@@ -70,7 +71,7 @@ test("chat: show면 패널 열기, 제안은 propose로, 오류는 error 이벤�
   s.chat.send("고쳐줘");
   await s.chat.idle();
   assert.deepEqual(s.panels, ["projects"]);
-  assert.deepEqual(s.events.find((e) => e.chatId === a && e.status === "done"), { chatId: a, threadId: (s.events.find((e) => e.chatId === a) as any).threadId, status: "done", text: "프로젝트 3개 돌고 있어", show: "projects" });
+  assert.deepEqual(s.events.find((e) => e.chatId === a && e.status === "done"), { chatId: a, threadId: (s.events.find((e) => e.chatId === a) as any).threadId, status: "done", text: "프로젝트 3개 돌고 있어", show: "projects", by: { provider: "claude-code", model: s.cfg.models.general, label: `Claude Code · ${modelLabel(s.cfg.models.general)}` } });
   const err = s.events.find((e) => e.chatId === b && e.status === "error") as any;
   assert.match(err.text, /boom/);
   assert.deepEqual(s.proposals, [{ repo: "/code/app", title: "버튼", plan: "파랑" }]);

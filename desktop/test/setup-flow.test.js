@@ -53,7 +53,7 @@ test('연결 안 함이면 등록 명령을 치우고, 비밀 주소는 남긴�
   assert.equal(add.code, undefined);
   assert.match(add.say, /코딩 에이전트/);
   const cal = buildWalk(['calendar'], { calendar: 'ics' }, 'none');
-  assert.match(textOf(cal), /icsUrl/);
+  assert.match(textOf(cal), /"calendars"/);
   assert.equal(cal.some((s) => s.id === 'calendar-mcp-add'), false);
 });
 
@@ -73,5 +73,6 @@ test('Codex 로 MCP 를 등록하는 단계엔 「시사는 Claude Code 로만 �
   assert.ok(add?.details?.includes(CODEX_MCP_NOTE));
   const claude = buildWalk(['issues'], { issues: 'jira' }, 'claude');
   assert.equal(claude.some((s) => (s.details ?? []).includes(CODEX_MCP_NOTE)), false);
-  assert.match(AGENTS.find((a) => a.id === 'codex').blurb, /코드 고치기와 메일·이슈 MCP 읽기는 Claude Code/);
+  assert.match(AGENTS.find((a) => a.id === 'codex').blurb, /코드 고치기도 Codex/);
+  assert.match(AGENTS.find((a) => a.id === 'codex').blurb, /메일·이슈 MCP 읽기는 Claude Code/);
 });

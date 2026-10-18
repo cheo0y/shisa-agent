@@ -20,6 +20,10 @@ import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts
 import { manualProjectsContext } from "./manual-projects.ts";
 import { sessionsAllowed } from "./onboarding.ts";
 import { workHoursLine, workHoursOf } from "./work-hours.ts";
+import { weatherPeekLine } from "./weather.ts";
+import { mailContextParts, readMailItems } from "./mail-sync.ts";
+import { findMail, mailBodyBlock, MAIL_TOOL_CHARS, refFrom } from "./mail-pick.ts";
+import { calendarToolText, calendarTz, rangeArgs, readCalendarBlock, type CalendarRead } from "./calendar-ai.ts";
 
 export { CTX_SERVER, CTX_TOOL_NAMES };
 export type ContextMode = "tools" | "inline";
@@ -45,21 +49,34 @@ export function fmtNow(now: Date = new Date()) {
 
 // ── 머리말 ─────────────────────────────────────────────
 const KIND_KO: Record<string, string> = { chat: "채팅", todo: "할 일 대화", hover: "캐릭터 대화" };
-export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작업 세션·답 안 한 Slack·프로필·프로젝트 현황·회의)은 여기 없다 — 필요하면 cy 도구로 찾아라.";
+export const CTX_POINTER = "- 업무 맥락(할 일·지식그래프·최근 작업 세션·답 안 한 Slack·프로필·프로젝트 현황·회의·일정)은 여기 없다 — 필요하면 cy 도구로 찾아라.";
 
 // 매 턴 붙는 작은 머리말: 지금 시각(KST), 사용자, 이 대화(스레드·할 일). 집어 든 할 일의 자세한 블록은 chat.ts focusBlock
 // guidelines: 사용자가 정한 행동 지침 블록(guidelines.ts guidelinesBlock) — 상한(HEADER_MAX)과 따로, 늘 끝에 붙는다
-export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string } = {}): string {
-  const now = opts.now ?? new Date();
+// 「- 사용자: 이름 (GitHub·Slack)」 한 줄. 도구 쓰는 뇌의 머리말과 도구 없는 뇌(Gemini·OpenAI 등)의 큰 맥락 블록이 같이 쓴다
+export function userLine(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & { user?: Config["user"] }): string {
   const who = [cfg.gitAuthor?.name ? `GitHub ${cfg.gitAuthor.name}` : "", cfg.slackUserId ? `Slack ${cfg.slackUserId}` : ""].filter(Boolean).join(", ");
+  // 「사용자: 이름 (GitHub cy-agent)」 꼴은 Gemini 가 계정 아이디로 읽고 「아직 학습된 사실 없음」(프로필)을 믿어 이름을 모른다고 했다 → 뜻을 못 박는다
+  const name = displayUserName(cfg.user);
+  const nameLine = name
+    ? `- 사용자 이름: ${name} (사용자가 설정에서 직접 정한 이름이다. 이름을 물으면 이 이름으로 답하고, 사용자를 이렇게 부른다)`
+    : "- 사용자 이름: (아직 정하지 않음 — 설정의 이름 칸에서 정할 수 있다)";
+  return who ? `${nameLine}\n- 사용자 계정: ${who}` : nameLine;
+}
+
+export function contextHeader(cfg: Pick<Config, "slackUserId" | "gitAuthor"> & Partial<Pick<Config, "workStart" | "lunchTime" | "workEnd" | "workDays" | "lunchAlert">> & { user?: Config["user"] }, opts: { now?: Date; thread?: Pick<Thread, "title" | "kind">; focus?: Pick<Todo, "id" | "title" | "priority">; guidelines?: string; mail?: string } = {}): string {
+  const now = opts.now ?? new Date();
   const lines = [
     "## 지금",
     `- 시각: ${fmtNow(now)} (KST)`,
     workHoursLine(workHoursOf(cfg as Record<string, unknown>), now), // 「퇴근까지 얼마나 남았어?」 같은 질문용(설정 「근무 시간」)
-    `- 사용자: ${displayUserName(cfg.user) || "(이름 모름 — 설정 user.name)"}${who ? ` (${who})` : ""}`,
+    userLine(cfg),
   ];
+  const weather = weatherPeekLine(); // 날씨 알리미 지역을 골랐고 예보가 캐시에 있으면 한 줄(weather.ts)
+  if (weather) lines.push(weather);
   if (opts.thread) lines.push(`- 이 대화: ${KIND_KO[opts.thread.kind] ?? opts.thread.kind} "${clip(opts.thread.title, 60)}"`);
   if (opts.focus) lines.push(`- 대상 할 일: id=${opts.focus.id} [P${opts.focus.priority}] ${clip(opts.focus.title, 80)}`);
+  if (opts.mail) lines.push(clip(opts.mail, 160)); // 메일(IMAP)을 연결했으면 몇 통 왔는지 한 줄(mail-sync.ts mailSummaryLine)
   lines.push(CTX_POINTER);
   const out = lines.join("\n");
   const head = out.length > HEADER_MAX ? out.slice(0, HEADER_MAX - 1) + "…" : out;
@@ -72,6 +89,8 @@ export const CTX_GUIDE = `- 업무 맥락은 프롬프트에 넣지 않았다. �
   - 할 일(뭐 해야 돼·열린 일·백로그·끝낸 일·todo_ops 에 쓸 id·할 일 규칙) → todos_list(status)
   - 어제·최근에 한 작업 → sessions_recent(project?, hours?) — 한 세션의 마지막 요청·응답 전문은 session_get(id)
   - 답 안 한 Slack DM·멘션 → slack_unanswered · 다가오는 회의(respond_event 의 event_id) → meetings_upcoming
+  - 일정(오늘·내일 밖도: 다음 주·이번 달·특정 날짜·요일) → calendar_events(from, to) — 사용자가 말한 기간을 YYYY-MM-DD 로 넣는다(주는 월요일 시작, 말이 없으면 오늘부터 7일). 결과에 없는 날의 일정을 지어내지 말고, 없으면 없다고 말한다. 결과 끝에 「from=… 로 다시」가 있으면 이어 부른다. 캘린더를 MCP 로 연결했으면 그 캘린더 도구로 읽는다
+  - 최근 받은 메일(메일 앱 비밀번호 연결 — 보낸 사람·제목·본문 앞부분) → mail_recent · 한 통의 전체 본문(사용자가 본문·원문·자세히를 원하면) → mail_read(id=ref)
   - 프로젝트 현황(내가 만든 프로젝트·할 일 수 포함)·오늘 커밋·진행 중인 제안 → dashboard_summary · 최근 7일 프로젝트(레포 경로) → projects_recent
   - 사용자 취향·습관·자주 일하는 사람 → profile_get
 - 인사·잡담·짧은 대꾸, 또는 이 대화에 이미 나온 정보로 답할 수 있으면 cy 도구를 부르지 않는다. 필요할 때도 꼭 필요한 것만(보통 1–3번).
@@ -112,8 +131,10 @@ export function capOut(s: string, max = CTX_MAX_OUT): string {
   return s.length > max ? `${s.slice(0, max - 40)}\n…(잘림 — 더 좁혀서 다시 물어라)` : s;
 }
 const out = (title: string, body: string, isError = false): Text => ({ content: [{ type: "text", text: capOut(`## ${title} ${DATA_NOTE}\n${body || "(없음)"}`) }], ...(isError ? { isError } : {}) });
+// 메일(목록·전체 본문)은 자르지 않는다 — 개수·본문 상한 없음(mail-imap.ts·mail-pick.ts)
+const outAll = (title: string, body: string): Text => ({ content: [{ type: "text", text: `## ${title} ${DATA_NOTE}\n${body || "(없음)"}` }] });
 
-export type CtxDeps = { now?: () => Date; dashboard?: () => Promise<Dashboard> };
+export type CtxDeps = { now?: () => Date; dashboard?: () => Promise<Dashboard>; calendar?: CalendarRead; timeZone?: string };
 export type TodoStatus = "open" | "backlog" | "done" | "history" | "all";
 export const KG_KINDS = ENTITY_TYPES;
 
@@ -229,9 +250,40 @@ export function ctxHandlers(cfg: Config, store: Store, deps: CtxDeps = {}) {
     projects_recent: () => guard("최근 7일 프로젝트", async () => {
       const d = await dashboard();
       const ps = d.projects.filter((p) => !p.hidden).slice(0, 15);
-      const mine = manualProjectsContext(d.manualProjects ?? []);
+      const mine = manualProjectsContext(d.manualProjects ?? [], d.todos ?? []);
       return out("최근 7일 프로젝트 (레포 경로 — 코드 작업 proposals 의 repo 는 여기 경로)", [...ps.map((p) =>
         `- ${p.name} (${p.path}) — 마지막 활동 ${fmtTime(p.lastActive)}, 24h 세션 ${p.sessions24h}, 오늘 커밋 ${p.commitsToday}${p.branch ? `, ${p.branch}` : ""}${p.lastTitle ? ` · 최근: ${clip(p.lastTitle, 60)}` : ""}`), ...mine].join("\n"));
+    }),
+    // 길면 나눠서: 한 번에 MAIL_TOOL_CHARS 안팎, 남으면 「from=N 으로 다시」
+    mail_recent: (a: { from?: number } = {}) => guard("최근 받은 메일", () => {
+      const p = mailContextParts(store);
+      if (!p) return outAll("최근 받은 메일 (받은편지함 읽기 전용)", "(메일 앱 비밀번호 연결이 없다 — 메일 MCP 가 연결돼 있으면 그 도구로 읽는다)");
+      const start = Math.min(Math.max(0, Math.floor(Number(a.from) || 0)), p.lines.length);
+      const take: string[] = [];
+      let used = 0, i = start;
+      for (; i < p.lines.length; i++) {
+        if (take.length && used + p.lines[i].length > MAIL_TOOL_CHARS) break;
+        take.push(p.lines[i]); used += p.lines[i].length + 1;
+      }
+      const more = i < p.lines.length ? [`(한 번에 다 담지 못해 ${start + 1}~${i}번째 메일까지 보냈다. 모두 ${p.lines.length}통 — 나머지는 mail_recent 를 from=${i} 로 다시 부른다)`] : [];
+      return outAll("최근 받은 메일 (받은편지함 읽기 전용)", [...p.head.slice(1), ...(start ? [`(${start + 1}번째 메일부터)`] : []), ...take, ...more].join("\n"));
+    }),
+    mail_read: (a: { id?: string; ids?: string[] } = {}) => guard("메일 전체 본문", () => {
+      const ids = [...(a.id ? [a.id] : []), ...(Array.isArray(a.ids) ? a.ids : [])].map((x) => String(x));
+      const items = readMailItems(store);
+      // 「ref#from=N」: 긴 메일을 N번째 글자부터 이어 읽기. 한 번에 다 못 담으면 나눠서(남은 ids 를 알려 준다)
+      const found = ids.map((id) => ({ m: findMail(items, id), from: refFrom(id) })).filter((x): x is { m: NonNullable<typeof x.m>; from: number } => !!x.m);
+      const miss = ids.filter((id) => !findMail(items, id));
+      const body = found.length ? mailBodyBlock(found, { budget: MAIL_TOOL_CHARS, next: "tool", all: items }).split("\n").slice(1).join("\n") : "";
+      return outAll("메일 전체 본문 (받은편지함 읽기 전용)", [body, ...(miss.length ? [`(없는 메일: ${miss.join(", ")} — mail_recent 의 ref 를 쓴다)`] : []), ...(!ids.length ? ["(id 를 주세요 — mail_recent 의 ref=…)"] : [])].filter(Boolean).join("\n"));
+    }),
+    // 보는 기간의 일정(캘린더 탭과 같은 길: ICS 직접 읽기·반복 펼치기·꺼 둔 캘린더 제외·별칭). 길면 날짜 단위로 나눠 보낸다
+    calendar_events: (a: { from?: string; to?: string; days?: number } = {}) => guard("일정", async () => {
+      const tz = deps.timeZone ?? calendarTz();
+      const r = rangeArgs(a, now(), tz);
+      if ("error" in r) return outAll("일정", r.error);
+      const b = await readCalendarBlock(store, r, { ...(deps.calendar ? { read: deps.calendar } : {}), tz, tools: true });
+      return outAll(`${b.title} (캘린더 읽기 전용)`, calendarToolText(b, r, tz, CTX_MAX_OUT - 400));
     }),
     meetings_upcoming: () => guard("다가오는 회의", () => {
       const s = meetingsContext(store, now());
@@ -256,6 +308,9 @@ export function ctxMcpServer(cfg: Config, store: Store, deps: CtxDeps = {}) {
     tool("slack_unanswered", "아직 답 안 한 Slack DM·멘션(로컬 수집 확정 목록)", { hours: z.number().int().min(1).max(168).optional().describe("기본 24") }, h.slack_unanswered, RO),
     tool("dashboard_summary", "내가 만든 프로젝트(id·기한·남은 할 일)·오늘 커밋 수·진행 중인 제안·마지막 브리핑", {}, h.dashboard_summary, RO),
     tool("projects_recent", "최근 7일 프로젝트(레포 경로·마지막 활동·세션·커밋·브랜치)", {}, h.projects_recent, RO),
+    tool("mail_recent", "최근 받은 메일(메일 앱 비밀번호로 데몬이 가져온 받은편지함 — 보낸 사람·제목·본문 앞부분). 많으면 나눠 오니 끝 줄의 from 으로 이어 부른다", { from: z.number().int().min(0).optional().describe("몇 번째 메일부터(이어 읽기)") }, h.mail_recent, RO),
+    tool("mail_read", "메일 한 통(또는 여러 통)의 전체 본문 — id 는 mail_recent 줄의 ref(mail:…)", { id: z.string().max(1000).optional().describe("ref, 예: mail:abc@example.com"), ids: z.array(z.string().max(1000)).optional().describe("여러 통이면") }, h.mail_read, RO),
+    tool("calendar_events", "기간의 일정(날짜별: 요일 날짜 · 시각~시각 · 제목 · 캘린더 별칭 · 장소·회의 링크 유무). 다음 주·이번 달·특정 날짜처럼 사용자가 말한 기간을 넣는다. 길면 나눠 오니 끝 줄의 from 으로 이어 부른다", { from: z.string().optional().describe("시작 날짜 YYYY-MM-DD(또는 ISO 시각). 없으면 오늘"), to: z.string().optional().describe("끝 날짜 YYYY-MM-DD(그날까지 들어감, 또는 ISO 시각). 없으면 from 부터 days 일"), days: z.number().int().min(1).optional().describe("to 가 없을 때 며칠(기본 7)") }, h.calendar_events, RO),
     tool("meetings_upcoming", "다가오는 회의(eventId·시간·내 응답) — 회의 수락·거절할 때", {}, h.meetings_upcoming, RO),
   ];
   return createSdkMcpServer({

@@ -12,9 +12,25 @@ export function normFocus(raw) {
   const num = (v) => (Number.isFinite(v) ? v : 0);
   const a = raw.active;
   const active = a && typeof a === 'object' && typeof a.id === 'string'
-    ? { id: a.id, startedAt: num(a.startedAt), paused: a.paused === true, baseMs: Math.max(0, num(a.baseMs)), since: Number.isFinite(a.since) ? a.since : null, seconds: Math.max(0, num(a.seconds)) }
+    ? { id: a.id, startedAt: num(a.startedAt), paused: a.paused === true, baseMs: Math.max(0, num(a.baseMs)), since: Number.isFinite(a.since) ? a.since : null, seconds: Math.max(0, num(a.seconds)),
+      goalSec: Number.isFinite(a.goalSec) && a.goalSec > 0 ? a.goalSec : null, // 「25분 집중할게」처럼 정한 시간(초)
+      todo: a.todo && typeof a.todo.id === 'string' && typeof a.todo.title === 'string' && a.todo.title.trim() ? { id: a.todo.id, title: a.todo.title.trim() } : null }
     : null;
   return { active, day: typeof raw.day === 'string' ? raw.day : '', today: Math.max(0, num(raw.today)), now: num(raw.now) };
+}
+
+// 집중 명령 보내기(캐릭터 말풍선·패널이 같이 쓴다): 던지거나 답이 끝내 안 와도 ms 뒤 { ok: false } — 단추가 「누르는 중」에 영영 묶이지 않게
+export const FOCUS_CMD_TIMEOUT_MS = 20e3; // 메인의 POST 시간 제한(15초)보다 조금 길게
+export async function focusSend(send, cmd, ms = FOCUS_CMD_TIMEOUT_MS) {
+  let timer;
+  const late = new Promise((ok) => { timer = setTimeout(() => ok({ ok: false, error: 'timeout' }), ms); });
+  try {
+    return (await Promise.race([Promise.resolve().then(() => send(cmd)), late])) ?? { ok: false };
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // 지금까지 집중한 초(일시정지면 멈춘 값)
@@ -66,9 +82,11 @@ export function focusBubble(f, now = Date.now()) {
   const a = f?.active;
   if (!a) return null;
   const sec = elapsedSec(a, now);
+  const t = a.todo ? [...a.todo.title] : null; // 할 일로 집중하면 그 제목(길면 줄여서)
   return {
-    label: a.paused ? '잠깐 쉬는 중' : '집중 중',
-    time: fmtClock(sec),
+    label: a.paused ? '잠깐 쉬는 중' : t ? (t.length > 12 ? `${t.slice(0, 11).join('')}…` : t.join('')) : '집중 중',
+    time: a.goalSec ? `${fmtClock(sec)} / ${fmtClock(a.goalSec)}` : fmtClock(sec),
+    ...(a.todo ? { title: `집중 중: ${a.todo.title}` } : {}),
     paused: a.paused,
     toggle: a.paused ? { cmd: 'resume', label: '다시 시작' } : { cmd: 'pause', label: '일시정지' },
   };

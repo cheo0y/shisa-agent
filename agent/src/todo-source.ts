@@ -110,7 +110,7 @@ export function describePrompt(t: Todo, o: TodoSource | undefined): string {
 // 가벼운 모델(cfg.models.light), 도구 없이 한 번
 export const describeTodo: Describe = async (cfg, t, o) => {
   const r = await ask<{ description: string }>(cfg, describePrompt(t, o), DESC_SCHEMA, undefined, {
-    model: cfg.models.light, tools: false, system: "너는 할 일 목록에 붙일 짧은 설명을 쓰는 도우미다. 한국어 존댓말(~요)로 한두 문장.",
+    model: cfg.models.light, role: "light", tools: false, system: "너는 할 일 목록에 붙일 짧은 설명을 쓰는 도우미다. 한국어 존댓말(~요)로 한두 문장.",
   });
   return clip(r?.description ?? "", 300);
 };

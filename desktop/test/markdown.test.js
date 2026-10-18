@@ -59,3 +59,19 @@ test('콜아웃·글자색·형광펜', () => {
   assert.match(render('이건 ==중요==해'), /<mark>중요<\/mark>해/);
   assert.match(render('| a | b |\n|---|---|\n| :blue[진행] | ==x== |'), /<td><span class="c-blue">진행<\/span><\/td>/);
 });
+
+test('채팅 답의 표: 머리줄·정렬 줄·칸 안 굵게·색까지, 패널은 가로 스크롤·칸 줄바꿈, 말풍선은 줄여 보이기(CSS)', async () => {
+  const h = md('메일 세 통이야.\n\n| 시각 | 보낸 사람 | 제목 |\n| :--- | :---: | ---: |\n| 23:17 | **Google** | 보안 알림: 새 기기에서 로그인했어요 |\n| 22:40 | GitHub | :orange[리뷰 요청] |');
+  assert.match(h, /<table>/);
+  assert.match(h, /<th[^>]*>시각<\/th>/);
+  assert.match(h, /<th align="center">보낸 사람<\/th>|<th style="text-align: ?center;?">보낸 사람<\/th>/);
+  assert.equal((h.match(/<tr>/g) ?? []).length, 3);
+  assert.match(h, /<td[^>]*><strong>Google<\/strong><\/td>/);
+  assert.match(h, /<span class="c-orange">리뷰 요청<\/span>/);
+  const { readFileSync } = await import('node:fs');
+  const panel = readFileSync(new URL('../renderer/panel.css', import.meta.url), 'utf8');
+  const bubble = readFileSync(new URL('../renderer/style.css', import.meta.url), 'utf8');
+  assert.match(panel, /\.msg \.md table \{ display: block; max-width: 100%; overflow-x: auto;/);
+  assert.match(panel, /\.msg \.md th, \.msg \.md td \{[^}]*overflow-wrap: break-word/);
+  assert.match(bubble, /\.bubble \.md th, \.bubble \.md td \{ max-width: 9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/);
+});

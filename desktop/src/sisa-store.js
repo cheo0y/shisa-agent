@@ -38,7 +38,6 @@ export function normalizeSisa(raw) {
     gsk: d.gsk === true,
     provider: ALL_PROVIDERS.includes(d.provider) || d.provider === 'none' ? d.provider : '',
     chatModels,
-    codeModel: isModelId(d.codeModel) ? d.codeModel : 'default',
     persona: typeof d.persona === 'string' && !isStockPersona(d.persona) ? d.persona : '',
     canned: sanitizeCanned(d.canned),
     done: obj(d.done),
@@ -76,7 +75,6 @@ export function publicView(data, defaultPersona = '') {
     done: d.done,
     connected: connectedProviders(d),
     chatModels: d.chatModels,
-    codeModel: d.codeModel,
   };
 }
 
@@ -118,8 +116,9 @@ export function withSkip(data) {
   return { ...normalizeSisa(data), provider: 'none' };
 }
 
-// { chat: { provider, model }, code: model } → 새 데이터. 값이 잘못되면 null.
-export function withModels(data, { chat, code } = {}) {
+// { chat: { provider, model } } → 새 데이터. 값이 잘못되면 null.
+// 코드 작업 AI·모델은 여기 두지 않는다(데몬 설정 하나 — 설정 창 「세부 모델」의 코드 작업 칸)
+export function withModels(data, { chat } = {}) {
   const d = normalizeSisa(data);
   let next = d;
   if (chat !== undefined) {
@@ -131,10 +130,6 @@ export function withModels(data, { chat, code } = {}) {
       if (!connectedProviders(d).includes(p) || !isModelId(m)) return null;
       next = { ...next, provider: p, chatModels: { ...next.chatModels, [p]: m } };
     }
-  }
-  if (code !== undefined) {
-    if (!isModelId(code)) return null;
-    next = { ...next, codeModel: code };
   }
   return next;
 }
@@ -164,8 +159,8 @@ export function daemonBrainPatch(data) {
   // Genspark 를 gsk login 키로 쓰면 데몬 설정의 키를 지운다(null) — 데몬이 gsk login 파일을 읽는다
   if (KEY_FIELD[chosen]) brain[KEY_FIELD[chosen]] = d.keys[chosen] ?? (chosen === 'genspark' ? null : undefined);
   const m = d.chatModels[chosen];
-  // models.general: 고른 모델(기본값이면 비운다). codex·local 은 데몬 쪽 기본을 그대로
-  const general = chosen === 'codexcli' || chosen === 'none' ? undefined : m && m !== 'default' ? m : null;
+  // 고른 모델을 전달한다(기본값이면 비움). local 은 모델을 쓰지 않는다.
+  const general = chosen === 'none' ? undefined : m && m !== 'default' ? m : null;
   return { brain, general };
 }
 
@@ -189,6 +184,19 @@ export function withDaemonBrain(cfg, patch) {
   const brain = { ...obj(c.brain), ...patch.brain };
   for (const [k, v] of Object.entries(brain)) if (v === null || v === undefined) delete brain[k]; // null = 그 키를 지운다
   const next = { ...c, brain };
+  // Claude 가 아닌 뇌의 모델은 그 뇌 칸(brainModels[뇌].general)에 — models.general(Claude Code 가 쓰는 값)은 건드리지 않는다(데몬 settings.ts 와 같게)
+  const p = brain.provider;
+  if (patch.general !== undefined && p && p !== 'claude-code' && p !== 'anthropic' && p !== 'local') {
+    const all = { ...obj(c.brainModels) };
+    const mine = { ...obj(all[p]) };
+    if (patch.general) mine.general = patch.general;
+    else delete mine.general;
+    if (Object.keys(mine).length) all[p] = mine;
+    else delete all[p];
+    if (Object.keys(all).length) next.brainModels = all;
+    else delete next.brainModels;
+    return next;
+  }
   if (patch.general !== undefined) {
     const models = { ...obj(c.models) };
     if (patch.general) models.general = patch.general;

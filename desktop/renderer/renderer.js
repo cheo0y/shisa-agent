@@ -1,6 +1,6 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
-import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons } from '../src/bubbles.js';
-import { quickBubble, chipsOf, chipAction, answerBubble, QUICK_ID } from '../src/quick-ask.js';
+import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons, carryButtons } from '../src/bubbles.js';
+import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
@@ -9,10 +9,13 @@ import { createMarkdown } from '../src/markdown.js';
 import { initialChat, chatReducer, isBusy, summarizeReply, stopTargets, busyCaption } from '../src/chat.js';
 import { createAttachTray } from './attach-tray.js';
 import { hasFiles, filesFromTransfer, ATTACH_ERRORS } from '../src/attachments.js';
-import { normFocus, focusBubble, doingBubble } from '../src/focus.js';
+import { normFocus, focusBubble, doingBubble, focusSend } from '../src/focus.js';
 import { who, setWho } from './who.js';
 import { characterAssets, redrawCharacter, okCharacter, localSay, clipFor, danceClipOf, danceVariantOf, variantsOf, pickVariant, DANCE_MAX_MS, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, fitBox } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
+import { BubbleExpiry } from '../src/bubble-expiry.js';
+import { createHoverAsk, hoverAskAllowed } from '../src/hover-ask.js';
+import { createPressTracker, missedClick, missedPress, staleHold } from '../src/press.js';
 
 const cy = window.cy;
 const stack = document.getElementById('stack');
@@ -230,24 +233,58 @@ wrap.dataset.view = 'idle';
 // 한 항목 = (그림 말풍선) + 글 말풍선. 그림이 먼저 뜨고 글은 SEQUENCE_GAP 뒤에.
 const queue = new BubbleQueue();
 const els = new Map(); // id → .item
-const timers = new Map(); // id → timeout
 const current = (id) => queue.items.find((x) => x.id === id);
 
+// 만료: 말풍선마다 만료 시각(보인 시각 + ttl)을 적어 두고 타이머는 가장 이른 것 하나만 건다.
+// 맥에서 타이머가 몇 분씩 늦게 깨도(App Nap·배경 타이머 억제) 깨는 순간·새 말풍선·마우스·창 보임 때 지난 것을 한꺼번에 치운다
+const expiry = new BubbleExpiry();
+let expiryTimer = null;
+
 function schedule(b) {
-  clearTimeout(timers.get(b.id));
-  timers.delete(b.id);
-  if (!b.ttlMs) return;
-  timers.set(b.id, setTimeout(() => {
-    const el = els.get(b.id);
-    // 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다
-    if (el && (el.matches(':hover') || el.querySelector('.merge-ask:not([hidden])'))) return schedule({ ...b, ttlMs: 3000 });
-    dismiss(b.id);
-  }, b.ttlMs));
+  if (!b) return;
+  expiry.set(b.id, b.ttlMs);
+  armExpiry();
+}
+
+function armExpiry() {
+  clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const n = expiry.next();
+  if (n === null) return;
+  expiryTimer = setTimeout(() => { expiryTimer = null; catchUp(); }, Math.max(0, n - Date.now()) + 15);
+}
+
+// 마우스 올려두거나 추가질문 입력 중이면 조금 더 둔다(만료 시각을 3초씩 미룬다)
+function bubbleBusy(id) {
+  const el = els.get(id);
+  return !!el && (el.matches(':hover') || !!el.querySelector('.merge-ask:not([hidden])'));
+}
+
+// 만료 시각이 지난 말풍선을 큐에서 뺀다(그리기는 render 가)
+function dropExpired() {
+  let n = 0;
+  for (const id of expiry.sweep(bubbleBusy)) if (queue.remove(id)) n++;
+  return n;
+}
+
+// 늦게 깬 타이머·이벤트에서 부른다: 지난 말풍선 치우기 + 그림→글 순서·그림 내리기도 시각으로 맞춘다
+function catchUp() {
+  const t = Date.now();
+  let hit = false;
+  for (const el of els.values()) {
+    if (el._textAt && el._textAt <= t && el.classList.contains('text-pending')) { el.classList.remove('text-pending'); hit = true; }
+    if (el._stickerGoneAt && el._stickerGoneAt <= t && !el.classList.contains('sticker-gone')) { el.classList.add('sticker-gone'); hit = true; }
+  }
+  if (expiry.due().length) render();
+  else {
+    armExpiry();
+    if (hit) requestAnimationFrame(recheckHit);
+  }
 }
 
 function dismiss(id) {
-  clearTimeout(timers.get(id));
-  timers.delete(id);
+  expiry.delete(id);
+  armExpiry();
   if (queue.remove(id)) render();
 }
 
@@ -278,6 +315,7 @@ function buildEl(b) {
   const steps = sequence(b);
   if (steps.length === 2) {
     item.classList.add('text-pending');
+    item._textAt = Date.now() + steps[1].delay;
     setTimeout(() => { item.classList.remove('text-pending'); requestAnimationFrame(recheckHit); }, steps[1].delay);
   }
   fillEl(item, b);
@@ -314,6 +352,7 @@ function setSticker(item, b) {
   item.classList.remove('sticker-gone');
   st.src = assetUrl(b.image);
   clearTimeout(item._stickerTimer);
+  item._stickerGoneAt = Date.now() + stickerTtl(b);
   item._stickerTimer = setTimeout(() => { item.classList.add('sticker-gone'); requestAnimationFrame(recheckHit); }, stickerTtl(b));
 }
 
@@ -360,6 +399,14 @@ function fillEl(item, b) {
         if (t.cmd === 'stop' || b.tour.step >= b.tour.total) dismiss(b.id);
       }));
     }
+  } else if (carryButtons(b).length) {
+    // 아침 질문 「어제 남은 N개, 오늘도 할까요?」: 그대로 둘게요 · 이번 주로 내려요(데몬에 보낸다) · 하나씩 볼게요(패널 오늘 할 일 탭)
+    for (const c of carryButtons(b)) {
+      const btn = button(c.label, c.primary ? 'primary' : '', () => (c.cmd === 'open' ? (cy.openItem('today', null), dismiss(b.id)) : carryDecide(b, c.cmd)));
+      btn.title = c.title;
+      btn.disabled = !!b.pending;
+      meta.append(btn);
+    }
   } else if (b.quick) {
     // AI 없이 고르는 질문 칩: 누르면 데몬이 정해진 말로 답한다(칩 말풍선은 남겨 두고 답은 새 말풍선으로)
     meta.classList.add('quick-bar');
@@ -377,7 +424,16 @@ function fillEl(item, b) {
     meta.append(n);
   }
   if (b.link) meta.append(button(b.linkLabel ?? linkLabel(b.link), 'link', () => cy.openLink(b.link)));
-  if (b.open) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
+  // ✕ 닫기(closable): 다시 그릴 때 겹치지 않게 하나만
+  const bub = meta.parentElement;
+  bub?.querySelector(':scope > button.close')?.remove();
+  if (b.closable && bub) {
+    const x = button('✕', 'close', () => dismiss(b.id));
+    x.setAttribute('aria-label', '닫기');
+    x.title = '닫기';
+    bub.append(x);
+  }
+  if (b.open && !carryButtons(b).length) meta.append(button(b.openLabel ?? '패널에서 보기', 'link', () => { cy.openItem(b.open.section, b.open.id ?? null); if (!isWaitingApproval(current(b.id) ?? b)) dismiss(b.id); }));
   else if (b.panelSection) meta.append(button('패널에서 보기', 'link', () => { cy.openPanel(b.panelSection); dismiss(b.id); }));
   // 추가질문 입력줄은 머지 말풍선에서만
   if (!(b.actions === 'merge' && !b.decided)) closeMergeAsk(b.id, false);
@@ -417,6 +473,20 @@ function button(label, cls, onClick) {
   if (cls) btn.className = cls;
   btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return btn;
+}
+
+// 아침 질문 답: 보내는 동안 단추를 끄고, 되면 짧은 확인 말로 바꾼다(데몬도 같은 말풍선을 걷는다)
+async function carryDecide(b, decision) {
+  queue.update(b.id, { pending: true });
+  render();
+  let r;
+  try { r = await cy.todayCarry(decision); } catch { r = { ok: false }; }
+  const moved = Number(r?.data?.moved) || 0;
+  const text = !r?.ok ? '지금은 못 바꿨어요. 패널 오늘 할 일 탭에서 골라 주세요'
+    : decision === 'demote' ? (moved ? `${moved}개를 이번 주로 내렸어요` : '내릴 게 없었어요') : '좋아요, 오늘도 같이 해요';
+  const it = queue.update(b.id, { pending: false, decided: true, carry: undefined, kind: r?.ok ? 'done' : 'error', text, ttlMs: 5000 });
+  if (it) schedule(it);
+  render();
 }
 
 async function decide(b, action) {
@@ -560,6 +630,8 @@ async function sendMergeAsk(id, q) {
 }
 
 function render() {
+  dropExpired();
+  expiry.keep(new Set(queue.items.map((x) => x.id))); // 큐에서 밀려난 것은 잊는다
   const vis = queue.visible();
   const ids = new Set(vis.map((b) => b.id));
 
@@ -587,6 +659,7 @@ function render() {
     el.classList.add(age === 0 ? 'newest' : `age-${Math.min(age, 2)}`);
     stack.append(el); // 순서 맞추기(이미 있으면 이동)
   });
+  armExpiry();
   requestAnimationFrame(recheckHit);
 }
 
@@ -595,11 +668,8 @@ function showBubble(raw) {
   const b = normalizeBubble(raw);
   if (!b) return;
   queue.add(b);
-  // 큐에서 밀려난 것들 타이머 정리
-  const alive = new Set(queue.items.map((x) => x.id));
-  for (const id of timers.keys()) if (!alive.has(id)) { clearTimeout(timers.get(id)); timers.delete(id); }
   schedule(b);
-  render();
+  render(); // 밀려난 것의 만료 시각 정리 · 그새 지난 것도 같이 치운다
 }
 
 cy.onClear((p) => { if (p && typeof p.id === 'string') dismiss(p.id); });
@@ -636,6 +706,8 @@ cy.getCharacters?.().then(takeCharacters).catch(() => {});
 cy.onCharacters?.(takeCharacters);
 cy.onState((p) => { if (typeof p?.character === 'string') setCharacter(p.character); setMood(p?.mood); dispatchActivity({ type: 'state', activity: p?.activity, runs: p?.runs, danceId: p?.danceId, danceClip: p?.danceClip, danceVariant: p?.danceVariant }); }); // danceClip: 일정 알림·춤·응원·점심 중 어느 칸 · danceVariant: 그 칸의 몇 번째 영상(데몬이 고른다)
 
+cy.onState(catchUp); // 데몬 상태가 올 때마다(타이머가 늦게 깨도) 지난 말풍선을 치운다
+
 cy.onConnection(({ connected }) => {
   wrap.classList.toggle('sleepy', !connected);
   dispatchActivity({ type: 'connection', connected: !!connected });
@@ -657,6 +729,7 @@ const focusStopBtn = document.getElementById('focus-stop');
 let focus = null;
 let focusTick = null;
 let focusBusy = false;
+let focusSize = '';
 function drawFocus() {
   const v = focusBubble(focus);
   const was = !focusEl.hidden;
@@ -664,16 +737,23 @@ function drawFocus() {
   if (v) {
     focusEl.classList.toggle('paused', v.paused);
     focusLabel.textContent = v.label;
+    focusEl.title = v.title ?? '';
     focusTime.textContent = v.time;
     focusToggle.textContent = v.toggle.label;
     focusToggle.dataset.cmd = v.toggle.cmd;
     focusToggle.disabled = focusStopBtn.disabled = focusBusy;
   }
-  if (was !== !!v) requestAnimationFrame(recheckHit);
+  // 글 길이가 바뀌어 말풍선 크기가 달라지면(「59:59」→「1:00:00」·일시정지 글) 커서 밑 hit 를 다시 본다 — 마우스를 안 움직여도 단추가 눌리게
+  const size = v ? `${focusEl.offsetWidth}x${focusEl.offsetHeight}` : '';
+  if (was !== !!v || size !== focusSize) requestAnimationFrame(recheckHit);
+  focusSize = size;
   drawDoing(); // 집중하기가 먼저 — 집중하는 동안 진행 중 말풍선은 숨는다
 }
 function setFocus(raw) {
+  const was = !!focus?.active;
   focus = raw ? normFocus(raw) : null;
+  // 칩 말풍선이 떠 있는 채로 집중이 시작·끝나면(정한 시간을 채움 등) 「집중 시작할래?」↔「집중 그만할래?」를 바꿔 다시
+  if (was !== !!focus?.active && queue.visible().some((x) => x.id === QUICK_ID)) showBubble(quickBubble(brain, charA.id, !!focus?.active));
   dispatchActivity({ type: 'focus', active: !!focus?.active, paused: !!focus?.active?.paused });
   clearInterval(focusTick);
   focusTick = focus?.active && !focus.active.paused ? setInterval(drawFocus, 1000) : null;
@@ -683,11 +763,13 @@ async function focusCmd(cmd) {
   if (focusBusy || !cy.focusCmd) return;
   focusBusy = true;
   drawFocus();
-  let r;
-  try { r = await cy.focusCmd(cmd); } catch { r = { ok: false }; }
+  const r = await focusSend(cy.focusCmd, cmd);
   focusBusy = false;
   if (r?.ok && r.data) setFocus(r.data); // SSE focus 도 곧 온다(같은 모양)
-  else drawFocus();
+  else {
+    drawFocus();
+    loadFocus(); // 못 했으면 데몬 상태로 다시 맞춘다(이미 끝난 세션이면 말풍선이 걷힌다)
+  }
 }
 async function loadFocus() {
   const r = await cy.focusGet?.().catch(() => null);
@@ -766,35 +848,55 @@ function showReply(r) {
   queue.add(b);
   schedule(b);
   render();
-  if (r.show) cy.openPanel(r.show);
+  if (r.show && !r.others) cy.openPanel(r.show); // 패널에서 보낸 말의 답은 패널이 이미 보여준다 — 섹션을 옮기지 않는다
 }
 
-cy.onChat((ev) => dispatchChat({ type: 'event', ev }));
+cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
+// 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐) · 지금 패널이 보이는지(메인이 알려 줌)
+let overlay = { panelOverlay: false, panelOpen: false };
+cy.onOverlayPrefs?.((p) => {
+  overlay = { panelOverlay: p?.panelOverlay === true, panelOpen: p?.panelOpen === true };
+  dispatchChat({ type: 'all', on: overlay.panelOverlay }); // 켜면 패널에서 한 대화의 답도 머리 위 말풍선으로
+  if (!hoverAskAllowed(hoverAskState())) hoverAsk.cancel(); // 끄거나 패널을 닫으면 재던 호버 입력창도 취소
+});
 cy.onAgents?.((p) => { agentsRunning = Math.max(0, Number(p?.running) || 0); syncChat(); });
 
 // ids: 먼저 올려 둔 첨부 id(있으면 글 없이도)
 async function sendChat(text, ids = []) {
+  // 이 창에서 보낸 말 id — 답이 POST 응답보다 먼저 와도(SSE thinking 에 clientId) 내 답으로 알아본다(패널 섹션 열기까지)
+  const clientId = `ov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  dispatchChat({ type: 'sending', clientId });
   let r;
   try {
-    r = await (ids.length ? cy.chatSend(text, ids) : cy.chatSend(text));
+    r = await cy.chatSend(text, ids, clientId);
   } catch {
     r = { ok: false };
   }
   // 캐릭터 대화방을 따라간다 — 패널에서 이어 말해도 답은 머리 위 말풍선으로
-  if (r?.ok && r.chatId) dispatchChat({ type: 'accepted', chatId: r.chatId, ...(r.threadId ? { threadId: r.threadId, follow: true } : {}) });
-  else showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? `못 보냈어요: ${r.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`, error: true });
+  if (r?.ok && r.chatId) dispatchChat({ type: 'accepted', chatId: r.chatId, clientId, ...(r.threadId ? { threadId: r.threadId, follow: true } : {}) });
+  else {
+    dispatchChat({ type: 'unsent', clientId });
+    showReply({ chatId: `fail-${Date.now()}`, text: r?.status === 400 && r.data?.error ? `못 보냈어요: ${r.data.error}` : `${who()}에 연결되지 않아서 못 보냈어요.`, error: true });
+  }
 }
 
 // ---- 호버 입력창: 캐릭터 위에 잠깐 머물면 뜬다 ----
 const ask = document.getElementById('ask');
 const askInput = document.getElementById('ask-input');
 const LEAVE_HIDE = 1800;
-let hoverTimer = null;
 let leaveTimer = null;
 let askOpen = false;
 let askFocused = false; // 메인이 창을 포커스 가능하게 바꾼 뒤에만 blur 로 닫는다
 let askPauseTimer = null; // 칩 행동 동안 입력창을 잠깐 숨긴 타이머(pauseAsk)
 let hoverArmed = true; // 닫은 뒤엔 마우스가 캐릭터를 한 번 벗어나야 다시 뜬다
+// 설정이 켜져 있고 패널이 열려 있으면 캐릭터 위에 2초 머물 때 입력창(hover-ask.js) — 더블클릭으로 연 것과 같다(talk)
+function hoverAskState() {
+  return {
+    panelOverlay: overlay.panelOverlay, panelOpen: overlay.panelOpen, armed: hoverArmed, pressing: !!down, dragging,
+    touring: queue.visible().some((x) => x.tour), askOpen, ready: brain.ready,
+  };
+}
+const hoverAsk = createHoverAsk({ gate: () => hoverAskAllowed(hoverAskState()), open: () => talk() });
 
 async function showAsk() {
   if (askOpen) return;
@@ -857,6 +959,8 @@ askInput.addEventListener('keydown', async (e) => {
     e.preventDefault();
     askInput.value = '';
     tray.clear();
+    quickGen++;
+    dismiss(QUICK_ID); // ＋ 로 띄운 칩도 같이 닫는다
     return hideAsk();
   }
   // 한글 조합 중 Enter 는 글자 확정용 — 보내지 않는다
@@ -886,11 +990,8 @@ function updateHover(el) {
   const onChar = !!el?.closest('#char-wrap');
   const onAsk = !!el?.closest('#ask, #char-wrap, #stack .item'); // 말풍선(＋ 로 띄운 칩·그 답) 위에 있는 동안도 입력창을 닫지 않는다
   if (el && !onChar) hoverArmed = true;
-  // 입력창은 클릭으로만 연다(호버로는 안 뜸)
-  if (!onChar && hoverTimer) {
-    clearTimeout(hoverTimer);
-    hoverTimer = null;
-  }
+  // 입력창은 더블클릭으로 연다. 다만 설정이 켜져 있고 패널이 열려 있으면 캐릭터 위에 2초 머물러도 뜬다(패널을 안 건드리고 말 걸기)
+  hoverAsk.move(onChar);
   // 입력 안 했는데 마우스가 떠나면 잠시 뒤 닫는다
   if (askOpen && !onAsk && !askInput.value && !tray.has() && !picking && !leaveTimer && !askPauseTimer) { // 잠깐 숨긴 동안은 닫지 않는다
     leaveTimer = setTimeout(() => { leaveTimer = null; if (!askInput.value && !tray.has() && !picking && !askPauseTimer) hideAsk(); }, LEAVE_HIDE);
@@ -900,16 +1001,21 @@ function updateHover(el) {
   }
 }
 
-cy.onVisibility(({ hidden }) => {
+cy.onVisibility(({ hidden, character }) => {
+  catchUp();
   stack.classList.toggle('hidden', !!hidden);
+  // 윈도우: 캐릭터 숨기기는 창을 숨기지 않고 그림만 감춘다(main.js toggleCharacter). 감춘 건 안 맞으니 마우스도 투과
+  document.body.classList.toggle('char-hidden', character === false);
+  if (character === false) resetPress();
   requestAnimationFrame(recheckHit);
 });
 
 // ---- 클릭 투과: 캐릭터/말풍선 위에서만 마우스 받기 ----
 let interactive = false;
 let last = null; // 마지막 마우스 좌표
-let down = null; // 캐릭터 mousedown 위치
+let down = null; // 캐릭터 mousedown 위치(missed = 누름이 삼켜져 첫 움직임으로 친 것)
 let dragging = false;
+const press = createPressTracker(); // 받은 누름(src/press.js)
 
 function setInteractive(v) {
   if (v === interactive) return;
@@ -918,6 +1024,7 @@ function setInteractive(v) {
 }
 
 function recheckHit() {
+  if (staleHold(down, dragging, Date.now())) resetPress(); // 뗌을 놓친 누름이 호버 판정을 영영 막지 않게
   if (dragging || down) return;
   if (!last) {
     updateHover(null);
@@ -931,17 +1038,42 @@ function recheckHit() {
 // 눌린 상태로 알았는데 실제로는 버튼이 안 눌려 있으면(메뉴가 mouseup 을 삼킨 경우) 드래그를 풀어 준다
 function resetPress() {
   if (dragging) cy.dragEnd();
+  if (down?.missed) press.drop(0); // 뗌 없이 끝났다 — 다음 뗌은 다시 놓친 누름으로
   down = null;
   dragging = false;
 }
 
+// 렌더러 타이머가 늦게 깨도 사용자가 보거나 움직이는 순간엔 지난 말풍선을 바로 치운다
+document.addEventListener('visibilitychange', catchUp);
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetPress(); });
+window.addEventListener('focus', catchUp);
+window.addEventListener('pageshow', catchUp);
+
 document.addEventListener('mousemove', (e) => {
+  catchUp();
   last = { x: e.clientX, y: e.clientY };
+  // 누름이 삼켜진 끌기(src/press.js): 눌린 채 온 첫 움직임을 누름으로 · 뗌은 이 누름의 짝이라 클릭으로 안 친다
+  if (missedPress({ buttons: e.buttons, ctrlKey: e.ctrlKey, onChar: e.target instanceof Element && e.target.closest('#char-wrap'), held: press.has(0), pressing: !!down })) {
+    down = { x: e.screenX, y: e.screenY, at: Date.now(), missed: true };
+    press.down(0);
+    hoverAsk.cancel();
+  }
+  if (down) down.movedAt = Date.now();
   if (down && (e.buttons & 1) === 0) resetPress();
   if (down && !dragging && Math.hypot(e.screenX - down.x, e.screenY - down.y) > 4) {
     dragging = true;
     cy.dragStart();
   }
+  recheckHit();
+});
+// 윈도우: 메인이 물은 커서 위치(src/hit-watch.js). 넘겨받는 mousemove 가 끊겨도(마우스 훅이 빠짐) 이걸로 말풍선·단추를 다시 누를 수 있게 된다
+cy.onCursor?.((p) => {
+  if (down || dragging) return;
+  const x = Number(p?.x), y = Number(p?.y);
+  if (p && Number.isFinite(x) && Number.isFinite(y)) last = { x, y };
+  else if (!interactive) last = null; // 창이 마우스를 받는 중이면 진짜 mouseleave 가 정리한다
+  else return;
+  catchUp();
   recheckHit();
 });
 document.addEventListener('mouseleave', (e) => {
@@ -955,9 +1087,8 @@ document.addEventListener('mouseleave', (e) => {
 
 wrap.addEventListener('mousedown', (e) => {
   if (e.button !== 0 || e.ctrlKey) return; // Ctrl+클릭은 macOS 에서 오른쪽 클릭(메뉴) — 드래그로 치지 않는다
-  down = { x: e.screenX, y: e.screenY };
-  clearTimeout(hoverTimer);
-  hoverTimer = null;
+  down = { x: e.screenX, y: e.screenY, at: Date.now() };
+  hoverAsk.cancel(); // 누르면(끌기·클릭) 재던 호버 입력창은 취소
   e.preventDefault();
 });
 
@@ -972,6 +1103,7 @@ cy.onBrain?.((v) => { if (v) brain = v; if (brain.ready === false && askOpen) hi
 // 뇌 없이 더블클릭: 고르는 질문 칩(오늘 할 일·지금 할 일·다음 일정·응원·AI 연결하기). 춤은 「응원해 줘」 때만
 let danceOff = null;
 let chipSeq = 0; // 칩을 새로 누르면 앞선 「다시 띄우기」는 버린다
+let quickGen = 0; // 더블클릭·Esc 로 칩을 닫으면 늘린다 — 그 전에 누른 칩의 「다시 띄우기」는 안 한다(답은 그대로 보인다)
 const CHIPS_AGAIN_MS = 2000; // 답을 보여 주고 이만큼 뒤에 칩을 다시
 // 데몬이 꺼져 있을 때만 쓴다(켜져 있으면 데몬이 영상 번호를 골라 state 로 알린다). 영상 번호는 여기서 고르고 그 영상의 한마디를 돌려준다
 const lastLocal = {};
@@ -986,7 +1118,7 @@ function localDance(ms, clip = 'dance') {
 }
 function noBrain() {
   chipSeq++;
-  showBubble(quickBubble(brain, charA.id));
+  showBubble(quickBubble(brain, charA.id, !!focus?.active));
 }
 async function quickChip(id) {
   const a = chipAction(id);
@@ -994,6 +1126,7 @@ async function quickChip(id) {
   dismiss(QUICK_ID); // 누르면 칩은 내리고 답만 보인다
   if (a.type === 'open') { cy.openItem(a.section, a.id); return; }
   const seq = ++chipSeq;
+  const gen = quickGen;
   const acting = a.id === 'cheer' || a.id === 'dance';
   // 데몬과 끊겨 있으면 바로 앱이 고른 영상으로(꺼져 있어도 보이게). 붙어 있으면 데몬이 영상 번호를 골라 state 로 알린다(대사와 같은 번호)
   let ownSay = null;
@@ -1002,12 +1135,13 @@ async function quickChip(id) {
   const ask = async () => { try { return await cy.localAsk(a.id); } catch (e) { return { ok: false, error: e?.message }; } };
   let r = await ask();
   if (!r?.ok) { await new Promise((ok) => setTimeout(ok, 800)); r = await ask(); } // 데몬이 잠깐 바빴으면 한 번 더
+  if (isFocusChip(a.id) && r?.ok) await loadFocus(); // 시작·멈춤을 바로 그린다(SSE focus 도 곧 온다) — 다시 뜨는 칩도 바뀐 쪽으로
   if (seq !== chipSeq) return;
   if (acting && !r?.ok && !act.localDance) ownSay = localDance(8000, a.id); // 붙어 있다고 봤는데 답이 없으면 앱이 춘다
   for (const x of queue.items.filter((x) => x.id.startsWith('local-ask-'))) dismiss(x.id); // 앞선 답은 내린다
   // 앱이 혼자 춘 영상에 한마디가 있으면 그 말(데몬 답이 없을 때)
   showBubble(!r?.ok && ownSay ? answerBubble(a.id, { ok: true, data: { answer: { id: a.id, kind: 'done', text: ownSay } } }) : answerBubble(a.id, r));
-  setTimeout(() => { if (seq === chipSeq) showBubble(quickBubble(brain, charA.id)); }, CHIPS_AGAIN_MS);
+  setTimeout(() => { if (seq === chipSeq && gen === quickGen) showBubble(quickBubble(brain, charA.id, !!focus?.active)); }, CHIPS_AGAIN_MS);
 }
 // 입력창 잠깐 숨기기(열린 채로 — 포커스·내용은 그대로). ms 뒤 아직 열려 있으면 다시 보인다. 그 사이 또 부르면 늘린다
 function pauseAsk(ms) {
@@ -1022,15 +1156,24 @@ function pauseAsk(ms) {
     requestAnimationFrame(recheckHit);
   }, ms);
 }
+// 더블클릭 = 열기, 열린 채로 또 더블클릭 = 바로 닫기(칩·입력창·칩 안내 말풍선). 입력창에 쓰던 글·첨부는 남겨 두고 다음에 열 때 그대로
 function talk() {
-  if (brain.ready === false) return noBrain();
+  const quickShown = queue.visible().some((x) => x.id === QUICK_ID);
+  const a = dblclickAction({ ready: brain.ready, askOpen, quickShown });
+  if (a === 'close') return closeQuick();
+  if (a === 'quick') return noBrain();
   showAsk();
+}
+function closeQuick() {
+  quickGen++;
+  dismiss(QUICK_ID); // 칩을 눌러 나온 답 말풍선(local-ask-*)·둘러보기 말풍선은 그대로
+  hideAsk();
 }
 // AI가 있어도 입력창 ＋ 로 정해진 답 칩(오늘 할 일·지금 할 일·다음 일정·응원·춤)
 document.getElementById('ask-more')?.addEventListener('click', (e) => {
   e.preventDefault();
   chipSeq++;
-  showBubble(quickBubble(brain, charA.id));
+  showBubble(quickBubble(brain, charA.id, !!focus?.active));
 });
 
 function onCharacterClick() {
@@ -1047,6 +1190,16 @@ function onCharacterClick() {
   }, DOUBLE_CLICK_MS);
 }
 
+// 누름을 못 받고 뗌만 왔으면(윈도우에서 창을 숨겼다 보인 뒤 Chromium 이 누름을 삼킴, src/press.js) 뗌을 클릭으로 친다
+document.addEventListener('mousedown', (e) => press.down(e.button), true);
+window.addEventListener('mouseup', (e) => {
+  const el = e.target instanceof Element ? e.target : null;
+  if (!missedClick(press.up(e.button), e.button, el?.closest('.hit')) || el.closest('button:disabled')) return;
+  if (el.closest('#char-wrap')) onCharacterClick(); // 한 번 = 패널, 두 번 = 말 걸기(그대로)
+  else if (el.matches('input, textarea')) el.focus();
+  else el.click();
+}, true);
+
 window.addEventListener('mouseup', (e) => {
   if (!down) return;
   const wasDrag = dragging;
@@ -1058,6 +1211,11 @@ window.addEventListener('mouseup', (e) => {
 });
 
 window.addEventListener('blur', resetPress);
+// 창이 키를 받을 때(입력창 밖) Esc = 칩 닫기. 입력창·추가질문 줄은 자기 Esc 를 먼저 쓴다
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (queue.visible().some((x) => x.id === QUICK_ID)) { e.preventDefault(); closeQuick(); }
+});
 
 wrap.addEventListener('contextmenu', (e) => {
   e.preventDefault();

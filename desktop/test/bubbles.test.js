@@ -192,3 +192,16 @@ test('승인 말풍선 버튼: [허용]/[항상 허용](범위 있을 때만)/[�
   assert.deepEqual(approvalButtons({ ...appr('a'), decided: true }), []);
   assert.equal(normalizeBubble({ id: 'x', text: 't', kind: 'proposal', actions: 'permission', actionId: 'p', always: 'yes' }).always, undefined);
 });
+
+import { carryButtons, isCarryDecision, CARRY_CHOICES } from '../src/bubbles.js';
+test('아침 질문 말풍선: 「어제 남은 N개」 carry → 그대로 둘게요 · 이번 주로 내려요 · 하나씩 볼게요', () => {
+  const b = normalizeBubble({ id: 'today:2026-10-09', text: '어제 남은 2개, 오늘도 할까요?', kind: 'todo', open: { section: 'today' }, carry: { n: 2 } });
+  assert.deepEqual(b.carry, { n: 2 });
+  assert.deepEqual(carryButtons(b).map((c) => [c.cmd, c.label]), [['keep', '그대로 둘게요'], ['demote', '이번 주로 내려요'], ['open', '하나씩 볼게요']]);
+  assert.deepEqual(carryButtons({ ...b, decided: true }), [], '고른 뒤엔 단추 없음');
+  assert.equal(normalizeBubble({ id: 'x', text: 't', carry: { n: 0 } }).carry, undefined);
+  assert.equal(normalizeBubble({ id: 'x', text: 't', carry: { n: '2' } }).carry, undefined);
+  assert.deepEqual(carryButtons(normalizeBubble({ id: 'x', text: 't' })), []);
+  assert.ok(isCarryDecision('keep') && isCarryDecision('demote') && !isCarryDecision('open') && !isCarryDecision('x'));
+  assert.equal(CARRY_CHOICES.filter((c) => c.primary).length, 1);
+});

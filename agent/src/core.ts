@@ -17,7 +17,7 @@ import { briefingMilestone, briefingTask, readySources, type SourceId } from "./
 import { runFix as realRunFix, mergePr as realMergePr, normalizeBase, resolveRepo, type FixResult } from "./fixer.ts";
 import { Chat, converse as realConverse, todoThreadFor, unfinishedLine, RESTART_WHY, type Converse, type RunCommand, type SendOpts, type Sent } from "./chat.ts";
 import type { SlashCommands } from "./commands.ts";
-import type { Thread, ThreadKind } from "./store.ts";
+import type { Thread, ThreadKind, ChatPick } from "./store.ts";
 import { buildDashboard, dashboardSummary, type Dashboard } from "./dashboard.ts";
 import { DailyPlanService } from "./daily-plan.ts";
 import { CAPABILITIES, CONNECTORS } from "./connectors.ts";
@@ -44,7 +44,7 @@ import { addAgentWorktree, agentBranch, finishAgentWorktree, isolationSource, wo
 import { runBackgroundAgent } from "./chat.ts";
 import { inlineContext } from "./ctx-tools.ts";
 import { AttachmentStore, type Attachment } from "./attachments.ts";
-import { ManualProjects, applyProjectOps, parseNewProject, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
+import { ManualProjects, applyProjectOps, parseNewProject, parseOrderBody, parseProjectOrderBody, parseProjectPatch, type ManualProjectView } from "./manual-projects.ts";
 import { Guidelines, applyGuidelineOp, guidelinesApi, setGuidelineStore, type GuidelineCtx, type GuidelinesApi } from "./guidelines.ts";
 import { WAIT_SETUP, modelWorkAllowed, sessionsAllowed } from "./onboarding.ts";
 
@@ -62,6 +62,8 @@ export interface SlackPort {
 }
 
 export type Deps = {
+  // 브리핑 직전에 한 번(메일 IMAP 을 새로 가져온다 — main.ts). 실패해도 브리핑은 그대로
+  beforeBriefing?: () => Promise<unknown>;
   think: typeof realThink;
   runFix: (cfg: Config, p: Proposal, onStep: (s: string) => void) => Promise<FixResult>;
   mergePr: (url: string, headOid?: string) => string | Promise<string>; // headOid: 승인한 커밋(그 사이 새 커밋이 오면 gh 가 거절)
@@ -70,6 +72,7 @@ export type Deps = {
   describe: Describe; // 설명 없는 할 일을 펼칠 때 한 번(가벼운 모델)
   gitShow?: GitShow; // 테스트용. 기본은 git show
   git?: (cfg: Config) => Promise<RepoActivity[]>; // 테스트용. 기본은 git.ts
+  focusOps?: (ops: unknown[]) => { applied: string[]; errors: string[]; notes: string[] }; // 채팅 focus_ops(집중하기 시작·멈춤 — main 의 Focus, focus-ops.ts)
   retitle?: (cfg: Config, text: string, reply: string, threadId: string) => Promise<string | undefined>; // 새 대화 제목(main 이 가벼운 모델로 붙임). 없으면 첫 말 제목 그대로
   followUp?: Partial<Pick<FollowUpPorts, "runs" | "prepare" | "fixDeps">>; // 작업 세션 이어서 하기(테스트용)
   actions?: Partial<ActionDeps>; // 확인 후 실행하는 쓰기 동작(테스트는 가짜 중계·조회)
@@ -195,6 +198,7 @@ export class Agent {
       projectOps: (ops) => this.applyProjectOps(ops),
       planOps: (ops) => this.plan.applyOps(ops),
       memoryOps: (ops) => applyMemoryOps(this.store, ops),
+      ...(this.deps.focusOps ? { focusOps: (ops: unknown[]) => this.deps.focusOps!(ops) } : {}),
       addRule: (rule) => this.ruleFromModel(rule),
       guideline: (op, ctx) => this.guidelineFromModel(op, ctx),
       summary: async () => dashboardSummary(await this.dashboard()),
@@ -296,7 +300,7 @@ export class Agent {
   }
 
   // 말 고치기(POST /chat/threads/:id/messages/:n/edit): 그 대화의 마지막 사용자 말을 고쳐 그 턴을 다시(chat.ts Chat.edit)
-  chatEdit(threadId: string, n: number, text: string, opts: { stopAgents?: boolean; clientId?: string; model?: string } = {}) {
+  chatEdit(threadId: string, n: number, text: string, opts: { stopAgents?: boolean; clientId?: string; model?: string; pick?: ChatPick | null } = {}) {
     return this.chatRunner.edit(threadId, n, text, opts);
   }
   // 줄 서 있는 말 고치기(POST /chat/:chatId/edit): 글만 바꾼다
@@ -326,7 +330,7 @@ export class Agent {
     this.bus.threads({ thread });
     return thread;
   }
-  editThread(id: string, patch: { title?: string; archived?: boolean }): Thread | undefined {
+  editThread(id: string, patch: { title?: string; archived?: boolean; pick?: ChatPick | null }): Thread | undefined {
     const thread = this.store.editThread(id, patch);
     if (thread) this.bus.threads({ thread });
     return thread;
@@ -471,9 +475,13 @@ export class Agent {
       this.bus.bubble({ id: "wait-setup", text: WAIT_SETUP, kind: "info", ttlMs: 10e3 });
       return Promise.resolve();
     }
-    this.briefing ??= this.doBriefing().finally(() => { this.briefing = undefined; });
+    this.briefing ??= this.doBriefing().finally(() => { this.briefing = undefined; this.briefedAt = Date.now(); try { this.onBriefed?.(); } catch { /* 알림 쪽 실패는 브리핑과 상관없다 */ } });
     return this.briefing;
   }
+  // 날씨 알리미(main): 「출근 후 브리핑 다음」은 브리핑이 도는 동안 기다렸다가 끝나면 이어서 뜬다
+  briefedAt: number | null = null;
+  onBriefed?: () => void;
+  get briefingBusy(): boolean { return !!this.briefing; }
 
   // 방금 들어온 Slack DM·멘션 → 바로 할 일(한 시간마다 도는 정기 브리핑을 기다리지 않는다). 슬랙 수집 사이클 끝·새로고침에서 부른다.
   // 지난번에 본 시각(slack_meta quickTodoAt — 처음엔 3시간 전) 뒤에 온, 아직 답 안 한 것만. 없으면 모델을 안 부른다.
@@ -506,6 +514,7 @@ export class Agent {
     this.bus.setMood("thinking");
     try {
       this.ingest();
+      if (this.deps.beforeBriefing) await this.deps.beforeBriefing().catch(() => {});
       // 실제로 쓸 수 있는 커넥터 기능(mcp 면 서버가 등록돼 있나). 연결 안 된 출처는 지시에서 뺀다
       const conns = this.cfg.connectors ?? CONNECTORS;
       let ready: ReadonlySet<SourceId> | null = null;
@@ -1123,7 +1132,29 @@ ${meetingsContext(this.store)}`,
   manualProjectsApi() {
     const missing = { status: 404, body: { error: "no such project" } };
     return {
-      handle: (method: string, id: string | undefined, body: unknown): { status: number; body: unknown } => {
+      handle: (method: string, id: string | undefined, body: unknown, sub?: "order" | "projects-order"): { status: number; body: unknown } => {
+        // 프로젝트끼리 순서: { ids }. 진행 중 프로젝트 모두, 모르는 id·끝난 것·빠진 것·중복은 400
+        if (sub === "projects-order") {
+          if (method !== "POST") return { status: 405, body: { error: "method not allowed" } };
+          const ids = parseProjectOrderBody(body);
+          if (!ids.ok) return { status: 400, body: { error: ids.error } };
+          const r = this.projects.reorderProjects(ids.value);
+          if (!r.ok) return { status: 400, body: { error: r.error } };
+          this.changed();
+          return { status: 200, body: { projects: this.projects.views() } };
+        }
+        // 프로젝트 안 할 일 순서: { todoIds }. 그 프로젝트의 열린 할 일 모두, 남의 id·빠진 id 는 400
+        if (sub === "order") {
+          if (method !== "POST" || !id) return { status: 405, body: { error: "method not allowed" } };
+          if (!this.projects.get(id)) return missing;
+          const ids = parseOrderBody(body);
+          if (!ids.ok) return { status: 400, body: { error: ids.error } };
+          const r = this.projects.reorder(id, ids.value);
+          if (!r) return missing;
+          if (!r.ok) return { status: 400, body: { error: r.error } };
+          this.changed();
+          return { status: 200, body: { todos: r.todos } };
+        }
         if (method === "GET" && !id) return { status: 200, body: { projects: this.projects.views() } };
         if (method === "GET" && id) {
           const p = this.projects.view(id);

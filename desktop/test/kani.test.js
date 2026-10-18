@@ -40,5 +40,6 @@ test('카니 말투: 칸은 우사기와 같고, 소리 뒤 괄호 안에 반말
   for (const l of k.cheer) assert.match(l, /^앗\? 헤.*\(.*잘하고 있.*\)$/);
   assert.ok(new Set(k.phrases.dance).size >= 3 && new Set(k.cheer).size >= 3, '바리에이션');
   assert.match(k.local.lunch, /^으아아~ \(밥 먹자/);
-  for (const l of Object.values(k.local)) assert.match(l, /^\S.*? \(.*\)$/, l);
+  // weatherRain 은 다른 말 괄호 안({rain})에 들어가는 조각이라 소리가 없다
+  for (const [key, l] of Object.entries(k.local)) if (key !== 'weatherRain') assert.match(l, /^\S.*? \(.*\)$/, l);
 });

@@ -99,11 +99,11 @@ export const SETUP_STEPS = [
           recommend: true,
           hint: 'MCP도 OAuth도 없습니다. Google은 웹 캘린더 설정 → 캘린더 통합 → iCal 형식의 비공개 주소. Outlook은 설정 → 일정 → 공유 일정 → 일정 게시 → ICS 링크.',
           steps: [
-            '복사한 주소를 icsUrl 에 넣습니다. 회사 계정은 관리자가 이 메뉴를 꺼 둔 경우가 많습니다. 그러면 아래 MCP를 씁니다.',
+            '복사한 주소를 calendars 의 url 에, 별칭을 name 에 넣습니다. 캘린더마다 한 줄씩 더하면 됩니다. 회사 계정은 관리자가 이 메뉴를 꺼 둔 경우가 많습니다. 그러면 아래 MCP를 씁니다.',
             'email 을 적으면 거절한 회의는 알리지 않습니다. 없으면 일정을 전부 알려 줍니다.',
           ],
           codeLabel: 'config.json',
-          code: '{\n  "connectors": {\n    "calendar": {\n      "mode": "api",\n      "icsUrl": "https://calendar.google.com/calendar/ical/.../basic.ics",\n      "timeZone": "Asia/Seoul",\n      "email": "gildong@example.com"\n    }\n  }\n}',
+          code: '{\n  "connectors": {\n    "calendar": {\n      "mode": "api",\n      "calendars": [\n        { "name": "회사", "url": "https://calendar.google.com/calendar/ical/.../basic.ics" }\n      ],\n      "timeZone": "Asia/Seoul",\n      "email": "gildong@example.com"\n    }\n  }\n}',
           links: [{ href: 'https://support.google.com/calendar/answer/37648?hl=ko', text: 'Google 비공개 주소 안내' }],
         },
         {

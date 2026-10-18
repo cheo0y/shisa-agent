@@ -282,7 +282,7 @@ test('패널 채팅 모델 고르기 배선: preload listModels·chatSend model 
   const html = readFileSync(new URL('../renderer/panel.html', import.meta.url), 'utf8');
   assert.match(pre, /listModels: \(\) => ipcRenderer\.invoke\('session-models'\)/);
   assert.match(pre, /model: opts\?\.model == null \? null : String\(opts\.model\)/);
-  assert.match(main, /const model = okModelId\(o\.model\) \? o\.model : null;/);
+  assert.match(main, /const model = !pick\.provider && okModelId\(o\.model\) \? o\.model : null;/);
   assert.match(html, /<select id="chat-model"[^>]*hidden>/);
 });
 

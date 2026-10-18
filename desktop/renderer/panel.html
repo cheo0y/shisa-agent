@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="panel.css">
   <link rel="stylesheet" href="attach.css">
   <link rel="stylesheet" href="projects.css">
+  <link rel="stylesheet" href="calendar.css">
 </head>
 <body>
   <div id="app">
@@ -28,7 +29,7 @@
         <span id="updated"></span>
         <button id="open-session" type="button" class="ghost nodrag" title="시사가 Claude Code 로 스스로 고치는 작업 보기">작업 세션</button>
         <button id="refresh" type="button" class="ghost nodrag" title="새로고침 — Slack·메일을 지금 다시 읽어 할 일에 넣어요">새로고침</button>
-        <button id="open-settings" type="button" class="ghost nodrag" title="설정 — 모델·브리핑 출처·연결 상태 (⌘,)" aria-label="설정">⚙</button>
+        <button id="open-settings" type="button" class="ghost nodrag" title="설정 — 모델·브리핑 출처·연결 상태 (⌘,)" aria-label="설정"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
         <button id="close" type="button" class="ghost nodrag close" title="닫기 (Esc)" aria-label="닫기">✕</button>
       </header>
       <div id="banner" role="status" hidden></div>
@@ -37,6 +38,8 @@
         <section id="sec-setup" class="sec" role="tabpanel" hidden></section>
         <section id="sec-overview" class="sec" role="tabpanel"></section>
         <section id="sec-projects" class="sec" role="tabpanel" hidden></section>
+        <!-- 캘린더: 주·월·일 보기, 캘린더 칩(보이기/숨기기·색), 일정 카드(renderer/calendar-view.js) -->
+        <section id="sec-calendar" class="sec cal-sec" role="tabpanel" hidden></section>
         <section id="sec-todos" class="sec" role="tabpanel" hidden></section>
 
         <!-- 오늘 할 일: 할 일 중 오늘로 고른 것. 할 일 탭과 같은 줄·우선순위 묶음(panel.js todayListKids) -->
@@ -70,7 +73,8 @@
               <button id="chat-canned-btn" type="button" class="ghost att-pick" title="정해진 답 고르기 — 오늘 할 일·응원·춤(AI 없이 바로)" aria-label="정해진 답 고르기">＋</button>
               <button id="chat-attach" type="button" class="ghost att-pick" title="파일 붙이기 — 이미지·PDF·문서·아무 파일(끌어다 놓거나 ⌘V 로 붙여도 돼요)" aria-label="파일 붙이기">📎</button>
               <textarea id="chat-input" rows="1" placeholder="물어보세요 — 예: 오늘 할 일 뭐 있어? (Shift+Enter 줄바꿈)" aria-label="메시지"></textarea>
-              <select id="chat-model" aria-label="모델" title="이번에 보낼 때 쓸 모델" hidden></select>
+              <select id="chat-model" aria-label="AI·모델" title="이 대화에 쓸 AI·모델" hidden></select>
+              <input id="chat-model-custom" type="text" aria-label="모델 이름 직접 입력" placeholder="모델 이름" spellcheck="false" hidden>
               <button id="chat-send" type="button" class="primary">보내기</button>
             </div>
           </div>

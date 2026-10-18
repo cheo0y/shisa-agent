@@ -54,7 +54,7 @@ test("dashboard: 계약 모양, 세션·커밋 병합, 7일 밖 제외, 최신�
     { id: "jira:2", title: "이슈", source: "jira", priority: 2, note: "금요일까지", userEdited: true },
   ]);
   assert.deepEqual(d.proposals, [{ id: "p1", title: "버튼", repo: "/code/app", status: "pending" }]);
-  assert.equal(d.today.items.length, 0);
+  assert.deepEqual(d.today.items.map((x) => x.id), ["mail:1"], "오늘 할 일 = P1(오늘 꼭)");
   assert.match(dashboardSummary(d), /오늘 내 커밋: 3개/);
 });
 

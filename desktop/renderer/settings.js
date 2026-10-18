@@ -1,3 +1,4 @@
+import { hasCoder as canCodeWith } from '../src/caps.js';
 // 설정 창: 캐릭터 · AI·모델 · 브리핑 출처 · 오늘 할 일 알림 · 일정 알림 · 자동 머지 레포 · 문구 · 행동 지침 · 연결 상태. 데몬은 메인 프로세스를 거쳐서만(window.cy)
 // Claude Code 가 없는 컴퓨터(Gemini·GPT 키·로컬)에서는 Claude 세부 모델·자동 머지 칸을 안내로 바꾼다
 import {
@@ -7,7 +8,9 @@ import {
   REMINDER_DEFAULT, REMINDER_HOURS, cleanReminder, parseTimes, reminderSummary,
   ALERT_DEFAULT, cleanCalendarAlert, alertMinutesNext, parseAlertMinutes, alertChoices, calendarAlertSummary,
   workHoursView, workDaysNext, workTimeNext, WORK_DAY_ORDER, DAY_LABEL,
+  weatherView, weatherTimesNext, weatherSummary,
 } from '../src/settings.js';
+import { createPlaceSearch } from '../src/weather-search.js';
 import { mountGuidelines } from '../src/guidelines.js';
 import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf } from '../src/character-registry.js';
@@ -16,7 +19,7 @@ import { who, setWho, onWho } from './who.js';
 // 안내 글 속 이름(<span class="who">)도 캐릭터 이름으로
 onWho(() => { for (const n of document.querySelectorAll('.who')) n.textContent = who(); });
 import { brainRows, brainDisconnectCopy, connectorAction, capOfRow, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
-import { calendarRemoveCopy } from '../src/calendars.js';
+import { createCalendarEditor } from '../src/calendar-editor.js';
 
 const cy = window.cy;
 const $ = (id) => document.getElementById(id);
@@ -29,7 +32,7 @@ const el = (tag, cls, text) => {
 
 const ROLE_DESC = {
   quick: '캐릭터를 눌러 그 자리에서 묻는 대화. 패널의 모델 선택과 따로예요.',
-  general: '패널 채팅의 기본 모델(채팅 창에서 이번만 다른 모델을 고를 수 있어요) · 브리핑',
+  general: '패널 채팅의 기본 모델(채팅 입력줄 옆에서 대화마다 다른 AI·모델을 고를 수 있어요) · 브리핑',
   code: '승인한 코드 수정 작업을 실행할 때',
   light: 'Slack·캘린더 수집, 대화 제목 짓기 같은 가벼운 일',
 };
@@ -69,41 +72,118 @@ async function save(patch) {
 }
 
 // ---- 모델 ----
+// 지금 뇌(brain.provider)에 맞는 세부 모델 칸(데몬 settings.modelSlots). Claude 뇌는 Claude 모델 목록에서(models 로 저장),
+// 그 밖의 뇌(Codex·Gemini·OpenAI·Genspark)는 그 뇌 목록(GET /chat/models — 채팅 드롭다운과 같은 출처)에서 고르고 brainModels 로 저장.
+// 그 뇌에서 안 쓰는 칸은 막고 이유를 보인다. 코드 작업 칸은 대화 AI 와 따로: 코드 작업 AI(Claude Code·Codex)를 고르고 그 AI 의 모델을 고른다
+// (Claude Code → models.code, Codex → brainModels.codex.code — 패널 모델 탭도 이 칸을 가리킨다). 코드 작업 AI 가 준비됐을 때만 연다
+let brainLists = null; // GET /chat/models 의 brains(뇌 → 모델 목록)
+async function loadBrainLists() {
+  const r = await cy.chatModels?.().catch(() => null);
+  brainLists = r?.ok && Array.isArray(r.data?.brains) ? r.data.brains : [];
+  renderModels();
+}
 function renderModels() {
   const box = $('models');
   box.replaceChildren();
   if (!settings) return;
-  // Claude 세부 모델은 Claude Code 가 있을 때만(목록도 Claude 모델이다)
-  const show = caps.claude !== false && (settings.modelOptions ?? []).length > 0;
-  $('models-note').hidden = !show;
+  const slots = settings.modelSlots;
+  const claudeSlots = slots ? slots.claude : true;
+  // Claude 칸은 Claude Code 가 있을 때만(예전처럼). 다른 뇌는 그 뇌 칸
+  const show = slots ? slots.provider !== 'local' && (!claudeSlots || (caps.claude !== false && (settings.modelOptions ?? []).length > 0)) : caps.claude !== false && (settings.modelOptions ?? []).length > 0;
+  const codeSlot = slots?.roles?.find((r) => r.role === 'code' && r.coder);
+  $('models-note').hidden = !show && !codeSlot;
   $('models-hint').hidden = show;
-  $('models-hint').textContent = show ? '' : 'Claude Code 를 쓰면 일마다 다른 Claude 모델을 고를 수 있어요. 지금은 패널의 [모델] 탭에서 고른 AI 하나로 다 해요.';
-  if (!show) return;
-  $('config-path').textContent = settings.configPath ? `(${settings.configPath} 에 저장)` : '';
-  for (const { role, label } of settings.modelRoles ?? []) {
+  $('models-hint').textContent = show ? '' : slots?.provider === 'local' ? 'AI 를 연결하면 일마다 쓸 모델을 고를 수 있어요.' : 'Claude Code 를 쓰면 일마다 다른 Claude 모델을 고를 수 있어요. 지금은 패널의 [모델] 탭에서 고른 AI 하나로 다 해요.';
+  if (!show && !codeSlot) return;
+  $('models-title').textContent = show ? slots?.title ?? 'Claude Code 세부 모델' : '코드 작업 모델';
+  $('config-path').textContent = settings.configPathLabel || settings.configPath ? `(${settings.configPathLabel || settings.configPath} 에 저장)` : '';
+  const roles = show ? slots?.roles ?? (settings.modelRoles ?? []).map((r) => ({ ...r, value: settings.models?.[r.role], enabled: true })) : [codeSlot];
+  const list = claudeSlots ? null : (brainLists ?? []).find((b) => b.provider === slots.provider);
+  if ((!claudeSlots || codeSlot?.coder?.provider === 'codex') && brainLists === null) loadBrainLists();
+  for (const slot of roles) {
+    if (slot.role === 'code' && slot.coder) { box.append(codeRow(slot)); continue; }
+    const { role, label, value, enabled, why } = slot;
     const row = el('div', 'model-row');
     const id = `model-${role}`;
     const lab = el('label', null, label);
     lab.htmlFor = id;
     const sel = el('select');
     sel.id = id;
-    for (const o of settings.modelOptions ?? []) {
-      const opt = el('option', null, o.label);
-      opt.value = o.id;
-      opt.selected = o.id === settings.models?.[role];
-      sel.append(opt);
+    const add = (v, text) => { const o = el('option', null, text); o.value = v; o.selected = v === (value ?? ''); sel.append(o); };
+    if (!enabled) {
+      add('', '쓰지 않아요');
+    } else if (claudeSlots) {
+      for (const o of settings.modelOptions ?? []) add(o.id, o.label);
+    } else {
+      add('', role === 'general' ? `기본(${list?.defaultLabel ?? '그 AI 기본'})` : '기본(패널 채팅 기본과 같게)');
+      for (const m of list?.models ?? []) if (m.id !== '') add(m.id, m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id);
+      if (value && !(list?.models ?? []).some((m) => m.id === value)) add(value, value);
     }
+    sel.disabled = !enabled;
     sel.addEventListener('change', async () => {
       sel.disabled = true;
-      const ok = await save({ models: { [role]: sel.value } });
+      const patch = claudeSlots ? { models: { [role]: sel.value } } : { brainModels: { provider: slots.provider, models: { [role]: sel.value || null } } };
+      const ok = await save(patch);
       sel.disabled = false;
-      if (!ok) sel.value = settings.models?.[role] ?? sel.value;
+      if (!ok) sel.value = value ?? '';
+      renderModels();
     });
-    const desc = el('div', 'desc', ROLE_DESC[role] ?? '');
-    if (settings.envLocked?.includes(role)) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
+    const desc = el('div', 'desc', enabled ? (!claudeSlots && role === 'light' ? '대화 제목 짓기 같은 가벼운 일' : ROLE_DESC[role] ?? '') : (why ?? ''));
+    if (enabled && settings.envLocked?.includes(role) && claudeSlots) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
+    if (enabled && !claudeSlots && list?.listError && role === 'general') desc.append(el('span', 'lock', ` · 목록: ${list.listError}`));
     row.append(lab, sel, desc);
     box.append(row);
   }
+}
+
+// 코드 작업 칸: 「코드 작업 AI」(Claude Code·Codex) + 그 AI 의 모델. 저장은 coding.provider · models.code · brainModels.codex.code
+function codeRow({ label, value, enabled, why, coder }) {
+  const row = el('div', 'model-row');
+  const lab = el('label', null, label);
+  lab.htmlFor = 'model-code';
+  const ai = el('select');
+  ai.id = 'model-code-ai';
+  ai.setAttribute('aria-label', '코드 작업 AI');
+  for (const c of coder.choices) {
+    const o = el('option', null, c.ready === false ? `코드 작업 AI: ${c.label} (준비 안 됨)` : `코드 작업 AI: ${c.label}`);
+    o.value = c.id;
+    o.selected = c.id === coder.provider;
+    ai.append(o);
+  }
+  ai.addEventListener('change', async () => {
+    ai.disabled = true;
+    const ok = await save({ coding: { provider: ai.value } });
+    ai.disabled = false;
+    if (!ok) ai.value = coder.provider;
+    renderModels();
+  });
+  const sel = el('select');
+  sel.id = 'model-code';
+  const add = (v, text) => { const o = el('option', null, text); o.value = v; o.selected = v === (value ?? ''); sel.append(o); };
+  const codex = coder.provider === 'codex';
+  if (!enabled) add(value ?? '', '쓰지 않아요');
+  else if (!codex) for (const o of settings.modelOptions ?? []) add(o.id, o.label);
+  else {
+    const list = (brainLists ?? []).find((b) => b.provider === 'codex');
+    add('', 'Codex 기본');
+    for (const m of list?.models ?? []) if (m.id !== '') add(m.id, m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id);
+    if (value && !(list?.models ?? []).some((m) => m.id === value)) add(value, value);
+  }
+  sel.disabled = !enabled;
+  sel.addEventListener('change', async () => {
+    sel.disabled = true;
+    const ok = await save(codex ? { brainModels: { provider: 'codex', models: { code: sel.value || null } } } : { models: { code: sel.value } });
+    sel.disabled = false;
+    if (!ok) sel.value = value ?? '';
+    renderModels();
+  });
+  const picked = coder.choices.find((c) => c.id === coder.provider);
+  const desc = el('div', 'desc', enabled ? ROLE_DESC.code : (picked?.why ?? why ?? ''));
+  if (enabled && !codex && settings.envLocked?.includes('code')) desc.append(el('span', 'lock', ' · 환경변수로 정해져 있어서 데몬을 다시 켜면 그 값으로 돌아가요'));
+  const pick = el('div', 'code-ai');
+  pick.append(ai, sel);
+  row.append(lab, pick, desc);
+  return row;
 }
 
 // ---- 연결된 AI ----
@@ -158,7 +238,7 @@ function renderBrains() {
   }
 }
 
-// ---- 이 앱(로그인할 때 켜기 · 새 버전 알림) ----
+// ---- 이 앱(로그인할 때 켜기 · 새 버전 알림 · 패널이 열려 있어도 캐릭터 위에 답 띄우기) ----
 let appPrefs = null;
 function renderAppPrefs() {
   const box = $('app-prefs');
@@ -169,6 +249,7 @@ function renderAppPrefs() {
   const rows = [
     { key: 'openAtLogin', on: login.on === true, label: `로그인할 때 ${who()} 켜기`, disabled: !login.available },
     { key: 'updateCheck', on: appPrefs.updateCheck !== false, label: '새 버전이 나오면 알려 주기 (하루 한 번 확인)' },
+    { key: 'panelOverlay', on: appPrefs.panelOverlay !== false, label: '캐릭터 위에 답·입력창 (패널이나 다른 창에서 한 대화의 답도 캐릭터 위에 띄워요 · 캐릭터 위에 마우스를 2초 두면 입력창이 열려요)' },
   ];
   for (const r of rows) {
     const lab = el('label', `toggle${r.on ? '' : ' off'}`);
@@ -845,7 +926,7 @@ for (const [id, k] of [['work-start', 'workStart'], ['work-lunch', 'lunchTime'],
     $('work-err').textContent = '';
     const r = workTimeNext(settings, k, e.target.value);
     if (r.error) { $('work-err').textContent = r.error; return; }
-    if (await save(r.patch)) renderWork();
+    if (await save(r.patch)) { renderWork(); renderWeather(); }
   });
   // 고르다 만 값(오류)은 칸을 떠나면 저장된 값으로 되돌린다
   $(id).addEventListener('blur', () => { if ($('work-err').textContent) { $('work-err').textContent = ''; renderWork(); } });
@@ -877,12 +958,84 @@ async function addCustomAlert() {
 $('cal-custom-add').addEventListener('click', addCustomAlert);
 $('cal-custom').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCustomAlert(); } });
 
+// ---- 날씨: 지역 검색(300ms 멈춤 → 후보 목록, ↑↓ Enter·클릭) · 알림 시각(출근 후 브리핑 다음 · 퇴근 20분 전 · 정한 시각) ----
+let weatherEditing = false; // [바꾸기]를 눌러 검색 칸을 연 채
+async function saveWeather(patch) {
+  $('weather-err').textContent = '';
+  const ok = await save({ weather: patch });
+  renderWeather();
+  return ok;
+}
+createPlaceSearch({
+  input: $('weather-q'), list: $('weather-list'), doc: document,
+  search: (q) => cy.searchWeather(q),
+  onPick: async (place) => {
+    $('weather-q').value = '';
+    weatherEditing = false;
+    if (await saveWeather({ place })) flash(`${place.name} 날씨를 알려 줄게요`);
+  },
+});
+function renderWeather() {
+  if (!settings) return;
+  const v = weatherView(settings);
+  const picked = !!v.place && !weatherEditing;
+  $('weather-picked').hidden = !picked;
+  $('weather-find').hidden = picked;
+  if (v.place) { $('weather-name').textContent = v.place.name; $('weather-label').textContent = v.place.label && v.place.label !== v.place.name ? v.place.label : ''; }
+  $('weather-when').hidden = !v.place;
+  $('weather-morning').checked = v.morning;
+  $('weather-leave').checked = v.leave;
+  const end = workHoursView(settings).workEnd;
+  const m = Math.max(0, Number(end.slice(0, 2)) * 60 + Number(end.slice(3)) - 20);
+  $('weather-leave-label').textContent = `퇴근 20분 전(${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')})`;
+  const box = $('weather-times');
+  box.replaceChildren();
+  box.hidden = !v.times.length;
+  // 정한 시각: 「20:19 [빼기]」 칩
+  for (const t of v.times) {
+    const chip = el('span', 'weather-chip');
+    chip.setAttribute('role', 'listitem');
+    const del = el('button', 'small ghost', '빼기');
+    del.type = 'button';
+    del.setAttribute('aria-label', `${t} 알림 빼기`);
+    del.addEventListener('click', async () => {
+      del.disabled = true;
+      if (!(await saveWeather({ times: weatherTimesNext(weatherView(settings).times, t, false).times }))) del.disabled = false;
+    });
+    chip.append(el('span', 'weather-chip-time', t), del);
+    box.append(chip);
+  }
+  $('weather-summary').textContent = weatherSummary(v, settings);
+}
+$('weather-change').addEventListener('click', () => { weatherEditing = true; renderWeather(); $('weather-q').focus(); });
+$('weather-q').addEventListener('keydown', (e) => { if (e.key === 'Escape' && weatherEditing && $('weather-list').hidden) { weatherEditing = false; renderWeather(); } });
+$('weather-clear').addEventListener('click', async () => { weatherEditing = false; if (await saveWeather({ place: null })) flash('날씨 알림을 껐어요'); });
+for (const [id, k, on, off] of [['weather-morning', 'morning', '출근 후 날씨를 켰어요', '출근 후 날씨를 껐어요'], ['weather-leave', 'leave', '퇴근 전 날씨를 켰어요', '퇴근 전 날씨를 껐어요']]) {
+  $(id).addEventListener('change', async (e) => {
+    const cb = e.target;
+    cb.disabled = true;
+    const ok = await saveWeather({ [k]: cb.checked });
+    cb.disabled = false;
+    if (ok) flash(cb.checked ? on : off);
+  });
+}
+async function addWeatherTime() {
+  const r = weatherTimesNext(weatherView(settings).times, $('weather-time').value, true);
+  if (r.error) { $('weather-err').textContent = r.error; return; }
+  $('weather-time-add').disabled = true;
+  if (await saveWeather({ times: r.times })) $('weather-time').value = '';
+  $('weather-time-add').disabled = false;
+}
+$('weather-time-add').addEventListener('click', addWeatherTime);
+$('weather-src').addEventListener('click', (e) => { e.preventDefault(); cy.openSource?.('weather'); });
+$('weather-license').addEventListener('click', (e) => { e.preventDefault(); cy.openSource?.('license'); });
+
 // ---- 자동 머지 레포 ----
 function renderAutoMerge() {
   const box = $('am-list');
   box.replaceChildren();
   // 머지는 코드 고치기(Claude Code)가 있어야 쓸 일이 있다
-  const can = caps.claude !== false;
+  const can = canCodeWith(caps);
   $('am-hint').hidden = can;
   for (const id of ['am-list', 'am-err']) $(id).hidden = !can;
   document.querySelector('#am-card .gl-add').hidden = !can;
@@ -980,36 +1133,24 @@ function renderPhrases() {
 }
 
 // ---- 연결 상태 ----
-// 캘린더 줄 아래: 연결된 캘린더마다 가린 이름 + [빼기](그 주소만, 마지막이면 캘린더 연결 해제) · [하나 더 추가](패널 설치 탭)
+// 캘린더 줄 아래: 저장된 캘린더마다 별칭 · 가린 주소 · 결과 · 켜기/끄기 · 별칭 고치기 · [빼기], 그 아래 「＋ 캘린더 추가」(calendar-editor.js, 패널 설치 탭과 같다)
+const calEditor = createCalendarEditor();
+async function calendarOp(fn) {
+  let r;
+  try { r = await fn(); } catch { r = null; }
+  if (!r) return { ok: false, error: `${who()}에 연결되지 않았어요` };
+  if (Array.isArray(r.items)) calendars = r.items;
+  return r;
+}
 function calendarList() {
-  const box = el('div', 'cals');
-  if (calendars.length) {
-    const ul = el('ul', 'cal-list');
-    const last = calendars.length === 1;
-    for (const c of calendars) {
-      const li = el('li');
-      li.dataset.id = c.id;
-      li.append(el('span', 'cal-kind', c.title), el('code', null, c.label), disconnectControl(document, {
-        ...calendarRemoveCopy(c, last), ...confirmOpts(`calendar:${c.id}`),
-        onConfirm: async () => {
-          const res = await cy.removeCalendar(c.id).catch(() => null);
-          if (!res?.ok) return { ok: false, error: res?.error || `빼지 못했어요. ${who()}에 연결되지 않았어요` };
-          flash(['캘린더를 뺐어요.', res.note].filter(Boolean).join(' '));
-          if (Array.isArray(res.items)) calendars = res.items;
-          refreshRows();
-          return res;
-        },
-      }));
-      ul.append(li);
-    }
-    box.append(ul);
-  }
-  const add = el('button', 'small ghost', '캘린더 하나 더 추가');
-  add.type = 'button';
-  add.title = '패널의 설치 탭에서 같은 안내로 주소를 하나 더 붙여요';
-  add.addEventListener('click', () => cy.openPanel('setup'));
-  box.append(add);
-  return box;
+  return calEditor.view(document, {
+    items: calendars, kind: 'ics',
+    redraw: () => renderRows(),
+    onAdd: (body) => calendarOp(() => cy.addCalendar(body)),
+    onRename: (id, name) => calendarOp(() => cy.renameCalendar(id, name)),
+    onToggle: (id, on) => calendarOp(() => cy.toggleCalendar(id, on)),
+    onRemove: (id) => calendarOp(() => cy.removeCalendar(id)),
+  });
 }
 function loadCalendars() {
   return cy.getCalendars?.().then((r) => { if (r?.ok && Array.isArray(r.items)) { calendars = r.items; renderRows(); } }).catch(() => {});
@@ -1113,7 +1254,7 @@ async function load() {
   if (k && typeof k === 'object' && typeof k.claude === 'boolean') caps = { claude: k.claude, codex: k.codex === true };
   if (!s?.ok || !c?.ok) banner(`${who()}에 연결되지 않았어요. ${who()}가 켜져 있는지 확인해 주세요.`);
   else banner(null);
-  if (s?.ok) { settings = s.data; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderAutoMerge(); renderPhrases(); renderCharacter(); loadCharacters(); }
+  if (s?.ok) { settings = s.data; brainLists = null; renderBrains(); renderModels(); renderSources(); renderLocal(); renderReminder(); renderCalAlert(); renderWork(); renderWeather(); renderAutoMerge(); renderPhrases(); renderCharacter(); loadCharacters(); }
   if (c?.ok) {
     await loadCalendars();
     rows = Array.isArray(c.data?.rows) ? c.data.rows : [];

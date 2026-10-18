@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('cy', {
   todoDone: (id) => ipcRenderer.invoke('todo-done', String(id)),
   todoAdd: (body) => ipcRenderer.invoke('todo-add', body),
   todoEdit: (id, patch) => ipcRenderer.invoke('todo-edit', String(id), patch),
+  // 오늘 할 일 탭 위 「어제 남은 N개, 오늘도 할까요?」: decision = 'keep' | 'demote'
+  todayCarry: (decision) => ipcRenderer.invoke('today-carry', String(decision)),
   todoDelete: (id) => ipcRenderer.invoke('todo-delete', String(id)), // 휴지통으로
   todoRestore: (id) => ipcRenderer.invoke('todo-restore', String(id)),
   todoPurge: (id) => ipcRenderer.invoke('todo-purge', String(id)),
@@ -41,7 +43,14 @@ contextBridge.exposeInMainWorld('cy', {
   projectCreate: (body) => ipcRenderer.invoke('project-create', body && typeof body === 'object' ? JSON.parse(JSON.stringify(body)) : null),
   projectEdit: (id, patch) => ipcRenderer.invoke('project-edit', String(id), patch && typeof patch === 'object' ? JSON.parse(JSON.stringify(patch)) : null),
   projectDelete: (id) => ipcRenderer.invoke('project-delete', String(id)),
+  // 프로젝트 안 할 일 순서: 그 프로젝트의 열린 할 일 id 를 원하는 순서로 모두
+  projectOrder: (id, todoIds) => ipcRenderer.invoke('project-order', String(id), Array.isArray(todoIds) ? todoIds.map(String) : null),
+  // 프로젝트끼리 순서: 진행 중 프로젝트 id 를 원하는 순서로 모두
+  projectsOrder: (ids) => ipcRenderer.invoke('projects-order', Array.isArray(ids) ? ids.map(String) : null),
   projectCalendarEvents: () => ipcRenderer.invoke('project-calendar-events'),
+  // 캘린더 탭: 보는 기간 일정 · 캘린더 색 바꾸기(null = 자동)
+  calendarEvents: (q) => ipcRenderer.invoke('calendar-events', { from: String(q?.from ?? ''), to: String(q?.to ?? ''), fresh: !!q?.fresh }),
+  calendarColor: (id, color) => ipcRenderer.invoke('calendar-color', String(id || ''), color === null ? null : String(color ?? '')),
   // 할 일 규칙: 목록 · 켜기/끄기·글 고치기({ enabled?, text? }) · 지우기
   todoRules: () => ipcRenderer.invoke('todo-rules'),
   todoRuleEdit: (id, patch) => ipcRenderer.invoke('todo-rule-edit', String(id), patch),
@@ -56,6 +65,10 @@ contextBridge.exposeInMainWorld('cy', {
     threadId: opts?.threadId == null ? null : String(opts.threadId),
     todoId: opts?.todoId == null ? null : String(opts.todoId),
     model: opts?.model == null ? null : String(opts.model),
+    // 채팅 입력줄에서 고른 뇌·모델(이 대화에 기억) · useDefault = 기본으로(기억도 지움)
+    provider: opts?.provider == null ? null : String(opts.provider),
+    pickModel: opts?.pickModel == null ? null : String(opts.pickModel),
+    useDefault: opts?.useDefault === true,
     clientId: opts?.clientId == null ? null : String(opts.clientId), // 이 말의 id(낙관적 사본 ↔ 데몬 큐·기록 짝 맞추기)
     attachments: Array.isArray(opts?.attachments) ? opts.attachments.map(String) : null, // 먼저 올려 둔 첨부 id(chatAttach)
   }),
@@ -65,12 +78,14 @@ contextBridge.exposeInMainWorld('cy', {
   openAttachment: (threadId, file) => ipcRenderer.invoke('attachment-open', String(threadId), String(file)),
   chatQueue: () => ipcRenderer.invoke('chat-queue'), // 줄 선 말·지금 답하는 말(GET /chat/queue) → { queue, running }
   listModels: () => ipcRenderer.invoke('session-models'), // 고를 수 있는 모델(GET /models)
+  chatModels: (fresh) => ipcRenderer.invoke('chat-models', fresh === true), // 채팅에서 고를 수 있는 뇌·모델(GET /chat/models)
   listCommands: () => ipcRenderer.invoke('slash-commands'), // 슬래시 명령 자동완성 목록(GET /commands)
   // 대화 스레드: 목록(archived=true 면 보관함) · 만들기({title?, kind?, todoId?}) · 이름/보관({title?, archived?}) · 삭제 · 말(before = 순번)
   onThreads: on('threads'),
   chatThreads: (archived) => ipcRenderer.invoke('chat-threads', archived === true),
   chatThreadCreate: (body) => ipcRenderer.invoke('chat-thread-create', body && typeof body === 'object' ? { title: body.title, kind: body.kind, todoId: body.todoId } : {}),
-  chatThreadEdit: (id, patch) => ipcRenderer.invoke('chat-thread-edit', String(id), patch && typeof patch === 'object' ? { title: patch.title, archived: patch.archived } : {}),
+  // pick: 이 대화에서 고른 뇌·모델 { provider, model? } · null = 기본으로
+  chatThreadEdit: (id, patch) => ipcRenderer.invoke('chat-thread-edit', String(id), patch && typeof patch === 'object' ? { title: patch.title, archived: patch.archived, ...('pick' in patch ? { pick: patch.pick && typeof patch.pick === 'object' ? { provider: patch.pick.provider, model: patch.pick.model } : null } : {}) } : {}),
   chatThreadDelete: (id) => ipcRenderer.invoke('chat-thread-delete', String(id)),
   chatThreadMessages: (id, before) => ipcRenderer.invoke('chat-thread-messages', String(id), Number.isInteger(before) ? before : null),
   // ↻ 이 대화가 터미널 Claude Code 에서 이어 간 말 불러오기 → { ok, data: { imported } }
@@ -103,8 +118,17 @@ contextBridge.exposeInMainWorld('cy', {
   // [연결 해제]: AI(gemini|claude|openai|genspark|claudecode|codexcli) · 커넥터(slack|calendar|mail|issues)
   sisaDisconnect: (provider) => ipcRenderer.invoke('sisa-disconnect', String(provider || '')),
   connectorDisconnect: (cap) => ipcRenderer.invoke('connector-disconnect', String(cap || '')),
-  // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label }] }(주소는 없음) · 하나 빼기(id) → { ok, items, note?, error? }
+  // 메일(앱 비밀번호) 계정 추가(같은 주소면 비밀번호 바꾸기): { preset, user, password, host?, port? } → 데몬이 로그인해 보고 저장 → { ok, id, account, preset, count, updated } | { ok: false, error, code? }
+  mailConnect: (body) => ipcRenderer.invoke('mail-connect', body && typeof body === 'object' ? body : {}),
+  // 메일 계정 하나 빼기(id) → { ok, account, left } | { ok: false, error }
+  mailRemove: (id) => ipcRenderer.invoke('mail-remove', String(id || '')),
+  // 캘린더 여러 개: 목록 { ok, items: [{ id, kind, title, label, name, enabled, phase?, meetings?, reason? }] }(주소는 없음)
+  // · 더하기({ name?, url }) → 데몬이 시험으로 읽고 저장 { ok, name, events, items } | { ok: false, error, duplicate? }
+  // · 별칭 고치기(id, name) · 켜기/끄기(id, on) · 하나 빼기(id) → { ok, items, note?, error? }
   calendarList: () => ipcRenderer.invoke('calendar-list'),
+  calendarAdd: (body) => ipcRenderer.invoke('calendar-add', { name: String(body?.name ?? ''), url: String(body?.url ?? '') }),
+  calendarRename: (id, name) => ipcRenderer.invoke('calendar-rename', String(id || ''), String(name ?? '')),
+  calendarToggle: (id, on) => ipcRenderer.invoke('calendar-toggle', String(id || ''), !!on),
   calendarRemove: (id) => ipcRenderer.invoke('calendar-remove', String(id || '')),
   // 뇌(말 거는 AI) 연결 상태(brain-state.js brainView) — 없으면 입력 대신 연결 안내 카드
   brain: () => ipcRenderer.invoke('brain-get'),

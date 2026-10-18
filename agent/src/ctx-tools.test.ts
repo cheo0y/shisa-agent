@@ -89,7 +89,7 @@ test("contextHeader: 시각(KST)·사용자·이 대화·대상 할 일·도구 
   const h = contextHeader(cfg(), { now: NOW, thread: { title: "견적 얘기", kind: "todo" }, focus: { id: "mail:9", title: "견적서 회신", priority: 1 } });
   assert.ok(h.length <= HEADER_MAX, `${h.length}`);
   assert.match(h, /시각: 2026\. 10\. 12\. \(월\) 12시 0분 0초 \(KST\)/);
-  assert.match(h, /사용자: 홍길동 \(GitHub hong, Slack UME\)/);
+  assert.match(h, /- 사용자 이름: 홍길동 \(사용자가 설정에서 직접 정한 이름[^\n]*\n- 사용자 계정: GitHub hong, Slack UME/);
   assert.match(h, /이 대화: 할 일 대화 "견적 얘기"/);
   assert.match(h, /대상 할 일: id=mail:9 \[P1\] 견적서 회신/);
   assert.match(h, /필요하면 cy 도구로 찾아라/);

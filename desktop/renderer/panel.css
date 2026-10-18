@@ -171,6 +171,10 @@ button.primary { background: var(--accent-btn); color: #fff; }
 button.ghost { background: none; color: var(--muted); }
 button.ghost:hover:not(:disabled) { background: var(--code); filter: none; }
 button.close { font-size: 13px; padding: 4px 9px; }
+/* 머리의 아이콘 단추(⚙ 설정·✕ 닫기): 같은 크기 정사각형, 글자 단추와 세로 가운데 */
+#top #open-settings, #top #close { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+#top #open-settings svg.icon { display: block; } /* 글자(⚙)는 글꼴마다 아래로 처져 그림(svg)으로 — 단추 정가운데 */
+#top #close { font-size: 15px; }
 #banner {
   margin: 0 22px 8px;
   padding: 8px 12px;
@@ -689,6 +693,13 @@ button.ghost.danger-text { color: var(--err); }
 /* 오늘 할 일: 할 일 탭과 같은 줄·묶음. 머리에 날짜와 남은 수 */
 #sec-today .today-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 4px; }
 #sec-today .today-head h2 { margin: 0; }
+/* 아침에 물은 「어제 남은 N개, 오늘도 할까요?」 */
+#sec-today .carry-box { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 6px 0 10px; padding: 9px 12px; border-radius: 10px; background: var(--accent-soft); }
+#sec-today .carry-box .q { font-weight: 600; }
+#sec-today .carry-box .carry-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+#sec-today .carry-box.folded { font-size: 12.5px; color: var(--muted); background: transparent; border: 1px dashed var(--line); }
+#sec-today .today-hint { margin-top: 6px; }
+.group h2 .prio-today { font-weight: 400; }
 /* 줄의 '오늘' 토글: 오늘 할 일로 고르기·빼기 */
 .todo.row .row-today { flex: none; padding: 1px 7px; font-size: 11.5px; border-radius: 999px; color: var(--faint); opacity: 0; transition: opacity 0.12s ease; }
 .todo.row:hover .row-today, .todo.row:focus-visible .row-today, .todo.row:focus-within .row-today, .todo.row .row-today:focus-visible, .todo.row .row-today.on { opacity: 1; }
@@ -973,6 +984,12 @@ button.small { padding: 2px 8px; font-size: 12px; }
 #chat-send { padding-top: 0; padding-bottom: 0; }
 #chat-send.stop { background: var(--err); color: #fff; } /* 답하는 중 — 멈추기 */
 #chat-model[hidden] { display: none; }
+#chat-model { max-width: 120px; text-overflow: ellipsis; }
+#chat-model.picked { border-color: var(--accent, #6b8afd); }
+#chat-model-custom { height: 38px; flex: none; width: 130px; border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; background: var(--card); color: var(--fg); font: inherit; font-size: 12.5px; }
+#chat-model-custom[hidden] { display: none; }
+.msg-meta .by { font-size: 11px; opacity: .65; margin-right: 6px; }
+.msg .go.retry { margin-top: 6px; }
 
 @media (max-width: 680px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
@@ -1032,6 +1049,11 @@ button.small { padding: 2px 8px; font-size: 12px; }
 .md table { border-collapse: collapse; margin: 6px 0; font-size: 0.95em; }
 .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
 .md th { background: var(--code); font-weight: 600; }
+/* 채팅 답의 표: 좁은 패널에서는 표만 가로로 밀어 보고(답 말풍선은 넘치지 않게), 칸 안 글은 줄바꿈 */
+.msg .md table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.msg .md th, .msg .md td { max-width: 22em; overflow-wrap: break-word; word-break: keep-all; }
+.msg .md td:first-child { white-space: nowrap; }
+.msg .md th { white-space: nowrap; }
 
 /* 할 일 백로그(P4 · 언젠가)와 규칙 — todo-rules.js */
 .group.p4 h2::before { background: var(--faint); }
@@ -1393,6 +1415,49 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 @media (prefers-reduced-motion: reduce) { .focus-dot { animation: none; } .fw-bar { transition: none; } }
 /* ＋ 정해진 답 버튼 줄을 열었을 때 */
 #chat-canned-btn.on { color: var(--accent, #2f80ed); }
-/* 연결된 캘린더: 줄마다 종류 · 가린 이름 · [빼기](묻는 칸은 줄 아래로) */
-.setup-cals .setup-repos li { flex-wrap: wrap; }
-.setup-cals .cal-kind { flex: none; color: var(--muted); font-size: 12px; }
+/* 캘린더 목록(calendar-editor.js): 줄마다 별칭 · 가린 주소 · ✎ / 켜짐 · 결과 · [빼기](묻는 칸은 줄 아래로) */
+.cal-editor { margin-top: 12px; }
+.cal-editor .cal-list li { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.cal-editor .cal-list li.off { opacity: 0.65; }
+.cal-editor .cal-top, .cal-editor .cal-bottom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.cal-editor .cal-name { flex: none; font-size: 13px; }
+.cal-editor .cal-label { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; }
+.cal-editor .cal-name-input { flex: 1; min-width: 0; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); font: inherit; }
+.cal-editor .cal-switch { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.cal-editor .cal-state { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.cal-editor .cal-state.ok { color: var(--ok); }
+.cal-editor .cal-state.fail { color: var(--warn, #c77700); }
+.cal-editor .cal-bottom .dc { margin-top: 0; }
+.cal-editor .cal-bottom .dc.asking, .cal-editor .cal-bottom .dc.done { flex-basis: 100%; }
+.cal-editor .cal-add { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+
+/* 더 연결하기: 메일(앱 비밀번호) 카드 */
+.setup-mail select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.setup-mail .setup-fields { margin-top: 10px; }
+.setup-mail-steps { margin: 6px 0 8px; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.55; word-break: keep-all; }
+.setup-mail-steps li + li { margin-top: 2px; }
+.setup-mail-more { margin: 4px 0 8px; font-size: 13px; color: var(--muted); }
+.setup-mail-more summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
+.setup-mail-more ol { margin: 4px 0 0; padding-left: 20px; line-height: 1.6; word-break: keep-all; }
+.setup-mail-more li + li { margin-top: 4px; }
+.setup-mail-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; word-break: keep-all; }
+.setup-mail-status { margin: 4px 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.setup-mail .setup-gate { margin-top: 8px; overflow-wrap: anywhere; word-break: keep-all; } /* 긴 실패 이유·주소·링크가 카드 밖으로 나가지 않게 */
+.setup-mail .setup-fold { margin-top: 8px; }
+.setup-mail .setup-fold summary { padding: 6px 0; color: var(--muted); font-size: 12.5px; }
+/* 메일 계정 여러 개: 줄마다 서비스 · 주소 · 가져온 수(못 가져오면 주황) · [빼기] */
+.setup-mail-accounts { margin: 6px 0 8px; }
+.setup-mail-accounts li { flex-wrap: wrap; min-width: 0; }
+.setup-mail-accounts code { min-width: 0; max-width: 100%; }
+.setup-mail-acct { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.setup-mail-acct.fail { color: var(--warn-fg, #b45309); }
+.setup-mail-add-title { display: block; margin-top: 10px; font-size: 13px; }

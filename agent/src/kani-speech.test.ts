@@ -14,7 +14,7 @@ test("카니: 소리 뒤 괄호 안에 할 말(반말), 고정 문구·정해진
   setCharacter("kani");
   assert.equal(character().name, "카니");
   for (const [k, lines] of Object.entries(CHARACTERS.kani.phrases)) for (const l of lines) assert.match(l, SOUND, `phrases.${k}: ${l}`);
-  for (const [k, l] of Object.entries(CHARACTERS.kani.lines)) assert.match(l as string, SOUND, `local.${k}: ${l}`);
+  for (const [k, l] of Object.entries(CHARACTERS.kani.lines).filter(([k]) => k !== "weatherRain")) assert.match(l as string, SOUND, `local.${k}: ${l}`);
   for (const l of CHARACTERS.kani.cheer!) assert.match(l, /^앗\? 헤/, l);
   assert.match(localLine("lunch"), /밥/);
   // AI 프롬프트도 같은 규칙

@@ -114,8 +114,8 @@ const projects = D.projects ?? [
 ];
 
 let todos = D.todos ?? [
-  { id: 'mail:1', title: '디자인 리뷰 전에 피그마 코멘트 3개 정리', source: 'mail', link: 'https://outlook.office.com/mail/', priority: 1, note: '코멘트는 #design 스레드에', userEdited: true, today: today() },
-  { id: 'jira:CY-12', title: 'CY-12 패널 접근성 점검', source: 'jira', link: 'https://example.atlassian.net/browse/CY-12', priority: 1, today: today() },
+  { id: 'mail:1', title: '디자인 리뷰 전에 피그마 코멘트 3개 정리', source: 'mail', link: 'https://outlook.office.com/mail/', priority: 1, note: '코멘트는 #design 스레드에', userEdited: true },
+  { id: 'jira:CY-12', title: 'CY-12 패널 접근성 점검', source: 'jira', link: 'https://example.atlassian.net/browse/CY-12', priority: 1 },
   { id: 'slack:3', title: '#cy-agent 어제 질문에 답장', source: 'slack', link: 'slack://channel?team=T1&id=C1', priority: 2 },
   { id: 'cal:4', title: '내일 1:1 안건 적기', source: 'calendar', link: null, priority: 3 },
   { id: 'local:5', title: '노트 레포 정리', source: 'local', priority: 4 },
@@ -164,11 +164,17 @@ const proposals = D.proposals ?? [
   { id: 'p0', title: '버튼 대비 올리기', repo: 'ui-kit', status: 'done', result: 'https://github.com/example/ui-kit/pull/42' },
 ];
 
-// 오늘 할 일: 할 일 중 오늘로 고른 것(today 날짜). 데몬 daily-plan.ts 처럼 열림·끝냄을 모아 내려준다
+// 오늘 할 일 = 우선순위 1(오늘 꼭). 데몬 daily-plan.ts 처럼 열린 P1 + 끝낸 P1 을 모아 내려준다
+// FAKE_CARRY=1: 아침 질문 「어제 남은 N개」(열린 P1 전부)가 고르기 전 상태
+let carryIds = process.env.FAKE_CARRY ? null : [];
 const todayPlan = () => {
   const date = today();
-  const pick = (list, done) => list.filter((x) => x.today === date).map((x) => ({ id: x.id, title: x.title, done, priority: x.priority, source: x.source }));
-  return D.today ?? { date, asked: true, items: [...pick(todos, false), ...pick(doneTodos, true)] };
+  const pick = (list, done) => list.filter((x) => x.priority === 1).map((x) => ({ id: x.id, title: x.title, done, priority: x.priority, source: x.source }));
+  const items = [...pick(todos, false), ...pick(doneTodos, true)];
+  const open = items.filter((x) => !x.done).map((x) => x.id);
+  carryIds ??= open;
+  const carry = carryIds.filter((id) => open.includes(id));
+  return D.today ?? { date, asked: true, items, ...(carry.length ? { carry: { n: carry.length, ids: carry } } : {}) };
 };
 const briefing = D.briefing ?? {
   at: ago(38),
@@ -747,7 +753,7 @@ const server = http.createServer(async (req, res) => {
     return later(() => {
       if (FAIL.test(title)) return json(res, 500, { error: '가짜 실패' });
       const id = `user:${Date.now().toString(36)}`;
-      todos = [fakeRules.applyToNew({ id, title, source: 'user', priority: body.priority ?? 2, ...(body.link ? { link: body.link } : {}), ...(body.note ? { note: body.note } : {}), ...(body.today === true ? { today: today() } : {}), userEdited: false }), ...todos];
+      todos = [fakeRules.applyToNew({ id, title, source: 'user', priority: body.priority ?? 2, ...(body.link ? { link: body.link } : {}), ...(body.note ? { note: body.note } : {}), userEdited: false, ...(body.today === true ? { priority: 1 } : {}) }), ...todos];
       todos.sort((a, b) => a.priority - b.priority);
       json(res, 201, { id });
       emit('dashboard', {});
@@ -763,6 +769,17 @@ const server = http.createServer(async (req, res) => {
       const { doneBy: _d, autoReason: _r, autoEvidence: _e, doneAt: _a, ...open } = cur;
       todos = [open, ...todos].sort((a, b) => a.priority - b.priority);
       json(res, 200, { ok: true, todo: open });
+      emit('dashboard', {});
+    });
+  }
+  if (p === '/today/carry') {
+    if (body.decision !== 'keep' && body.decision !== 'demote') return json(res, 400, { error: 'decision must be keep or demote' });
+    return later(() => {
+      const ids = todayPlan().carry?.ids ?? [];
+      if (body.decision === 'demote') for (const t of todos) if (ids.includes(t.id)) { t.priority = 2; t.userEdited = true; }
+      todos.sort((a, b) => a.priority - b.priority);
+      carryIds = [];
+      json(res, 200, { ok: true, moved: body.decision === 'demote' ? ids.length : 0 });
       emit('dashboard', {});
     });
   }
@@ -946,7 +963,7 @@ const server = http.createServer(async (req, res) => {
           Object.assign((ORIGINS[id] ??= {}), { description: body.description?.trim() || null, userEdited: true }); // 지운 설명은 다시 안 만듦
           cur.userEdited = true;
         }
-        if (body.today !== undefined) { if (body.today === true) cur.today = today(); else delete cur.today; } // 오늘 할 일 고르기·빼기
+        if (body.today !== undefined && body.priority === undefined) { if (body.today === true) cur.priority = 1; else if (cur.priority === 1) cur.priority = 2; } // 오늘 할 일 넣기(P1)·빼기(P2)
         for (const k of ['title', 'priority', 'link', 'note']) {
           if (body[k] === undefined) continue;
           if (body[k] === null || body[k] === '') delete cur[k];

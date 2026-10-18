@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { HOME_DIR, type Config } from "../config.ts";
+import { stripBom } from "../fs-atomic.ts";
 import type { Store } from "../store.ts";
 import { SlackDeepBackfill, type DeepProgress, type SlackDeepDeps, type SlackSurvey } from "../ingest/slack-deep.ts";
 import { buildSlackChunks, ensureChunkTables, rowToChunk, scanSessions, type ChunkRow, type ScanResult, type ChunkSource } from "./chunks.ts";
@@ -67,14 +68,14 @@ const r5 = (x: number) => Math.round(x * 1e5) / 1e5;
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
 function fileConfig(): Record<string, unknown> {
-  try { return JSON.parse(readFileSync(join(HOME_DIR, "config.json"), "utf8")); } catch { return {}; }
+  try { return JSON.parse(stripBom(readFileSync(join(HOME_DIR, "config.json"), "utf8"))); } catch { return {}; }
 }
 
 function fileBudget(): number | undefined {
   const env = Number(process.env.CY_AGENT_KG_BUDGET);
   if (env > 0) return env;
   try {
-    const v = Number(JSON.parse(readFileSync(join(HOME_DIR, "config.json"), "utf8")).kgBudgetUsd);
+    const v = Number(JSON.parse(stripBom(readFileSync(join(HOME_DIR, "config.json"), "utf8"))).kgBudgetUsd);
     return v > 0 ? v : undefined;
   } catch { return undefined; }
 }

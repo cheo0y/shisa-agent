@@ -33,7 +33,7 @@
       <p class="hint">끊으면 <span class="who">시사</span>가 그 AI를 더 쓰지 않아요. 지금 쓰던 AI면 「AI 없이 쓰기」로 바뀌어요. 바로 적용돼요.</p>
       <div id="brains" class="conn-list"></div>
       <p id="models-hint" class="hint" hidden></p>
-      <p id="models-note" class="hint">Claude Code 세부 모델 — 바꾸면 바로 적용돼요. <span id="config-path"></span></p>
+      <p id="models-note" class="hint"><span id="models-title">세부 모델</span>: 바꾸면 바로 적용돼요. <span id="config-path"></span></p>
       <div id="models" class="rows"></div>
     </section>
 
@@ -104,6 +104,38 @@
       </div>
       <p class="hint">출근 시각이 지나면 아침 인사를 해요. 점심은 점심 시각부터 한 시간 안에 점심 영상과 함께, 퇴근 10분 전에는 일정 알림 영상과 함께 인사해요. 같은 날 앱을 다시 켜도 또 뜨지 않아요.</p>
       <div id="work-err" class="ph-err" role="status"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-weather">
+      <h2 id="h-weather">날씨</h2>
+      <p class="hint">지역을 고르면 <span class="who">시사</span>가 그 지역 날씨를 알려 줘요. AI 연결 없이도 돼요. 지역을 고르기 전에는 꺼져 있어요.</p>
+      <div id="weather-picked" class="weather-picked" hidden>
+        <span class="weather-place"><b id="weather-name"></b> <span id="weather-label" class="faint"></span></span>
+        <button id="weather-change" type="button" class="small">바꾸기</button>
+        <button id="weather-clear" type="button" class="small ghost">지우기</button>
+      </div>
+      <div id="weather-find" class="weather-find">
+        <input id="weather-q" type="text" placeholder="지역 이름 (예: 서울, 성남시, 부산)" aria-label="날씨 지역 찾기" role="combobox" aria-autocomplete="list" aria-controls="weather-list" aria-expanded="false" autocomplete="off" spellcheck="false">
+        <ul id="weather-list" class="weather-list" role="listbox" aria-label="찾은 지역" hidden></ul>
+      </div>
+      <div id="weather-when" class="weather-when">
+        <div class="toggles">
+          <label class="toggle"><input id="weather-morning" type="checkbox">출근 후 브리핑 다음</label>
+          <label class="toggle"><input id="weather-leave" type="checkbox"><span id="weather-leave-label">퇴근 20분 전</span></label>
+        </div>
+        <div class="weather-times-row">
+          <span class="weather-times-head">정한 시각에도</span>
+          <span id="weather-times" class="weather-chips" role="list" aria-label="정한 날씨 알림 시각"></span>
+          <span class="weather-add">
+            <input id="weather-time" type="time" aria-label="날씨 알림 시각">
+            <button id="weather-time-add" type="button" class="primary">추가</button>
+          </span>
+        </div>
+      </div>
+      <p id="weather-summary" class="hint"></p>
+      <p class="hint">캐릭터를 더블클릭하거나 입력창 ＋ 에서 「오늘 날씨?」를 눌러도 알려 줘요. Open-Meteo 에는 고른 지역의 위치(위도·경도)만 보내고, 찾을 때는 친 글자만 보내요. 위치 정보(GPS)는 쓰지 않아요.</p>
+      <p class="hint weather-src"><a href="#" id="weather-src">날씨: Open-Meteo</a> · 데이터 <a href="#" id="weather-license">CC BY 4.0</a></p>
+      <div id="weather-err" class="ph-err" role="status"></div>
     </section>
 
     <section id="am-card" class="card" aria-labelledby="h-am">

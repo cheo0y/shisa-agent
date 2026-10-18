@@ -5,12 +5,17 @@
 import { todayReminderOf, validateTodayReminder, type TodayReminder } from "./daily-plan.ts";
 import { calendarAlertOf, validateCalendarAlert, type CalendarAlertConfig } from "./calendar-alert.ts";
 import { cleanDays, isHhmm, minutesOf, workHoursOf } from "./work-hours.ts";
-import { readFileSync, renameSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { ATTRIBUTION, mergeWeather, validateWeather, weatherOf, type WeatherConfig, type WeatherPatch } from "./weather.ts";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { stripBom, writeFileAtomic } from "./fs-atomic.ts";
 import { dirname, join } from "node:path";
 import { isAbsolute } from "node:path";
-import { BRAIN_PROVIDERS, DEFAULT_GENERAL_MODEL, HOME_DIR, configErrorText, type BrainProvider, type Config } from "./config.ts";
-import { modelLabel } from "./models.ts";
-import { gskLoginKey } from "./providers.ts";
+import { BRAIN_PROVIDERS, CODING_PROVIDERS, DEFAULT_GENERAL_MODEL, HOME_DIR, configErrorText, type BrainProvider, type CodingProvider, type Config } from "./config.ts";
+import { BRAIN_LABEL, CHAT_ROLES, modelFits, modelLabel, roleModel, usesClaudeModels, type ChatRole } from "./models.ts";
+import { homedir } from "node:os";
+import { commandOnPath, gskLoginKey } from "./providers.ts";
+import { coderAvail, codingProvider, type CoderAvail } from "./coding.ts";
+import { CODEX_AUTH_MISSING } from "./codex-coder.ts";
 import { AUTO_MERGE_MAX, inAutoMerge, normSlug } from "./auto-merge.ts";
 import { STEP_HEAD } from "./briefing-sources.ts";
 import { PHRASES, defaultLines, phraseDef, phraseLines, setPhrases, unknownVars } from "./phrases.ts";
@@ -61,6 +66,8 @@ export type SettingsView = {
   lunchAlert: boolean; // 점심시간 알림(점심 시각부터 한 시간 안에 하루 한 번, 기본 켬)
   // 근무 시간(work-hours.ts): 출근·점심·퇴근 HH:MM, 요일(0 일~6 토), 출근 인사·퇴근 10분 전 인사
   workStart: string; lunchTime: string; workEnd: string; workDays: number[]; startAlert: boolean; leaveAlert: boolean;
+  // 날씨 알리미(weather.ts): 고른 지역(null = 꺼짐)·출근 후 브리핑 다음·퇴근 20분 전·정한 시각 + 출처(Open-Meteo)
+  weather: WeatherConfig & { attribution: typeof ATTRIBUTION };
   // 뇌: 키는 절대 내보내지 않는다 — 있나 없나만
   brain: { provider: BrainProvider; model: string; keys: Record<BrainKey, boolean> };
   // 캐릭터(characters.ts): 그림·영상·말투·고정 문구 기본값이 바뀐다
@@ -72,7 +79,14 @@ export type SettingsView = {
   onboarded: boolean;
   readSessions: boolean;
   configPath: string;
+  configPathLabel: string; // 화면용(홈은 ~ 로 줄임)
+  // 지금 뇌의 세부 모델 칸(설정 창 「○○ 세부 모델」). claude: Claude 모델 목록(modelOptions)에서 고른다(models 로 저장),
+  // 그 밖의 뇌: 그 뇌 목록(GET /chat/models)에서 고르고 brainModels 로 저장. enabled=false 면 이유(why)와 함께 막아 둔다
+  // 코드 작업 칸은 대화 AI 와 따로: coder 에 코드 작업 AI(Claude Code·Codex)와 각자 준비됐나. value 는 그 AI 의 모델
+  //   (Claude Code → models.code, Codex → brainModels.codex.code — 저장도 그 키로)
+  modelSlots: { provider: BrainProvider; title: string; claude: boolean; roles: { role: ModelRole; label: string; value: string | null; enabled: boolean; why?: string; coder?: CoderSlot }[] };
 };
+export type CoderSlot = { provider: CodingProvider; choices: { id: CodingProvider; label: string; ready: boolean | null; why?: string }[] };
 export type BrainKey = "gemini" | "openai" | "anthropic" | "genspark";
 const BRAIN_KEY_FIELD: Record<BrainKey, "geminiApiKey" | "openaiApiKey" | "anthropicApiKey" | "gensparkApiKey"> = { gemini: "geminiApiKey", openai: "openaiApiKey", anthropic: "anthropicApiKey", genspark: "gensparkApiKey" };
 // 뇌 바꾸기: provider · 키(null = 지우기) · model(null = 기본으로). 바로 반영(데몬 재시작 불필요)
@@ -88,7 +102,13 @@ export type SettingsPatch = {
   calendarAlert?: CalendarAlertConfig;
   lunchAlert?: boolean;
   workStart?: string; lunchTime?: string; workEnd?: string; workDays?: number[]; startAlert?: boolean; leaveAlert?: boolean;
+  weather?: WeatherPatch; // 날씨: 준 칸만 바꾼다(place: null = 지역 지우기 → 날씨 꺼짐)
   character?: CharacterId;
+  // Claude 가 아닌 뇌의 세부 모델: { provider, models: { 역할: 이름 | null(그 뇌 기본으로) } } — 그 뇌 칸만 바꾼다
+  // code 는 Codex 만(Codex 로 코드 작업할 때 모델)
+  brainModels?: { provider: BrainProvider; models: Partial<Record<ChatRole | "code", string | null>> };
+  // 코드 작업 AI(모델은 위 models.code · brainModels.codex.code)
+  coding?: { provider: CodingProvider };
 };
 const MODEL_ID = /^[A-Za-z0-9._:/-]{1,100}$/;
 export type PutResult = { ok: true; settings: SettingsView; applied: "live"; restartNeeded: false; note?: string } | { ok: false; status: 400 | 409 | 500; error: string };
@@ -101,7 +121,7 @@ export class ConfigFileError extends Error {}
 export function validatePatch(body: unknown, cfg: Pick<Config, "models">): SettingsPatch {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new SettingsError("json object required");
   const b = body as Record<string, unknown>;
-  for (const k of Object.keys(b)) if (!["models", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "character"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
+  for (const k of Object.keys(b)) if (!["models", "brainModels", "briefing", "phrases", "autoMerge", "brain", "user", "repoRoots", "todayReminder", "onboarded", "readSessions", "calendarAlert", "lunchAlert", "workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert", "weather", "character", "coding"].includes(k)) throw new SettingsError(`unknown key: ${k}`);
   const out: SettingsPatch = {};
   if (b.models !== undefined) {
     if (!b.models || typeof b.models !== "object" || Array.isArray(b.models)) throw new SettingsError("models must be an object");
@@ -113,6 +133,30 @@ export function validatePatch(body: unknown, cfg: Pick<Config, "models">): Setti
       m[k as ModelRole] = v;
     }
     out.models = m;
+  }
+  if (b.brainModels !== undefined) {
+    const bm = b.brainModels as Record<string, unknown>;
+    if (!bm || typeof bm !== "object" || Array.isArray(bm)) throw new SettingsError("brainModels must be an object");
+    for (const k of Object.keys(bm)) if (k !== "provider" && k !== "models") throw new SettingsError(`unknown key: brainModels.${k}`);
+    const p = bm.provider;
+    if (typeof p !== "string" || !(BRAIN_PROVIDERS as readonly string[]).includes(p) || p === "local" || usesClaudeModels(p)) throw new SettingsError("brainModels.provider must be codex|gemini|openai|genspark (Claude 뇌는 models 로)");
+    const ms = bm.models as Record<string, unknown>;
+    if (!ms || typeof ms !== "object" || Array.isArray(ms)) throw new SettingsError("brainModels.models must be an object");
+    const m: Partial<Record<ChatRole | "code", string | null>> = {};
+    for (const [k, v] of Object.entries(ms)) {
+      if (!(CHAT_ROLES as readonly string[]).includes(k) && !(k === "code" && p === "codex")) throw new SettingsError(`unknown model role for ${p}: ${k}`);
+      if (v === null || v === "") { m[k as ChatRole] = null; continue; }
+      if (typeof v !== "string" || !modelFits(p, v)) throw new SettingsError(`brainModels.models.${k} must be a ${p} model name`);
+      m[k as ChatRole] = v;
+    }
+    out.brainModels = { provider: p as BrainProvider, models: m };
+  }
+  if (b.coding !== undefined) {
+    const c = b.coding as Record<string, unknown>;
+    if (!c || typeof c !== "object" || Array.isArray(c)) throw new SettingsError("coding must be an object");
+    for (const k of Object.keys(c)) if (k !== "provider") throw new SettingsError(`unknown key: coding.${k}`);
+    if (!(CODING_PROVIDERS as readonly unknown[]).includes(c.provider)) throw new SettingsError("coding.provider must be claude-code|codex");
+    out.coding = { provider: c.provider as CodingProvider };
   }
   if (b.briefing !== undefined) {
     if (!b.briefing || typeof b.briefing !== "object" || Array.isArray(b.briefing)) throw new SettingsError("briefing must be an object");
@@ -131,6 +175,9 @@ export function validatePatch(body: unknown, cfg: Pick<Config, "models">): Setti
   }
   if (b.calendarAlert !== undefined) {
     try { out.calendarAlert = validateCalendarAlert(b.calendarAlert); } catch (e: any) { throw new SettingsError(String(e?.message ?? e)); }
+  }
+  if (b.weather !== undefined) {
+    try { out.weather = validateWeather(b.weather); } catch (e: any) { throw new SettingsError(String(e?.message ?? e)); }
   }
   if (b.character !== undefined) {
     if (!isCharacterId(b.character)) throw new SettingsError(`character must be one of ${characterOptions().map((c) => c.id).join(", ")}`);
@@ -243,7 +290,7 @@ function mergePhrases(cur: Record<string, unknown>, patch: Record<string, string
 export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   let cur: Record<string, unknown> = {};
   if (existsSync(path)) {
-    const raw = readFileSync(path, "utf8");
+    const raw = stripBom(readFileSync(path, "utf8"));
     if (raw.trim()) {
       let v: unknown;
       try { v = JSON.parse(raw); } catch (e) { throw new ConfigFileError(`${configErrorText(e).replace(/ 안전 모드로 켰어요\./, " 설정을 저장하지 못했어요(파일은 덮어쓰지 않았어요).")}`); }
@@ -254,6 +301,22 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   const obj = (x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
   const next = { ...cur };
   if (patch.models && Object.keys(patch.models).length) next.models = { ...obj(cur.models), ...patch.models };
+  if (patch.brainModels) {
+    const all = { ...obj(cur.brainModels) };
+    const mine: Record<string, unknown> = { ...obj(all[patch.brainModels.provider]) };
+    for (const [r, v] of Object.entries(patch.brainModels.models)) { if (v) mine[r] = v; else delete mine[r]; }
+    if (Object.keys(mine).length) all[patch.brainModels.provider] = mine;
+    else delete all[patch.brainModels.provider];
+    if (Object.keys(all).length) next.brainModels = all;
+    else delete next.brainModels;
+  }
+  // 코드 작업 AI: provider 만 둔다(예전 coding.model 은 그 실행기의 모델 칸으로 읽혔다 — 코드 작업 칸을 고치면 지운다)
+  if (patch.coding) next.coding = { provider: patch.coding.provider };
+  else if (obj(cur.coding).model !== undefined && (patch.models?.code !== undefined || patch.brainModels?.models.code !== undefined)) {
+    const p = obj(cur.coding).provider;
+    if (p === "claude-code" || p === "codex") next.coding = { provider: p };
+    else delete next.coding;
+  }
   if (patch.briefing?.exclude) next.briefing = { ...obj(cur.briefing), exclude: patch.briefing.exclude };
   if (patch.phrases && Object.keys(patch.phrases).length) {
     const p = mergePhrases(obj(cur.phrases), patch.phrases);
@@ -270,7 +333,18 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
       else delete br[f];
     }
     next.brain = br;
-    if (patch.brain.model !== undefined) {
+    // 설치 마법사가 고른 모델: Claude 가 아닌 뇌면 그 뇌 칸(brainModels)에 — models.general(Claude Code 가 쓰는 값)은 그대로
+    const bp = String(br.provider ?? "claude-code");
+    if (patch.brain.model !== undefined && !usesClaudeModels(bp) && bp !== "local") {
+      const all = { ...obj(next.brainModels) };
+      const mine: Record<string, unknown> = { ...obj(all[bp]) };
+      if (patch.brain.model) mine.general = patch.brain.model;
+      else delete mine.general;
+      if (Object.keys(mine).length) all[bp] = mine;
+      else delete all[bp];
+      if (Object.keys(all).length) next.brainModels = all;
+      else delete next.brainModels;
+    } else if (patch.brain.model !== undefined) {
       const m = { ...obj(next.models) };
       if (patch.brain.model) m.general = patch.brain.model;
       else delete m.general;
@@ -291,11 +365,13 @@ export function mergeConfigFile(path: string, patch: SettingsPatch): void {
   if (patch.calendarAlert) next.calendarAlert = patch.calendarAlert; // [] 도 그대로 쓴다(끔)
   if (patch.lunchAlert !== undefined) next.lunchAlert = patch.lunchAlert;
   for (const k of ["workStart", "lunchTime", "workEnd", "workDays", "startAlert", "leaveAlert"] as const) if (patch[k] !== undefined) next[k] = patch[k];
+  if (patch.weather) {
+    const w = mergeWeather(weatherOf(cur.weather), patch.weather);
+    next.weather = { ...(w.place ? { place: w.place } : {}), morning: w.morning, leave: w.leave, times: w.times };
+  }
   if (patch.character) next.character = patch.character;
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
 }
 
 // 브리핑 과제 글: 뺀 출처는 확인하지도, 말하지도 않게 그 번호 줄을 빼고(번호는 다시 매김) 한 줄로 못 박는다. 뺀 게 없으면 원래 글 그대로.
@@ -327,13 +403,22 @@ export function briefingExcludeOf(cfg: Pick<Config, "briefing" | "readSessions">
   return ex;
 }
 
+// 화면에 홈 경로를 그대로 보이지 않게: /Users/me/.cy-agent/config.json → ~/.cy-agent/config.json
+export function shortHome(path: string, home = homedir()): string {
+  if (!home) return path;
+  const h = home.replace(/[\\/]+$/, "");
+  return path === h ? "~" : path.startsWith(`${h}/`) || path.startsWith(`${h}\\`) ? `~${path.slice(h.length)}` : path;
+}
+
 export class Settings {
   private cfg: Config;
   private path: string;
   private env: NodeJS.ProcessEnv;
   private onChange?: (keys: string[]) => void;
-  constructor(cfg: Config, opts: { path?: string; env?: NodeJS.ProcessEnv; onChange?: (keys: string[]) => void } = {}) {
+  private coders: () => CoderAvail;
+  constructor(cfg: Config, opts: { path?: string; env?: NodeJS.ProcessEnv; onChange?: (keys: string[]) => void; coders?: () => CoderAvail } = {}) {
     this.cfg = cfg;
+    this.coders = opts.coders ?? (() => coderAvail(this.env));
     this.onChange = opts.onChange;
     this.path = opts.path ?? join(HOME_DIR, "config.json");
     this.env = opts.env ?? process.env;
@@ -354,8 +439,9 @@ export class Settings {
       todayReminder: todayReminderOf(c.todayReminder),
       calendarAlert: calendarAlertOf(c.calendarAlert),
       ...workHoursOf(c as unknown as Record<string, unknown>), // lunchAlert·근무 시간(새 배열이라 그대로 내보낸다)
+      weather: { ...weatherOf(c.weather), attribution: ATTRIBUTION },
       brain: {
-        provider: c.brain?.provider ?? "claude-code", model: c.models.general,
+        provider: c.brain?.provider ?? "claude-code", model: roleModel(c, "general") ?? "",
         // genspark: 설정에 키가 있거나, Genspark 를 고른 채 gsk login 파일에 키가 있으면 true(키 값은 내보내지 않는다).
         // 고르지 않았으면 gsk login 만 해 둔 것으로 「연결됨」이 되지 않게 파일은 보지 않는다
         keys: { gemini: !!c.brain?.geminiApiKey, openai: !!c.brain?.openaiApiKey, anthropic: !!c.brain?.anthropicApiKey, genspark: !!c.brain?.gensparkApiKey || (c.brain?.provider === "genspark" && !!gskLoginKey(this.env)) },
@@ -367,6 +453,8 @@ export class Settings {
       onboarded: c.onboarded !== false,
       readSessions: c.readSessions !== false,
       configPath: this.path,
+      configPathLabel: shortHome(this.path),
+      modelSlots: this.slots(),
     };
   }
 
@@ -384,6 +472,8 @@ export class Settings {
       return { ok: false, status: 500, error: `설정 파일을 쓰지 못했어요(${e?.code ?? "오류"}). 폴더 권한·남은 공간을 확인해 주세요` };
     }
     if (patch.models) Object.assign(this.cfg.models, patch.models);
+    if (patch.brainModels) this.setBrainModels(patch.brainModels.provider, patch.brainModels.models);
+    if (patch.coding) this.cfg.coding = { provider: patch.coding.provider }; // 다음 코드 작업부터
     if (patch.briefing?.exclude) this.cfg.briefing = { ...(this.cfg.briefing ?? {}), exclude: patch.briefing.exclude };
     if (patch.phrases) {
       this.cfg.phrases = mergePhrases(this.cfg.phrases ?? {}, patch.phrases) as Record<string, string[]>;
@@ -399,7 +489,11 @@ export class Settings {
         else delete b[f];
       }
       this.cfg.brain = b; // brain.ts·connections 가 매번 cfg.brain 을 읽으니 다음 질문부터 바로
-      if (patch.brain.model !== undefined) this.cfg.models.general = patch.brain.model || DEFAULT_GENERAL_MODEL;
+      if (patch.brain.model !== undefined) {
+        const bp = b.provider ?? "claude-code";
+        if (!usesClaudeModels(bp) && bp !== "local") this.setBrainModels(bp, { general: patch.brain.model || null });
+        else this.cfg.models.general = patch.brain.model || DEFAULT_GENERAL_MODEL;
+      }
     }
     if (patch.user) this.cfg.user = { aliases: this.cfg.user?.aliases ?? [], ...(patch.user.name ? { name: patch.user.name } : {}) };
     if (patch.repoRoots) this.cfg.repoRoots = [...patch.repoRoots];
@@ -409,6 +503,7 @@ export class Settings {
     if (patch.lunchAlert !== undefined) this.cfg.lunchAlert = patch.lunchAlert; // main 이 1분마다 cfg 를 읽으니 바로
     for (const k of ["workStart", "lunchTime", "workEnd", "startAlert", "leaveAlert"] as const) if (patch[k] !== undefined) (this.cfg as any)[k] = patch[k];
     if (patch.workDays) this.cfg.workDays = [...patch.workDays];
+    if (patch.weather) this.cfg.weather = mergeWeather(weatherOf(this.cfg.weather), patch.weather); // main 이 1분마다 cfg 를 읽으니 바로
     if (patch.calendarAlert) this.cfg.calendarAlert = { minutesBefore: [...patch.calendarAlert.minutesBefore] }; // CalendarSync 가 확인할 때마다 cfg 를 읽으니 바로
     if (patch.character) { this.cfg.character = patch.character; setCharacter(patch.character); } // 다음 말풍선·답부터(앱은 SSE state 로 그림을 바꾼다)
     this.onChange?.(Object.keys(patch));
@@ -419,11 +514,59 @@ export class Settings {
     };
   }
 
+  // 메모리 cfg 의 그 뇌 세부 모델(null = 지우기 — 그 뇌 기본)
+  private setBrainModels(p: BrainProvider, models: Partial<Record<ChatRole | "code", string | null>>) {
+    const all = { ...(this.cfg.brainModels ?? {}) };
+    const mine = { ...(all[p] ?? {}) };
+    for (const [r, v] of Object.entries(models)) { if (v) mine[r as ChatRole | "code"] = v; else delete mine[r as ChatRole | "code"]; }
+    if (Object.keys(mine).length) all[p] = mine;
+    else delete all[p];
+    this.cfg.brainModels = all;
+  }
+
+  // 지금 뇌의 세부 모델 칸. 코드 작업 칸만 대화 AI 와 따로(코드 작업 AI 가 Claude Code 또는 Codex — codeSlot). 경량은 Claude 뇌면 수집·제목, 그 밖이면 제목 짓기
+  private slots(): SettingsView["modelSlots"] {
+    const c = this.cfg;
+    const p = c.brain?.provider ?? "claude-code";
+    const claude = usesClaudeModels(p);
+    const title = p === "local" ? "세부 모델" : `${BRAIN_LABEL[p]} 세부 모델`;
+    const roles = MODEL_ROLES.map((role) => {
+      const label = MODEL_ROLE_LABEL[role];
+      if (role === "code") return this.codeSlot(label);
+      if (p === "local") return { role, label, value: null, enabled: false, why: "AI 를 연결하면 고를 수 있어요" };
+      if (claude) return { role, label, value: role === "quick" ? c.models.quick ?? DEFAULT_QUICK : c.models[role], enabled: true };
+      const own = c.brainModels?.[p]?.[role as ChatRole];
+      return { role, label, value: own ?? (role === "general" ? roleModel(c, "general", p) ?? null : null), enabled: true };
+    });
+    return { provider: p, title, claude, roles };
+  }
+
+  // 코드 작업 칸: 코드 작업 AI(Claude Code·Codex)가 준비됐으면 그 AI 의 모델을 고른다. 둘 다 없으면 막고 이유
+  private codeSlot(label: string) {
+    const c = this.cfg;
+    const avail = this.coders();
+    const provider = codingProvider(c, avail);
+    const codexWhy = commandOnPath("codex", this.env) ? CODEX_AUTH_MISSING : "Codex 를 찾을 수 없어요. Codex CLI 를 설치하고 로그인해 주세요";
+    const coder: CoderSlot = {
+      provider,
+      choices: [
+        { id: "claude-code", label: "Claude Code", ready: avail.claude ?? null, ...(avail.claude === false ? { why: "Claude Code 에 로그인되어 있지 않아요" } : {}) },
+        { id: "codex", label: "Codex", ready: !!avail.codex, ...(avail.codex ? {} : { why: codexWhy }) },
+      ],
+    };
+    const ready = provider === "codex" ? !!avail.codex : avail.claude !== false;
+    const value = provider === "codex" ? c.brainModels?.codex?.code ?? null : c.models.code;
+    if (ready) return { role: "code" as const, label, value, enabled: true, coder };
+    const any = avail.claude !== false || !!avail.codex;
+    return { role: "code" as const, label, value, enabled: false, coder,
+      why: any ? `${provider === "codex" ? "Codex" : "Claude Code"} 가 준비되지 않았어요. 코드 작업 AI 를 바꾸거나 연결해 주세요` : "Claude Code 나 Codex 를 연결하면 코드 작업을 맡길 수 있어요" };
+  }
+
   // onboarded 를 처음 적으면 config.json 이 "새 방식"(onboarding.ts)이 되어 빈 칸의 기본값이 바뀐다(작업 기록 끔·레포 폴더 없음·뇌 미선택).
   // 예전부터 쓰던 사람이 마법사를 다시 마쳐도 그대로 돌게, 지금 쓰는 값을 같이 적는다(정한 값은 그대로)
   private withCurrentDefaults(patch: SettingsPatch): SettingsPatch {
     let file: Record<string, unknown> = {};
-    try { file = JSON.parse(readFileSync(this.path, "utf8")) ?? {}; } catch { file = {}; }
+    try { file = JSON.parse(stripBom(readFileSync(this.path, "utf8"))) ?? {}; } catch { file = {}; }
     const out: SettingsPatch = { ...patch };
     if (out.readSessions === undefined && typeof file.readSessions !== "boolean") out.readSessions = this.cfg.readSessions !== false;
     if (out.repoRoots === undefined && !Array.isArray(file.repoRoots)) out.repoRoots = [...(this.cfg.repoRoots ?? [])];

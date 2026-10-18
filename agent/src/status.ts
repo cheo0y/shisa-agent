@@ -1,6 +1,6 @@
 // 지금 무엇이 연결됐나 — 한 곳에서(GET /status). 데스크톱이 이걸로 화면을 가른다:
 //   뇌가 준비됐으면 말 걸기(더블클릭·패널 채팅·세션 창 입력)·브리핑 요약, 아니면 연결 안내 + 정해진 말(local-mode)
-//   Claude Code 가 있어야만 되는 것(코드 고치기·워크트리·백그라운드 에이전트·세션 이어 하기)은 coder.claude 로
+//   코드 고치기·이어 하기는 features.code(코드 작업 AI features.coder — Claude Code 또는 Codex — 가 준비됐나), 워크트리·백그라운드 에이전트는 coder.claude 로
 //   뒤에서 혼자 도는 정리(끝난 할 일 판정·진행 확인·지식그래프·프로필 학습)는 features.background — Claude Code 나 Codex 뇌
 //   MCP 커넥터(메일·이슈·Slack·캘린더 MCP)는 Claude Code 뇌일 때만 읽는다 — features.mcp, connectors[].needs
 // 비밀값(키·토큰·ICS 주소)은 넣지 않는다. 있나 없나만.
@@ -10,6 +10,8 @@ import { CAPABILITIES, CONNECTORS, connectorStatus, type Capability } from "./co
 import { BRAIN_LABEL } from "./connections.ts";
 import { NEEDS_CODER, featureBrain, type FeatureBrain } from "./feature-brain.ts";
 import { WAIT_SETUP } from "./onboarding.ts";
+import { codexCodingReady, codingProvider, codingReady } from "./coding.ts";
+import type { CodingProvider } from "./config.ts";
 
 export type BrainStatus = {
   provider: string;
@@ -22,7 +24,8 @@ export type Features = {
   // 끝난 할 일 판정·할 일 진행 확인·지식그래프·프로필 학습. by = 돌리는 뇌(null = 안 돎)
   background: { by: FeatureBrain | null; ready: boolean | null; detail: string };
   mcp: boolean;          // MCP 커넥터를 읽나(Claude Code 뇌만)
-  code: boolean | null;  // 코드 고치기·워크트리·백그라운드 에이전트(Claude Code 로그인)
+  code: boolean | null;  // 코드 고치기를 맡길 수 있나: 코드 작업 AI(coder)가 준비됐나. null = Claude Code 로그인 확인 전
+  coder: CodingProvider; // 코드 작업 AI(coding.ts codingProvider)
 };
 export type Status = {
   brain: BrainStatus;
@@ -45,7 +48,7 @@ export type StatusDeps = {
 
 const KEY_LABEL: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", anthropic: "Claude" };
 
-export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes">>, deps: StatusDeps = {}): Status {
+export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "onboarded"> & Partial<Pick<Config, "configError" | "configNotes" | "coding">>, deps: StatusDeps = {}): Status {
   const env = deps.env ?? process.env;
   const provider = cfg.brain?.provider ?? "claude-code";
   const claude = deps.claude?.();
@@ -67,6 +70,7 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
   const conns = cfg.connectors ?? CONNECTORS;
   const st = connectorStatus(conns, deps.hasServer);
   const codex = commandOnPath("codex", env);
+  const avail = { claude: claude ?? null, codex: codex && codexCodingReady(env) };
   const by = featureBrain(cfg, () => codex);
   const background: Features["background"] = by === "claude-code"
     ? { by, ready: claude === undefined ? null : claude, detail: claude === false ? "Claude Code 로그인이 필요해요" : "Claude Code 로 돌아요" }
@@ -77,7 +81,7 @@ export function statusOf(cfg: Pick<Config, "brain" | "connectors" | "user" | "on
     brain: { provider, label, ready, local, detail },
     chat: local ? false : ready,
     coder: { claude: claude ?? null, codex },
-    features: { background, mcp, code: claude ?? null },
+    features: { background, mcp, code: codingReady(cfg, avail), coder: codingProvider(cfg, avail) },
     connectors: CAPABILITIES.map((cap) => {
       const x = st.find((s) => s.cap === cap)!;
       const needs = x.mode === "mcp" && !mcp;

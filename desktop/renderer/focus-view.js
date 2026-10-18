@@ -3,7 +3,7 @@
 // 경과 시간·오늘 합계는 1초마다 글자만 바꾼다(목록을 다시 그리지 않는다). 순수 계산은 src/focus.js.
 import { who } from './who.js';
 import {
-  normFocus, elapsedSec, todayLive, fmtClock, fmtDuration, fmtShort, focusLevel, LEVEL_LABELS, localDay, rangeOf, shiftAnchor,
+  normFocus, focusSend, elapsedSec, todayLive, fmtClock, fmtDuration, fmtShort, focusLevel, LEVEL_LABELS, localDay, rangeOf, shiftAnchor,
   monthGrid, rangeTitle, cellTitle, dayLabel, dayDetail, summarize, barRatio, parseDay, WEEKDAYS,
 } from '../src/focus.js';
 
@@ -39,13 +39,13 @@ export function createFocusView({ h, cy }) {
     busy = true;
     err = '';
     redraw();
-    let r;
-    try { r = await cy.focusCmd(c); } catch { r = { ok: false }; }
+    const r = await focusSend(cy.focusCmd, c);
     busy = false;
     if (r?.ok && r.data) set(r.data);
     else {
       err = r?.error || r?.status === 503 || !r?.status ? `${who()}가 꺼져 있어서 못 했어요` : '잠깐 뒤에 다시 눌러 주세요';
       redraw();
+      load(); // 데몬 상태로 다시 맞춘다(이미 끝난 세션이면 「그만하기」 줄이 [집중하기]로 돌아간다)
     }
   }
   async function loadStats(force = false) {

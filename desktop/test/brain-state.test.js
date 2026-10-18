@@ -93,7 +93,7 @@ test('사용법 둘러보기: 3~5 장면, 연결된 것에 맞춰 문구가 바�
   assert.equal(TOUR_VERSION >= 1, true);
 });
 
-test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 이어 하기는 Claude Code 가 있어야', async () => {
+test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 이어 하기는 코딩 실행기가 있어야', async () => {
   const { composerMode, gateComposer } = await import('../src/session.js');
   const follow = composerMode({ id: 'r1', kind: 'other', status: 'done', origin: null });
   assert.equal(gateComposer(follow, { ready: true }).enabled, true);
@@ -103,7 +103,7 @@ test('세션 창 입력: 뇌가 없으면 막고 [연결하기], 수정 작업 �
   const cont = composerMode({ id: 'r2', kind: 'fix', status: 'done' });
   assert.equal(cont.mode, 'continue');
   assert.deepEqual([gateComposer(cont, { ready: true, coder: false }).locked], ['coder']);
-  assert.match(gateComposer(cont, { ready: true, coder: false }).placeholder, /Claude Code 를 설치하면/);
+  assert.match(gateComposer(cont, { ready: true, coder: false }).placeholder, /Claude Code 또는 Codex를 연결하면/);
   assert.equal(gateComposer(composerMode(null), { ready: false }).locked, undefined, '꺼진 입력은 그대로');
 });
 
@@ -114,7 +114,7 @@ test('normStatus·brainView: 뒤에서 하는 정리는 누가(Codex 도), MCP �
     connectors: [{ cap: 'mail', label: '메일', mode: 'mcp', ready: false, needs: 'claude-code' }, { cap: 'calendar', label: '캘린더', mode: 'api', ready: true }],
   });
   const s = normStatus(cx);
-  assert.deepEqual(s.features, { background: { by: 'codex', ready: true, detail: 'Codex 로 돌아요' }, mcp: false, code: false });
+  assert.deepEqual(s.features, { background: { by: 'codex', ready: true, detail: 'Codex 로 돌아요' }, mcp: false, code: false, coder: null });
   assert.equal(s.connectors[0].needs, 'claude-code');
   const v = brainView({ status: cx });
   assert.deepEqual([v.background, v.mcp, v.needsClaude, v.connected], ['codex', false, ['mail'], ['calendar']]);
@@ -143,4 +143,16 @@ test('사용법 투어: AI 없으면 두 번 눌러 질문 칩, Slack 없으면 
   assert.match(off[0].text, /바로 답해 주는 질문/);
   assert.ok(!off.find((s) => s.id === 'todos').text.includes('새로고침'));
   assert.match(tourSteps({ ready: true, connected: ['slack'] }).find((s) => s.id === 'todos').text, /새로고침/);
+});
+
+test('코드 작업 버튼(brainView.coder): 데몬이 본 코드 작업 AI 기준 — Claude Code 없이 Codex 만 있어도 보이고, 준비 안 된 실행기면 숨긴다', () => {
+  const st = (features, coder = {}) => status({ brain: { provider: 'codex', ready: true }, coder, features: { background: { by: 'codex' }, mcp: false, ...features } });
+  assert.equal(brainView({ status: st({ code: true, coder: 'codex' }, { claude: false, codex: true }) }).coder, true, 'Codex 만');
+  assert.equal(normStatus(st({ code: true, coder: 'codex' })).features.coder, 'codex');
+  assert.equal(brainView({ status: st({ code: false, coder: 'claude-code' }, { claude: false, codex: true }), caps: { claude: false, codex: true } }).coder, false, 'Claude Code 로 골라 뒀는데 없으면 이 컴퓨터에 Codex 가 있어도 숨김');
+  assert.equal(brainView({ status: st({ code: false, coder: 'codex' }, { codex: true }) }).coder, false, 'Codex 로그인 파일이 없으면');
+  assert.equal(brainView({ status: st({ code: null }), caps: { claude: null, codex: false } }).coder, true, '확인 전엔 막지 않는다');
+  assert.equal(brainView({ status: st({ code: null }), caps: { claude: false, codex: false } }).coder, false);
+  assert.equal(brainView({ caps: { claude: false, codex: true } }).coder, true, '데몬과 끊김: 이 컴퓨터의 CLI 로 짐작');
+  assert.equal(brainView({ caps: { claude: false, codex: false } }).coder, false);
 });

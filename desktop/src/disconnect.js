@@ -93,7 +93,8 @@ export function connectorDisconnectCopy(cap, server) {
   const what = cap === 'calendar'
     ? '붙여 넣은 캘린더 주소(구글·Outlook 모두)를 시사 설정에서 지워요.'
     : cap === 'slack' ? '저장해 둔 Slack 토큰과 연결 설정을 시사 설정에서 지워요.'
-      : '연결 설정을 시사 설정에서 지워요.';
+      : cap === 'mail' ? '저장해 둔 메일 비밀번호와 가져온 메일을 시사에서 지워요(모든 계정). 메일함의 메일은 그대로예요.'
+        : '연결 설정을 시사 설정에서 지워요.';
   const cmd = mcpRemoveCommand(server);
   return {
     ask: `${label} 연결을 끊을까요?`,

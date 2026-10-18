@@ -22,8 +22,8 @@ export type Todo = {
   appliedRule?: { id: string; text: string }; // 이 할 일에 적용된 할 일 규칙(todo-rules.ts)
   progress?: string; progressAt?: string; // 어디까지 됐는지(주기 진행 확인 todo-progress.ts 가 씀 — 사용자 필드 아님)
   doing?: boolean; // 사용자가 직접 정한 (진행중): true 켬 · false 끔 · 없음 = 자동(progress 가 있으면 진행중)
-  today?: string; // 오늘 할 일로 고른 날(KST YYYY-MM-DD). 그날 '오늘 할 일' 탭에 같은 줄로 보인다(daily-plan.ts)
   projectId?: string; // 묶인 직접 만든 프로젝트(manual-projects.ts). 없으면 어느 프로젝트에도 안 묶임
+  projectOrder?: number; // 그 프로젝트 안 순서(작을수록 위). 넣을 때 맨 아래, 카드에서 끌어 바꾼다
 };
 export type TodoSourceKind = "slack" | "commit" | "mail" | "session" | "calendar" | "jira" | "user" | "other";
 export type TodoSource = {
@@ -44,7 +44,7 @@ export const kstDay = (iso: string | number | Date) => {
 };
 export type AutoEvidence = { ids: string[]; permalink?: string };
 export type TodoField = "title" | "priority" | "link" | "note" | "status" | "description";
-// today: true = 오늘(KST)로 고름, 날짜 글 = 그날로, false·null = 오늘 할 일에서 뺌(할 일은 그대로)
+// today: 오늘 할 일 = 우선순위 1(오늘 꼭). true·날짜 글 = 오늘 할 일에 넣기(P1), false·null = 빼기(P1 이면 P2 이번 주로, 할 일은 그대로)
 // projectId: 직접 만든 프로젝트에 묶기(id)·빼기(null). 사용자 필드(userEdited)로 치지 않는다
 export type TodoPatch = { title?: string; priority?: number; link?: string | null; note?: string | null; status?: "open" | "done"; description?: string | null; doing?: boolean | null; today?: boolean | string | null; projectId?: string | null };
 // 휴지통에 든 할 일(패널 '휴지통' 그룹). priority·status는 옮기기 전 것
@@ -60,12 +60,16 @@ export type Proposal = {
 export type Briefing = { at: string; bubble: string; replyMd: string };
 // todoId·todoTitle: 사용자가 특정 할 일을 집어 들고 한 말(패널 '이 할 일로 채팅')
 // role system: 대화 안 기록 한 줄(적용한 할 일 변경·팝오버 제안/결과). 모델 답이 아니다
-export type ChatTurn = { threadId?: string; role: "user" | "assistant" | "system"; text: string; at: string; todoId?: string; todoTitle?: string; n?: number; via?: "cli"; clientId?: string; queuedAt?: string; edited?: string; attachments?: Attachment[] };
+export type ChatTurn = { threadId?: string; role: "user" | "assistant" | "system"; text: string; at: string; todoId?: string; todoTitle?: string; n?: number; via?: "cli"; clientId?: string; queuedAt?: string; edited?: string; attachments?: Attachment[]; by?: AnsweredBy };
+// 채팅에서 고른 뇌·모델(스레드에 기억 — chat_threads.pick). provider 없으면 기본 뇌, model 없으면 그 뇌의 기본 모델
+export type ChatPick = { provider?: string; model?: string };
+// 답한 뇌·모델(답 말풍선 아래 작은 글 — chat.model). label = 화면에 보일 짧은 이름
+export type AnsweredBy = { provider: string; model?: string; label: string; picked?: boolean };
 // edited: 사용자가 고쳐 다시 보낸 말이면 고친 때(화면 「수정됨」). 고치기 전 글은 store 에만(original_text — 감사용, API 로는 안 나간다) // via: 터미널 Claude Code 에서 이어 간 말(cli-sync.ts)
 // 사용자 말의 보낸 기록: clientId = 패널이 붙인 말 id(낙관적 사본과 짝 맞추기) · queuedAt = 줄 선 때(앞 답을 기다렸으면 — at 은 실제로 보낸 때)
 // editedAt·originalText: 고쳐 다시 보낸 말(Chat.edit) — 고친 때·고치기 전 글
 // attachments: 이 말에 붙인 첨부(attachments.ts — 대화 폴더로 옮긴 뒤의 것, chat.attachments 에 JSON)
-export type ChatSendMeta = { clientId?: string; queuedAt?: string; editedAt?: string; originalText?: string; attachments?: Attachment[] };
+export type ChatSendMeta = { clientId?: string; queuedAt?: string; editedAt?: string; originalText?: string; attachments?: Attachment[]; by?: AnsweredBy };
 // 대화 창(스레드). kind: chat=패널에서 연 대화, todo=할 일 하나에 붙은 대화(팝오버 문답이 쌓임), hover=캐릭터 호버 입력
 export type ThreadKind = "chat" | "todo" | "hover";
 export const THREAD_KINDS: readonly ThreadKind[] = ["chat", "todo", "hover"];
@@ -73,6 +77,7 @@ export type Thread = {
   id: string; title: string; kind: ThreadKind; todoId?: string; created: string; updated: string; archived: boolean;
   preview?: string; count: number; // 마지막 말(시스템 줄 빼고, 120자) · 말 수
   cliSync?: boolean; // 이 대화에서 난 run 에 SDK 세션이 있다 — 터미널 Claude Code 에서 이어 간 말을 불러올 수 있음(패널 ↻)
+  pick?: ChatPick; // 이 대화에서 고른 뇌·모델(없으면 기본)
 };
 export const LEGACY_THREAD = "legacy"; // 스레드 전 기록을 모은 "이전 대화"
 
@@ -98,9 +103,8 @@ CREATE INDEX IF NOT EXISTS todo_ledger_todo ON todo_ledger(todo_id, n);
 `;
 
 const now = () => new Date().toISOString();
-// 오늘 할 일 날: true = 오늘(KST), 'YYYY-MM-DD' = 그날, 나머지 = 뺌
-const planDay = (v: boolean | string | null | undefined): string | null =>
-  v === true ? kstDay(new Date()) : typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+// 예전 「오늘로 고르기」 값 → 넣기(true)·빼기(false). 오늘 할 일은 우선순위 1(오늘 꼭)이라 plan_day 는 더 쓰지 않는다(읽기 호환만, daily-plan.ts)
+const intoToday = (v: boolean | string | null | undefined): boolean => v === true || (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v));
 
 function todoRow(r: any): Todo {
   let edited: TodoField[] = [];
@@ -126,8 +130,8 @@ function todoRow(r: any): Todo {
     ...(rule ? { appliedRule: rule } : {}),
     ...(r.progress ? { progress: r.progress, ...(r.progress_at ? { progressAt: r.progress_at } : {}) } : {}),
     ...(r.doing === 1 || r.doing === 0 ? { doing: r.doing === 1 } : {}),
-    ...(r.plan_day ? { today: r.plan_day } : {}),
     ...(r.project_id ? { projectId: r.project_id } : {}),
+    ...(r.project_id && r.project_order !== null && r.project_order !== undefined ? { projectOrder: Number(r.project_order) } : {}),
   };
 }
 
@@ -162,10 +166,14 @@ export class Store {
       ["trashed_at", "TEXT"], ["prev_status", "TEXT"], ["prev_priority", "INTEGER"], // 휴지통: 옮긴 때 · 되살릴 상태·우선순위
       ["progress", "TEXT"], ["progress_at", "TEXT"], // 어디까지 됐는지(todo-progress.ts)
       ["doing", "INTEGER"], // 사용자가 누른 (진행중) 토글: 1 켬 · 0 끔 · NULL 자동
-      ["plan_day", "TEXT"], // 오늘 할 일로 고른 날(KST), daily-plan.ts
+      ["plan_day", "TEXT"], // 예전 오늘 할 일로 고른 날(KST). 지금은 P1 이 오늘 할 일이라 읽기 호환만(daily-plan.ts 가 한 번 옮긴다)
       ["project_id", "TEXT"], // 묶인 직접 만든 프로젝트(manual-projects.ts)
+      ["project_order", "INTEGER"], // 그 프로젝트 안 순서(manual-projects.ts reorder)
     ];
     for (const [name, type] of add) if (!cols.has(name)) this.db.exec(`ALTER TABLE todos ADD COLUMN ${name} ${type}`);
+    // 순서 열이 막 생겼으면: 이미 묶인 할 일에 예전 보이던 순서(열린 것 먼저·우선순위·끌기 순서·만든 때)로 0..n 을 매긴다
+    if (!cols.has("project_order")) this.db.exec(`UPDATE todos SET project_order = (SELECT n FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id
+      ORDER BY status = 'done', priority, sort IS NULL, sort, created) - 1 AS n FROM todos WHERE project_id IS NOT NULL) o WHERE o.id = todos.id) WHERE project_id IS NOT NULL`);
     // 할 일 일지: 처음 만들 때 지금 있는 할 일·휴지통·묘비로 한 번 채운다(예전 DB 도 "사용자가 지운 일"을 바로 기억)
     const hadLedger = !!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'todo_ledger'").get();
     this.db.exec(LEDGER);
@@ -173,7 +181,10 @@ export class Store {
     const chatCols = new Set((this.db.prepare("PRAGMA table_info(chat)").all() as any[]).map((c) => c.name));
     // edited_at·original_text: 고쳐 다시 보낸 말 · hidden_at: 말을 고쳐서 걷힌 뒤쪽 말(지우지 않고 숨김 — 기록은 남는다)
     for (const name of ["todo_id", "todo_title", "thread_id", "via", "client_id", "queued_at", "edited_at", "original_text", "hidden_at", "attachments"]) if (!chatCols.has(name)) this.db.exec(`ALTER TABLE chat ADD COLUMN ${name} TEXT`);
+    if (!chatCols.has("model")) this.db.exec("ALTER TABLE chat ADD COLUMN model TEXT"); // 답한 뇌·모델(AnsweredBy JSON)
     this.db.exec("CREATE INDEX IF NOT EXISTS chat_thread ON chat(thread_id, n)");
+    const threadCols = new Set((this.db.prepare("PRAGMA table_info(chat_threads)").all() as any[]).map((c) => c.name));
+    if (!threadCols.has("pick")) this.db.exec("ALTER TABLE chat_threads ADD COLUMN pick TEXT"); // 고른 뇌·모델(ChatPick JSON)
     const propCols = new Set((this.db.prepare("PRAGMA table_info(proposals)").all() as any[]).map((c) => c.name));
     if (!propCols.has("thread_id")) this.db.exec("ALTER TABLE proposals ADD COLUMN thread_id TEXT");
     if (!propCols.has("base")) this.db.exec("ALTER TABLE proposals ADD COLUMN base TEXT");
@@ -354,14 +365,22 @@ export class Store {
     return true;
   }
 
+  // 그 프로젝트 맨 아래 순서(휴지통에 든 것까지 보고 하나 더, 되살려도 겹치지 않게)
+  nextProjectOrder(projectId: string): number {
+    const r = this.db.prepare("SELECT MAX(project_order) AS m FROM todos WHERE project_id = ?").get(projectId) as any;
+    return r?.m === null || r?.m === undefined ? 0 : Number(r.m) + 1;
+  }
+
   // 사용자가 직접 추가한 할 일
   addTodo(t: { title: string; priority?: number; link?: string | null; note?: string | null; source?: string; description?: string | null; sourceRef?: string | null; origin?: TodoSource; today?: boolean | string | null; projectId?: string | null }, by: TodoActor = "user"): Todo {
     const id = `user:${randomUUID()}`;
     const at = now();
+    const priority = intoToday(t.today) ? 1 : t.priority ?? 2; // 오늘 할 일에 넣어 만들면 P1(오늘 꼭)
     this.db
-      .prepare("INSERT INTO todos (id, title, source, link, priority, status, created, note, updated, description, source_ref, origin, plan_day, project_id) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, t.title, t.source ?? "user", t.link ?? null, t.priority ?? 2, at, t.note ?? null, at,
-        t.description ?? null, t.sourceRef ?? null, t.origin ? JSON.stringify(t.origin) : null, planDay(t.today), t.projectId ?? null);
+      .prepare("INSERT INTO todos (id, title, source, link, priority, status, created, note, updated, description, source_ref, origin, project_id, project_order) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, t.title, t.source ?? "user", t.link ?? null, priority, at, t.note ?? null, at,
+        t.description ?? null, t.sourceRef ?? null, t.origin ? JSON.stringify(t.origin) : null, t.projectId ?? null,
+        t.projectId ? this.nextProjectOrder(t.projectId) : null);
     this.log(id, t.title, "added", by, undefined, at);
     return this.getTodo(id)!;
   }
@@ -413,6 +432,15 @@ export class Store {
   editTodo(id: string, patch: TodoPatch): Todo | undefined {
     const cur = this.getTodo(id);
     if (!cur) return undefined;
+    // 오늘 할 일 넣기·빼기 = 우선순위 1 로 올리기·2(이번 주)로 내리기. 우선순위를 같이 주면 그쪽이 먼저
+    if (patch.today !== undefined) {
+      const { today, ...rest } = patch;
+      patch = rest;
+      if (rest.priority === undefined) {
+        if (intoToday(today)) { if (cur.priority !== 1) patch.priority = 1; }
+        else if (cur.priority === 1) patch.priority = 2;
+      }
+    }
     const sets: string[] = [], vals: (string | number | null)[] = [];
     const mine = new Set(cur.userEdited);
     const col = { title: "title", priority: "priority", link: "link", note: "note", status: "status", description: "description" } as const;
@@ -424,10 +452,12 @@ export class Store {
     }
     // (진행중) 토글: 사용자 필드로 치지 않는다(브리핑이 제목 등을 덮지 못하게 하는 userEdited 와 무관)
     if (patch.doing !== undefined) { sets.push("doing = ?"); vals.push(patch.doing === null ? null : patch.doing ? 1 : 0); }
-    // 오늘 할 일 고르기·빼기: 사용자 필드 아님(브리핑이 덮지 않는 제목 등과 무관)
-    if (patch.today !== undefined) { sets.push("plan_day = ?"); vals.push(planDay(patch.today)); }
     // 프로젝트에 묶기·빼기: 사용자 필드 아님
-    if (patch.projectId !== undefined) { sets.push("project_id = ?"); vals.push(patch.projectId || null); }
+    // 다른 프로젝트로 옮기거나 다시 넣으면 그 프로젝트 맨 아래, 빼면 순서도 지운다. 같은 프로젝트면 순서 그대로
+    if (patch.projectId !== undefined) {
+      sets.push("project_id = ?"); vals.push(patch.projectId || null);
+      if ((patch.projectId || undefined) !== cur.projectId) { sets.push("project_order = ?"); vals.push(patch.projectId ? this.nextProjectOrder(patch.projectId) : null); }
+    }
     if (!sets.length) return cur;
     if (patch.status !== undefined && patch.status !== cur.status) { sets.push("done_by = ?"); vals.push(patch.status === "done" ? "user" : null); }
     sets.push("user_edited = ?", "updated = ?");
@@ -510,9 +540,11 @@ export class Store {
     const r = this.db.prepare("SELECT * FROM todos WHERE id = ? AND trashed_at IS NULL").get(id); // 휴지통에 든 건 없는 셈
     return r ? todoRow(r) : undefined;
   }
-  // 그날 오늘 할 일로 고른 것(열림·끝냄, 휴지통 제외). 순서는 열린 할 일 목록과 같다
+  // 오늘 할 일 = 우선순위 1(오늘 꼭) 중 열린 것 + 그날(이 맥 시간대) 끝낸 것. 휴지통 제외. 순서는 열린 할 일 목록과 같다
   todayTodos(day: string): Todo[] {
-    return (this.db.prepare("SELECT * FROM todos WHERE plan_day = ? AND status IN ('open', 'done') ORDER BY priority, sort IS NULL, sort, created").all(day) as any[]).map(todoRow);
+    const rows = this.db.prepare("SELECT * FROM todos WHERE priority = 1 AND trashed_at IS NULL AND (status = 'open' OR (status = 'done' AND coalesce(updated, created) >= ?)) ORDER BY sort IS NULL, sort, created")
+      .all(new Date(Date.parse(`${day}T00:00:00Z`) - 2 * 864e5).toISOString()) as any[]; // 시간대 여유를 두고 거른 뒤 날짜로 다시 본다
+    return rows.map(todoRow).filter((t) => t.status === "open" || kstDay(t.updated ?? t.created) === day);
   }
   openTodos(): Todo[] {
     return (this.db.prepare("SELECT * FROM todos WHERE status = 'open' ORDER BY priority, sort IS NULL, sort, created").all() as any[]).map(todoRow);
@@ -636,9 +668,9 @@ export class Store {
   // meta: 사용자 말의 clientId·queuedAt(ChatSendMeta)
   addChat(role: ChatTurn["role"], text: string, at = now(), todo?: { id: string; title: string }, threadId = LEGACY_THREAD, via?: "cli", meta: ChatSendMeta = {}): number {
     if (threadId === LEGACY_THREAD) this.db.prepare("INSERT OR IGNORE INTO chat_threads (id, title, kind, created, updated) VALUES (?, '이전 대화', 'chat', ?, ?)").run(LEGACY_THREAD, at, at);
-    const r = this.db.prepare("INSERT INTO chat (role, text, at, todo_id, todo_title, thread_id, via, client_id, queued_at, edited_at, original_text, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    const r = this.db.prepare("INSERT INTO chat (role, text, at, todo_id, todo_title, thread_id, via, client_id, queued_at, edited_at, original_text, attachments, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(role, text, at, todo?.id ?? null, todo?.title ?? null, threadId, via === "cli" ? "cli" : null, meta.clientId ?? null, meta.queuedAt ?? null, meta.editedAt ?? null, meta.originalText ?? null,
-        meta.attachments?.length ? JSON.stringify(meta.attachments.map(({ path: _p, ...a }) => a)) : null);
+        meta.attachments?.length ? JSON.stringify(meta.attachments.map(({ path: _p, ...a }) => a)) : null, meta.by ? JSON.stringify(meta.by) : null);
     this.db.prepare("UPDATE chat_threads SET updated = MAX(updated, ?) WHERE id = ?").run(at, threadId);
     return Number(r.lastInsertRowid);
   }
@@ -685,8 +717,13 @@ export class Store {
       .all(...[opts.archived ? 1 : 0, ...(opts.before ? [opts.before] : []), opts.limit ?? 50]) as any[];
     return rows.map(threadRow);
   }
-  editThread(id: string, patch: { title?: string; archived?: boolean }): Thread | undefined {
+  // pick: 고른 뇌·모델(null = 기본으로 — 지운다)
+  editThread(id: string, patch: { title?: string; archived?: boolean; pick?: ChatPick | null }): Thread | undefined {
     if (!this.thread(id)) return undefined;
+    if (patch.pick !== undefined) {
+      const p = patch.pick && (patch.pick.provider || patch.pick.model) ? { ...(patch.pick.provider ? { provider: patch.pick.provider } : {}), ...(patch.pick.model ? { model: patch.pick.model } : {}) } : null;
+      this.db.prepare("UPDATE chat_threads SET pick = ? WHERE id = ?").run(p ? JSON.stringify(p) : null, id);
+    }
     if (patch.title !== undefined) this.db.prepare("UPDATE chat_threads SET title = ? WHERE id = ?").run(patch.title, id);
     if (patch.archived !== undefined) this.db.prepare("UPDATE chat_threads SET archived = ? WHERE id = ?").run(patch.archived ? 1 : 0, id);
     return this.thread(id);
@@ -706,7 +743,7 @@ export class Store {
   }
   // 그 스레드 말, 오래된 것 먼저. before = 메시지 n 커서(그보다 이전 limit개)
   threadMessages(id: string, opts: { limit?: number; before?: number } = {}): ChatTurn[] {
-    const rows = this.db.prepare(`SELECT n, role, text, at, todo_id, todo_title, via, client_id, queued_at, edited_at, attachments FROM chat WHERE thread_id = ? AND hidden_at IS NULL ${opts.before ? "AND n < ?" : ""} ORDER BY n DESC LIMIT ?`)
+    const rows = this.db.prepare(`SELECT n, role, text, at, todo_id, todo_title, via, client_id, queued_at, edited_at, attachments, model FROM chat WHERE thread_id = ? AND hidden_at IS NULL ${opts.before ? "AND n < ?" : ""} ORDER BY n DESC LIMIT ?`)
       .all(...[id, ...(opts.before ? [opts.before] : []), opts.limit ?? 100]) as any[];
     return rows.reverse().map((r) => ({ ...turnRow(r), n: r.n }));
   }
@@ -743,13 +780,20 @@ function threadRow(r: any): Thread {
     id: r.id, title: r.title, kind, ...(r.todo_id ? { todoId: r.todo_id } : {}), created: r.created, updated: r.updated, archived: !!r.archived,
     ...(r.last ? { preview: String(r.last).replace(/\s+/g, " ").trim().slice(0, 120) } : {}), count: Number(r.cnt ?? 0),
     ...(r.cli ? { cliSync: true } : {}),
+    ...(jsonObj(r.pick) ? { pick: jsonObj(r.pick) as ChatPick } : {}),
   };
 }
 
 function turnRow(r: any): ChatTurn {
   return { role: r.role, text: r.text, at: r.at, ...(r.todo_id ? { todoId: r.todo_id, todoTitle: r.todo_title ?? "" } : {}), ...(r.via === "cli" ? { via: "cli" as const } : {}),
     ...(r.client_id ? { clientId: r.client_id } : {}), ...(r.queued_at ? { queuedAt: r.queued_at } : {}), ...(r.edited_at ? { edited: r.edited_at } : {}),
-    ...(attachmentsOf(r.attachments) ? { attachments: attachmentsOf(r.attachments) } : {}) };
+    ...(attachmentsOf(r.attachments) ? { attachments: attachmentsOf(r.attachments) } : {}),
+    ...(r.role === "assistant" && jsonObj(r.model) && typeof (jsonObj(r.model) as AnsweredBy).label === "string" ? { by: jsonObj(r.model) as AnsweredBy } : {}) };
+}
+// JSON 글 → 객체(깨졌거나 객체가 아니면 undefined)
+function jsonObj(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw !== "string" || !raw) return undefined;
+  try { const v = JSON.parse(raw); return v && typeof v === "object" && !Array.isArray(v) ? v : undefined; } catch { return undefined; }
 }
 // chat.attachments(JSON) → 첨부 목록. 깨졌거나 비었으면 undefined
 function attachmentsOf(raw: unknown): Attachment[] | undefined {

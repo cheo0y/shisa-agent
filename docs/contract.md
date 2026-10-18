@@ -51,6 +51,12 @@ type Bubble = {
   - 점심(`lunchAlert`): 점심 시각부터 한 시간 안에 `danceClip: "lunch"`로 추고 점심 인사(`local.lunch`, 그 영상에 한마디가 있으면 그 말)를 띄운다.
   - 퇴근(`leaveAlert`): 퇴근 10분 전부터 퇴근 시각 전까지 `danceClip: "plan"`(그 캐릭터의 일정 알림 영상)으로 추고 퇴근 인사(`local.leave`, `{mins}` = 퇴근까지 남은 분)를 띄운다. 일정 알림 영상의 한마디는 일정용이라 쓰지 않는다.
 - 채팅 맥락 머리말에 근무 시간 한 줄(`- 근무: 월~금 09:00~18:00 · 점심 12:00 · 퇴근까지 1시간 5분`)이 붙는다.
+- 날씨 알리미(`weather.ts`·`weather-say.ts`, 설정 `weather`): `weather.place`(사용자가 고른 지역)가 있을 때만 돈다. AI 없이 Open-Meteo 예보를 정해진 말로 말풍선 id `weather:<키>`에 띄운다(비·눈 소식이 있으면 `kind: "todo"`, 아니면 `info`). 근무 요일에 하루 한 번씩이고, 날짜는 근무 시간과 같은 `lunch.json`에 키 `weatherMorning`·`weatherLeave`·`weather@HH:MM`로 남긴다. 예보를 못 가져오면 남기지 않고 다음 확인(1분마다) 때 다시 본다.
+  - 출근 후(`weather.morning`, 기본 켬): 출근 시각부터 퇴근 20분 전까지. 출근 인사(`startAlert`)가 켜져 있으면 그 인사(로컬 뇌 브리핑의 아침 인사 포함) 뒤에만 뜬다. 브리핑이 도는 중이면 기다렸다가 끝나고 3초쯤 뒤에, 브리핑이 없으면 인사 1분 30초 뒤에 뜬다. 출근 인사를 껐으면 출근 시각(또는 데몬을 켠 때)을 기준으로 한다. 대사 `local.weatherMorning`.
+  - 퇴근 20분 전(`weather.leave`, 기본 켬): 퇴근 20분 전부터 퇴근 시각 전까지, 퇴근 10분 전 인사와 따로다. 퇴근 2시간 전부터 3시간 뒤까지 비·눈(강수 확률 50% 이상 또는 0.5mm 이상)이 있으면 `local.weatherLeaveRain`(☔ 「퇴근길 비 와요, 우산!」), 없으면 퇴근 시각 즈음 날씨로 `local.weatherLeave`. 일정 알림 춤 중이면 다음 확인에.
+  - 정한 시각(`weather.times`): 그 시각부터 한 시간 안에 한 번. 대사 `local.weatherNow`.
+  - 채팅·브리핑 맥락(도구 머리말·큰 맥락 블록 둘 다)에 예보가 캐시에 있으면 한 줄(`- 오늘 날씨(서울 · Open-Meteo 예보): 맑음, 지금 14°C(맑음) · 최고 21°C/최저 11°C · 오후 3시쯤 비 60%`)이 붙는다. 프롬프트 때문에 바깥에 묻지는 않는다.
+  - 대사 자리표시: `weatherMorning`·`weatherNow`는 `{place}` `{summary}` `{now}` `{max}` `{min}` `{rain}`, `weatherLeave`는 `{place}` `{summary}` `{now}` `{max}` `{min}`, `weatherLeaveRain`은 `{place}` `{what}` `{when}` `{prob}` `{now}`, `weatherRain`(`{rain}` 자리에 들어가는 조각)은 `{when}`(「오후 3시」) `{what}`(비·눈) `{prob}`(「60%」). `weatherNoPlace`·`weatherFail`은 없다. 앞에 날씨 이모지 하나(비·눈이면 ☔)는 코드가 붙인다. 날씨 코드(WMO)는 맑음·구름 조금·구름 많음·흐림·안개·이슬비·비·소나기·눈·뇌우 같은 낱말로 바꾼다.
 
 ## 상태·설정
 
@@ -93,6 +99,7 @@ type Bubble = {
 - `user{name?}`, `repoRoots[]`, `configPath`
 - `onboarded`(설치 마법사를 마쳤나), `readSessions`(이 맥의 Claude Code·Codex 작업 기록을 읽나)
 - `character`(고른 캐릭터 id), `characters[{id,name}]`(고를 수 있는 캐릭터)
+- `weather{place,morning,leave,times,attribution}`: `place`는 `{ name, label, latitude, longitude, timezone }` 또는 `null`(꺼짐), `morning`·`leave` 기본 `true`, `times` 기본 `[]`, `attribution`은 `{ label: "날씨: Open-Meteo", url, license: "CC BY 4.0" }`
 
 `PUT` 본문(전부 선택, 모르는 키는 400):
 
@@ -112,6 +119,8 @@ type Bubble = {
   "workStart": "09:30", "lunchTime": "12:30", "workEnd": "18:30", // HH:MM(24시간). 아니면 400, 출근이 퇴근보다 늦거나 같아도 400
   "workDays": [1, 2, 3, 4, 5],                            // 0 일~6 토, 하나 이상
   "startAlert": true, "leaveAlert": true,                 // 출근 인사·퇴근 10분 전 인사 켜고 끄기(기본 켬)
+  "weather": { "place": { "name": "서울", "label": "서울특별시 · 대한민국", "latitude": 37.566, "longitude": 126.9784, "timezone": "Asia/Seoul" } | null,
+               "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 목록
   "character": "hachi"                                    // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
 }
 ```
@@ -150,12 +159,22 @@ type Bubble = {
 - 모델 프롬프트에 들어가는 건 `prompt.intro`와 `prompt.tone` 두 칸뿐이고, 둘 다 한 줄로 다듬는다. 프롬프트의 시사 첫 문장·말투 줄 자리만 바꾸므로 그 밖의 규칙과 안전 지시는 그대로다.
 - 앱은 `cy-asset`으로 사용자 캐릭터 파일을 줄 때 `GET /characters` 목록에 그 캐릭터의 그 파일이 있는지, 심볼릭 링크를 풀었을 때 그 캐릭터 폴더 안의 보통 파일인지 본다.
 
+### 날씨 지역 검색 `GET /weather/search?q=`
+
+- `q`는 1~60자(아니면 400). 두 글자 미만이면 묻지 않고 빈 목록이다.
+- Open-Meteo Geocoding(`language=ko`)에 묻는다. 한글이고 시·도·구·군·읍·면·동·리로 끝나지 않으면 「서울」→「서울시」·「서울특별시」·「서울광역시」도 같이 물어 모은다(한국 지명이 「서울특별시」로 실려 있어서).
+- 응답: `{ ok: true, items: [{ id, name, label, latitude, longitude, timezone, country?, admin1?, admin2? }] }`(큰 곳부터 열 개까지, 같은 곳은 하나). `name`은 짧은 이름(「서울」, 「서울 마포구」), `label`은 「마포구 · 서울특별시 · 대한민국」이다. 못 물으면 `{ ok: false, error }`.
+- 같은 글자는 데몬이 기억해 두고 다시 묻지 않는다(설정 창도 따로 기억한다). 설정 창은 칸에서 300ms 멈추면 묻는다.
+- 칩 「오늘 날씨?」: `POST /local/ask { id: "weather" }`. 지역이 없으면 `local.weatherNoPlace`(「설정에서 지역을 고르면 알려 줄게요」), 있으면 예보(캐시 45분, 없으면 그때 가져온다)로 `local.weatherNow`와 `detail`(지역 이름 · 예보: Open-Meteo). 못 가져오면 `local.weatherFail`과 `detail`에 이유. AI가 있어도 입력창 ＋ 칩에 같이 있다.
+
 ### `GET /connections` · `POST /connections/check { id? }`
 
 - 설정 창의 「연결 상태」 줄이다. 응답은 `{ rows: ConnRow[], checkedAt }`.
 - `ConnRow` 필드: `id`, `label`, `group: core|service|local`, `state: ok|warn|error|off|unknown`, `detail`, `error?`(가림), `check`, `pending?`, `doc?`, `used?`, `briefing?`.
 - `check`는 `id`(`net|claude|gh|local`)만 다시 확인한다.
 - 캘린더 두 줄(`connector:calendar`·`calendar`)은 설정만 보지 않고 실제 동기화 결과(아래 「캘린더 동기화 상태」)를 따른다. 가져오는 중이면 `detail`에 「일정 가져오는 중」, 가져왔으면 일정 수, 못 가져왔으면 `state: error`와 `error`에 사람이 읽는 이유가 들어간다.
+- 날씨 줄(`weather`, 「날씨(Open-Meteo)」): 지역을 안 골랐으면 `off`, 가져왔으면 `detail` 「서울 마포구 · 방금 · 14°C」, 못 가져왔으면 `error`(예전에 가져온 게 있으면 `warn`)와 이유. 아직 안 가져왔으면 `GET /connections`가 한 번 가져오게 건다.
+- 메일 줄(`connector:mail`)도 `imap` 모드면 실제 동기화 결과(아래 「메일(앱 비밀번호)」)를 따른다. `summary`는 「직접 연결(IMAP, 읽기만)」, `detail`에 가져온 메일 수와 때(계정이 여럿이면 「메일 N개 계정 · 최근 메일 M통 (때, 읽기만)」), 모든 계정을 못 가져왔으면 `state: error`와 `error`에 이유가 들어간다. 일부 계정만 못 가져왔으면 `state: warn`, `error`는 「주소: 이유」(여럿이면 « / »로 잇는다). 한 시간 넘게 못 가져왔으면 `warn`이다. 뇌가 `local`이면 「AI를 연결하면 메일에서 할 일을 뽑아요」가 붙는다.
 
 ### 그 밖
 
@@ -177,11 +196,34 @@ type Bubble = {
   - `manualProjects[]`: 직접 만든 프로젝트(아래 「직접 만든 프로젝트」, 진행 중 먼저)
   - `todos[]`(아래), `recentDone[]`, `proposals[]`, `today{date,asked,items}`
   - `connectors[]{cap,label,mode,ready,detail,doc,sync?}`, `meetings[]{id,subject,start,end,link?}`, `todoRules[]`
-  - `sync`는 연결된 캘린더 줄에만 붙는다: `{ phase: pending|ok|failed, at?, meetings?, reason? }`. 패널 연결 카드는 이걸로 「연결됨 · 일정 가져오는 중」·「연결됨 · 일정을 못 가져옴」(+ 이유)을 보인다.
+  - `sync`는 연결된 캘린더 줄에만 붙는다: `{ phase: pending|ok|failed, at?, meetings?, reason?, calendars? }`. `calendars`는 ICS 캘린더마다 `{ id, name, phase: ok|failed|off, meetings?, events?, reason? }`(name = 별칭). 패널 연결 카드는 이걸로 「연결됨 · 일정 가져오는 중」·「연결됨 · 일정을 못 가져옴」(+ 이유)을 보인다.
+  - 메일이 `imap` 모드면 메일 줄에 `account`·`preset`(첫 계정의 주소·서비스 `gmail|naver|daum|custom`), `accounts[{ id, user, preset, ready }]`, `sync{ phase, at?, count?, reason?, accounts[{ id, user, phase, at?, count?, reason? }] }`가 붙는다. `sync.phase`는 하나라도 가져왔으면 `ok`, `sync.reason`은 못 가져온 계정이 있으면(일부여도) 채운다. 비밀번호는 어떤 응답에도 넣지 않는다.
+
+### 메일(앱 비밀번호, `mail-imap.ts`·`mail-sync.ts`·`mail-connect.ts`)
+
+- `POST /connectors/mail { preset?, user, password?, host?, port?, sinceHours? }`: 계정 추가 → 200 `{ ok: true, id, account, preset, count, filtered, updated, accounts }` / 400 `{ error, code? }`. 저장하기 전에 실제로 로그인한다(LOGIN → EXAMINE INBOX → 최근 메일 읽기). 실패하면 아무것도 저장하지 않는다. `preset`을 비우면 주소로 짐작한다(`@gmail.com`·`@naver.com`·`@daum.net`·`@hanmail.net`, 그 밖은 `custom`). 이미 있는 주소(대소문자 무시)면 새로 붙이지 않고 그 계정의 비밀번호·서버를 바꾼다(`updated: true`). `password`를 비우면 그 주소로 저장된 비밀번호를 쓴다. 다른 키는 400이다. 계정 수 상한은 없다.
+- 성공하면 `config.json`의 `connectors.mail`만 `{ mode: "imap", accounts: [{ id, preset, user, password, host?, port? }], sinceHours?, skipPromotions? }`로 쓴다(다른 키는 그대로, 임시 파일 → rename, 권한 600). 예전 한 계정 모양(`user`·`password`가 `mail` 바로 아래)은 accounts 하나로 읽고(`id`는 주소로 만든 `m-…`), 이때 새 모양으로 바꿔 쓴다. 데몬은 다시 켜지 않고 바로 반영한다.
+- `DELETE /connectors/mail/:id`(헤더 `X-CY-Agent: 1`): 계정 하나 빼기 → 200 `{ ok: true, id, account, left }` / 404(없는 계정) / 400(틀린 id). 그 계정의 비밀번호와 가져온 메일을 지운다. 마지막 계정이면 `connectors.mail`이 `{ mode: "off" }`가 된다. 연결 해제(`POST /connectors/disconnect { cap: "mail" }`)는 모든 계정의 비밀번호와 가져온 메일까지 지운다.
+- `CY_AGENT_MAIL_PASSWORD`는 첫 계정의 비밀번호다(파일보다 먼저).
+- `code`: `auth`(주소·비밀번호 틀림, 서비스별 안내가 붙는다) · `app-password`(일반 비밀번호를 거절함) · `imap-off` · `web-login`(브라우저에서 보안 확인 필요) · `admin`(회사·학교 관리자가 막음) · `network` · `timeout` · `tls` · `readonly`(서버가 받은편지함을 읽기 전용으로 열지 않음) · `config` · `unknown`.
+- 읽기 전용: 받은편지함은 EXAMINE으로 열고, 서버가 READ-ONLY로 답하지 않으면 아무것도 읽지 않는다. 본문은 `BODY.PEEK[]`로 앞 48KB만 받아 읽음 표시가 바뀌지 않는다. 플래그 바꾸기·지우기·옮기기·보내기 코드는 없다.
+- 기간은 `sinceHours`(기본 24시간)이고 개수 상한은 없다. Gmail(X-GM-EXT-1)이면 `X-GM-RAW "-category:promotions -category:social"`로 프로모션·소셜을 서버에서 거른다(`skipPromotions: false`로 끈다). 다른 서비스는 `List-Unsubscribe`·`List-Id`·`Precedence: bulk`·noreply 보낸 사람을 「광고·뉴스레터·자동 발송으로 보임」으로 표시만 하고, 할 일로 만들지는 모델이 정한다.
+- `MailSync`가 15분마다, 그리고 브리핑 직전에 계정마다 동시에 따로 가져와 `cy.db`의 `mail_state`에 둔다(`state`, 계정마다 `items:<id>`). 한 계정이 실패해도 다른 계정 결과는 그대로이고, 실패한 계정은 전에 가져온 메일을 남긴다. `state`: 합친 `phase`(`off|pending|ok|failed`), `at`, `lastOkAt`, `count`(모든 계정 합), `filtered`, `sinceHours`, `reason`, `code`, `accounts[{ id, user, preset, key(서버·주소), phase, at, lastOkAt, count, filtered, reason, code }]`. 빠진 계정의 메일은 지운다.
+- 맥락: inline 맥락(`buildContext`, 브리핑과 Claude Code가 아닌 뇌의 채팅)에 「## 최근 받은 메일」 블록이 들어간다. 줄마다 받은 때(KST)·받은 계정(`(받은 계정 주소)`)·보낸 사람·제목·표시(안 읽음·광고성)·`ref=mail:<Message-ID>`(없으면 `mail:uid-<UID>@<받은 주소>`)·Gmail 링크·본문 앞부분 600자(더 있으면 「전체 본문은 따로 있다」). 가져올 때 본문은 자르지 않고(`BODY.PEEK[]` 전체) 메일마다 `body`로 둔다.
+- 채팅 inline 맥락(Claude Code가 아닌 뇌)에는 사용자 말이 가리킨 메일의 「## 사용자가 가리킨 메일 전체 본문」 블록이 붙는다(`mail-pick.ts pickMails`): 보낸 사람 이름·주소·주소 앞부분이 겹치는 메일, 제목 낱말이 2개 이상(「본문·원문·전문·자세히·읽어 줘·보여 줘」류 말이 있으면 1개) 겹치는 메일. 겹치는 게 없고 그런 말만 있으면 바로 앞 답에 제목·보낸 사람이 나온 메일, 그것도 없으면 전부. 개수·본문 상한 없음. 메일마다 머리 줄(때·받은 계정·보낸 사람·제목·ref·링크)과 `<<<본문` … `본문>>>`. Claude Code 뇌는 맥락 도구 `mail_read({ id | ids })`(ref)로 전체 본문을 읽는다(`mail_recent`·`mail_read` 결과는 자르지 않는다). 비었거나 못 가져왔으면 상태 한 줄(가져오는 중·이유·받은 메일 없음)을 넣는다. 계정이 여럿이면 머리에 계정 수를 적고 계정마다 상태 줄(가져온 때·수 또는 실패 이유)을 넣는다. Claude Code 채팅(tools)은 머리말에 「메일: 최근 24시간 N통(안 읽음 M)」 한 줄(계정이 여럿이면 「메일(계정 K개)」, 못 가져온 계정이 있으면 그 이유)이 붙고, 자세한 건 `cy` 맥락 도구 `mail_recent`로 읽는다.
+- 브리핑 지시는 「위 "최근 받은 메일"에서 답장이나 조치가 필요한 것만 할 일로, 광고·뉴스레터·자동 알림은 빼고, source는 mail」이다. 메일 도구(MCP)는 쓰지 않으니 어느 뇌에서도 된다.
+- 비밀번호는 `GET /settings`·`GET /dashboard`·`GET /connections`·`/status`에 나오지 않는다. 데몬 로그는 설정한 비밀번호를 그 글자 그대로 가리고(`log.ts addLogSecret`), `password` 칸도 가린다. 앱의 도움 보내기도 `password` 칸을 가린다.
 
 ### 캘린더 동기화 상태(`calendar-state.ts`)
 
-- `CalendarSync`가 가져올 때마다 `cy.db`의 `calendar_state` 한 줄에 남긴다: `phase`(`off|pending|ok|failed`), `mode`, `key`(연결 설정의 해시. 설정이 바뀌면 예전 결과를 쓰지 않는다), `at`, `lastOkAt`, `meetings`, `events`, `reason`, `code`(`http|html|network|tls|timeout|url|mcp|brain|other`).
+- `GET /connectors/calendar`: 200 `{ phase, calendars[] }`. 저장된 ICS 캘린더마다 `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason?, color? }`. 주소는 없다
+- `GET /calendar/events?from=&to=(&fresh=1)`: 패널 캘린더 탭이 보는 기간의 일정(`calendar-view.ts`). `from`·`to`는 ISO 시각, `to`가 `from`보다 뒤, 길이 100일까지(틀리면 400 `{ error }`). 200 `{ connected, ok, mode?, from, to, timeZone, calendars[], events[], reason? }`. `calendars[]`: `{ id, name, color, colorSet, enabled, phase: ok|failed|off, reason? }`(꺼 둔 캘린더도 목록에는 있다). `events[]`: `{ id("<캘린더 id>:<일정 id>"), calId, title, start, end, allDay, startDay?, endDay?(종일: 캘린더 시간대 날짜, endDay 는 들어가지 않는 다음 날), location?, joinUrl?, webLink?, response?, free?, description?(600자까지), draft }`(`draft`는 `/projects/calendar-events`와 같은 프로젝트 칸). ICS 는 그 기간을 직접 읽어 반복 일정을 펼친다. 받은 ICS 글은 5분 들고 있고 `fresh=1`이면 새로 받는다. 취소된 일정과 꺼 둔 캘린더는 뺀다. MCP 캘린더는 모델을 부르지 않고 동기화해 둔 회의(`meetings`)만 준다. 캘린더가 없으면 `connected: false`
+- AI 의 기간 일정(`calendar-ai.ts`, 위 `/calendar/events` 와 같은 길): Claude Code 뇌는 `cy` 맥락 도구 `calendar_events({ from?, to?, days? })`(읽기 전용)로 읽는다. `from`·`to` 는 `YYYY-MM-DD`(`to` 는 그날까지 들어감) 또는 ISO 시각, 둘 다 없으면 오늘부터 `days`(기본 7)일. 결과는 날짜별 줄 `- 10/24(토) · 14:00~15:00 · 제목 · 캘린더 별칭 · 장소: … · 회의 링크 있음`(종일은 `종일`, 여러 날이면 `종일(~10/26(월))`, 빈 날은 없다)과 꺼 둔 캘린더·못 가져온 캘린더 줄. 길면 날짜 단위로 나눠 보내고 끝에 「calendar_events 를 from=…, to=… 로 다시 부른다」를 붙인다(상한 없음). 연결 없음·모두 꺼 둠·못 가져옴이면 `calendar-state.ts calendarNote` 와 같은 상태 줄. MCP 캘린더는 동기화해 둔 회의만 보이고 다른 날은 연결된 캘린더 MCP 도구로 읽으라고 적는다. 도구 없는 뇌(Codex·Gemini·OpenAI 등) 채팅은 사용자 말에 일정·약속·회의·미팅·스케줄·캘린더 말이나 기간·날짜 말(다음 주·이번 주·지난주·이번 달·다음 달·N월·N월 N일·M/D·YYYY-MM-DD·요일·주말·앞으로 N일)이 있으면 그 기간(여럿이면 다 덮는 기간, 일정 말만 있으면 앞으로 14일)을 「## 일정 10/19(월)~10/25(일)」 블록으로 넣는다. 기간은 캘린더 시간대 날짜, 주는 월요일 시작, 두 달 넘게 지난 날짜는 내년. 오늘·내일·모레는 일정 말과 같이 나올 때만 친다. 그런 말이 없으면 지금처럼 오늘·내일 캐시만 넣는다. 채팅 답 스키마의 선택 칸 `need: [{ kind: "calendar", from, to }]`(kind 는 나중에 넓힐 자리): 모델이 맥락에 없는 기간을 돌려주면 데몬이 그 기간을 읽어 블록으로 붙이고 같은 질문을 다시 보낸다(진행 「일정 확인 중…」, 사용자에겐 마지막 답 하나). 횟수 상한은 없고, 이미 읽은 기간만 또 달라면 「이미 블록에 있다」 한 줄을 붙여 한 번 더 묻고 멈춘다.
+- `GET /dashboard`의 `connectors` 캘린더 줄(ICS)에 `calendars[]`: `{ id, name, enabled, phase: pending|ok|failed|off, meetings?, reason?, color }`(색은 캘린더 탭과 같은 계산). 패널 개요 연결 카드가 캘린더마다 줄(색 점·별칭·결과)과 켜기/끄기를 그린다. 켜기/끄기는 설치 탭과 같은 `enabled` 고치기 + `POST /connectors/reload`
+- 캘린더 색: `connectors.calendar.calendars[].color`(팔레트 이름 `blue|green|orange|purple|red|teal|pink|brown`). 패널이 캘린더 탭에서 바꿔 설정 파일에 쓴다. 없으면 id 로 정한 팔레트 색에서 다른 캘린더와 겹치지 않는 색. 별칭·켜기/끄기·캘린더 추가는 색을 지우지 않는다
+- `POST /connectors/calendar`: 본문 `{ url, name? }`(헤더 규칙은 POST 와 같다). 그 캘린더만 시험으로 읽어 보고 되면 `calendars`에 붙여 저장한 뒤 다시 읽어 전체를 가져온다 → 200 `{ ok, id, name, events, calendars }`. 못 읽으면 400 `{ error, code }`(저장 안 함), 같은 주소면 409 `{ error, code: "duplicate" }`. 별칭을 비우면 ICS 이름, 그것도 없으면 「캘린더 N」. 개수 상한 없음
+- `CalendarSync`가 가져올 때마다 `cy.db`의 `calendar_state` 한 줄에 남긴다: `phase`(`off|pending|ok|failed`), `mode`, `key`(연결 설정의 해시. 설정이 바뀌면 예전 결과를 쓰지 않는다), `at`, `lastOkAt`, `meetings`, `events`, `reason`, `code`(`http|html|network|tls|timeout|url|mcp|brain|other`), `calendars`(ICS 캘린더마다 별칭·결과, 위 `sync.calendars`와 같은 모양).
+- ICS 캘린더는 `connectors.calendar.calendars[]`(`{ id, name, url, enabled }`)다. 예전 `icsUrl`·`icsUrls`(별칭 없음)도 같은 목록으로 읽는다. `enabled: false` 인 캘린더는 읽지 않고 그 일정을 `meetings`에서 뺀다. 일정은 캘린더마다 바꾼다: 받은 캘린더는 새로, 못 받은 캘린더는 예전 것을 두고, 꺼 두었거나 뺀 캘린더 것은 지운다. 실패 이유는 「별칭: 이유」. `meetings`에 `calendar`(별칭, 캘린더가 여럿이거나 별칭이 있을 때)·`cal_id`가 있고, 일정 알림 `{where}`와 AI 맥락(「캘린더: 회사」)에 별칭을 붙인다.
 - ICS 실패 이유는 사람이 알 수 있는 말로 남긴다. 예: 구글 「공개 주소」(`/public/`)면 「iCal 형식의 비공개 주소」를 넣으라고, 웹 페이지가 오면 .ics 주소를 넣으라고, 인증서 오류면 프록시·백신을 보라고. 비밀 주소는 이유에 넣지 않는다. 못 가져온 동기화는 실행 기록(`kind: calendar`)도 `failed`다.
 - MCP 캘린더인데 뇌가 Claude Code가 아니면 부르지 않고 `phase: failed`, `code: brain`으로 그 까닭을 남긴다.
 - 연결 설정이 바뀌면(`POST /connectors/reload`에서 캘린더가 바뀜) 데몬을 다시 켜지 않고 원천을 바꾼 뒤 곧바로 한 번 가져온다. 응답에 `applied: true`가 붙고, 다른 연결도 바뀌었을 때만 예전처럼 다시 켠다(`restarting`). 뇌(`brain`)를 바꾸거나 설치 마법사를 마쳐도 바로 한 번 가져온다. 데몬이 켜질 때도 버스가 뜨자마자 가져온다.
@@ -199,14 +241,18 @@ type Bubble = {
 
 | | |
 |---|---|
-| `GET /projects/manual` | 200 `{ projects }` |
+| `GET /projects/manual` | 200 `{ projects }`(진행 중 먼저 사용자가 정한 순서, 그 뒤 끝난 것을 최근에 끝낸 것부터) |
 | `POST /projects/manual { name, note?, start?, due?, source? }` | 201 `{ project }`. `name` 필수 |
-| `GET /projects/manual/:id` | 200 `{ project, todos }`(묶인 할 일, 열린 것 먼저) |
+| `GET /projects/manual/:id` | 200 `{ project, todos }`(묶인 할 일, 열린 것 먼저, 그 안은 프로젝트 순서) |
 | `PATCH /projects/manual/:id { name?, note?, start?, due?, status? }` | 200 `{ project }`. `null`·빈 글은 지우기, `status: done`이면 `doneAt` |
+| `POST /projects/manual/:id/order { todoIds }` | 200 `{ todos }`(다시 매긴 순서). `todoIds`는 그 프로젝트의 열린 할 일을 하나도 빠짐없이 원하는 순서로 담는다. 끝낸 할 일은 넣어도 되고, 안 넣으면 그 뒤에 예전 순서대로 남는다. 빠진 열린 할 일·다른 프로젝트나 휴지통의 할 일·같은 id 두 번·모르는 키는 400, 없는 프로젝트는 404 |
+| `POST /projects/manual/order { ids }` | 200 `{ projects }`(다시 매긴 목록). 프로젝트끼리 순서(카드 ⋮⋮ 끌기·화살표 키·↑↓). `ids`는 진행 중 프로젝트를 하나도 빠짐없이 원하는 순서로 담는다. 빠진 진행 중 프로젝트·모르는 id·끝난 프로젝트·같은 id 두 번·모르는 키는 400, `X-CY-Agent` 없으면 403 |
 | `DELETE /projects/manual/:id` | 200 `{ ok, unlinked }`. 프로젝트만 지우고 묶인 할 일은 남긴다(묶음만 푼다) |
 | `GET /projects/calendar-events` | 200 `{ connected, ok, from, to, events[] }`. 연결된 캘린더(ICS 여러 개·MCP)에서 지난 3일 ~ 앞으로 14일 일정. 항목: `id`, `title`, `start`, `end`, `allDay`, `past`, `calendar?`, `location?`, `description?`, `attendees?`, `joinUrl?`, `draft`(그 일정으로 채운 `POST /projects/manual` 본문: 제목 → 이름, 설명·장소·참석자 → 메모, 날짜 → 시작·기한, `source`). 취소·거절한 일정은 뺀다. 캘린더가 안 붙었으면 `connected: false` |
 
 할 일에 묶기: `POST /todos`·`POST /todos/:id`의 `projectId`(id, 빼기는 `null`). 없는 프로젝트면 400.
+프로젝트끼리 순서는 `manual_projects.sort_order`(작을수록 위)로 저장한다. 진행 중인 것만 이 순서를 따르고, 끝난 것은 따로 모여 끝낸 순서(최근 것 위)다. 새로 만들거나(패널 ＋·채팅 `project_ops`) 다시 열면 진행 중 맨 위에 온다. 이름·기한을 고쳐도 자리는 그대로다. 열이 없던 예전 DB는 열을 붙이며 그때 보이던 순서(기한 가까운 것, 없는 건 뒤, 같으면 최근에 만든 것)대로 0부터 채운다. 대시보드 `manualProjects`와 AI 맥락(대시보드 요약·`projects` 도구의 「내가 만든 프로젝트」)도 이 순서다.
+프로젝트 안 순서는 할 일마다 `projectOrder`(작을수록 위)로 저장한다. 새로 넣거나 다른 프로젝트로 옮기면 그 프로젝트 맨 아래, 빼면 순서도 지운다(다시 넣으면 다시 맨 아래). 같은 `projectId`를 다시 보내면 순서는 그대로다. 이름 바꾸기는 할 일 탭과 같은 `POST /todos/:id { title }`(빈 제목 400, 사용자가 고친 필드로 남는다).
 
 ## 할 일
 
@@ -215,12 +261,13 @@ type Bubble = {
 - `doing?`(사용자가 ▶로 정한 진행중), `progress?`·`progressAt?`(작업 세션에서 본 진척)
 - `appliedRule?`, `doneBy?: user|auto|briefing`, `autoReason?`, `autoEvidence?`
 - `projectId?`: 묶인 직접 만든 프로젝트
+- `projectOrder?`: 그 프로젝트 안 순서(작을수록 위). 묶였을 때만
 
 화면에 「(진행중)」은 `doing`이 있으면 그 값으로, 없으면 `progress`가 있을 때 붙는다.
 
 | | |
 |---|---|
-| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`) |
+| `POST /todos { title, priority?, link?, note?, today?, projectId? }` | 201 `{ id }`(`user:<uuid>`). `today: true`면 P1(오늘 할 일) |
 | `POST /todos/:id { title?, priority?, link?, note?, description?, status?: open\|done, doing?: boolean\|null, today?, projectId?: string\|null }` | 200 `{ ok, todo }`. 사용자가 고친 필드는 브리핑이 덮지 않는다(`doing`은 예외) |
 | `POST /todos/:id/done` | 완료 |
 | `POST /todos/:id/delete` → `/restore` → `/purge`, `POST /todos/trash/empty` | 휴지통(30일 뒤 자동 비움) |
@@ -248,13 +295,17 @@ type Bubble = {
 
 ### 오늘 할 일
 
-따로 표를 두지 않고 할 일에 "오늘로 고른 날"(`today`, KST `YYYY-MM-DD`)을 단다. 패널 '오늘 할 일' 탭은 할 일 탭과 같은 줄·우선순위 묶음(P1·P2·P3·백로그)으로 그날 고른 것만 보인다. 이 맥의 SQLite에만 둔다.
+오늘 할 일은 우선순위 1(「오늘 꼭」)인 할 일입니다. 따로 표나 날짜를 두지 않습니다. 패널 '오늘 할 일' 탭은 「오늘 꼭」 줄만 모아 보는 화면이고, 할 일 탭에서 우선순위를 「오늘 꼭」으로 바꾸면 바로 오늘 할 일에 보입니다. 이 맥의 SQLite에만 둡니다.
 
-- 새로 적기: `POST /todos { title, priority?, today: true }`
-- 고르기·빼기: `POST /todos/:id { today: true | false | null }` (빼도 할 일은 남는다)
-- `GET /dashboard` 의 `todos[].today`, `today: { date, asked, items: [{ id, title, done, priority, source }] }`
-- 예전 `POST /today` 표 저장은 없다. 예전 표의 오늘 줄은 데몬이 켜질 때 할 일로 옮긴다
-- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번. 모델 없이 정해진 말로 알린다
+- 오늘 할 일 = 열린 P1 + 오늘(이 맥 시간대) 끝낸 P1입니다. 날짜가 넘어가면 어제 끝낸 것은 빠집니다. 하루 진행률(절반·전부 응원)도 이 기준으로 셉니다.
+- 새로 적기: `POST /todos { title, priority: 1 }`. 예전 `today: true`도 받으며 P1으로 만듭니다.
+- 넣기·빼기: `POST /todos/:id { priority: 1 }`(넣기), `{ priority: 2 }`(빼기, 이번 주로). 예전 `{ today: true | false | null }`도 받으며 `true`는 P1로, `false`·`null`은 P1이면 P2로 바꿉니다. 빼도 할 일은 남습니다.
+- `GET /dashboard` 의 `today: { date, asked, items: [{ id, title, done, priority, source }], carry?: { n, ids } }`. `todos[].today`는 더 내려주지 않습니다.
+- 아침 질문: 영업일 아침 안내 때 어제(전날까지)부터 남은 열린 P1이 있으면 「어제 남은 N개, 오늘도 할까요?」라고 묻습니다(문구 `today_carry`, 자리표시 `{n}`). 말풍선에 `carry: { n }`이 붙어 [그대로 둘게요] [이번 주로 내려요] [하나씩 볼게요] 단추가 뜨고, 고르기 전까지 `today.carry`가 남아 패널 오늘 할 일 탭 위에도 같은 물음이 보입니다. 남은 것이 없으면 예전처럼 「오늘 할 일 적어 주세요」라고 알립니다. 주말·공휴일에는 묻지 않습니다.
+- 답하기: `POST /today/carry { decision: "keep" | "demote" }` → 200 `{ ok, moved }`. `keep`은 그대로 두고, `demote`는 물은 것 중 아직 열린 P1을 P2(이번 주)로 내립니다. 고른 뒤에는 그날 다시 묻지 않고 말풍선도 걷습니다. [하나씩 볼게요]는 패널만 엽니다.
+- 채팅·브리핑의 `plan_ops`: `add(title)`은 P1 할 일을 만들고, `add(id)`는 그 할 일을 P1로 올리고, `remove`는 P2로 내립니다. 「오늘 할 일에 넣어 줘」는 P1, 「오늘은 빼 줘」는 P2입니다. 브리핑·채팅은 오늘 안에 해야 하는 것만 P1로 넣습니다.
+- 옮기기(한 번만): 예전에 날짜로 골라 둔 오늘 할 일(`todos.plan_day`가 오늘이나 앞날인 열린 할 일, 오늘 끝낸 것 포함)은 데몬이 켜질 때 P1로 옮기고 `daily_plan_flags`에 `today-is-p1`을 남깁니다. 다시 켜도 또 옮기지 않습니다. `plan_day` 열은 지우지 않고 더 쓰지도 않습니다. 더 예전 `daily_plan` 표의 오늘·앞날 줄도 P1 할 일로 옮깁니다. 예전 `POST /today` 표 저장은 없습니다.
+- 알림: 설정 `todayReminder: { mode: "auto" | "off", everyHours, times: ["HH:MM"] }` (`PUT /settings`, 바로 반영). 기본은 영업일 아침 첫 실행 때 한 번입니다. 모델 없이 정해진 말로 알립니다.
 
 ### 집중하기
 
@@ -263,11 +314,16 @@ type Bubble = {
 - `GET /focus` → `FocusView`
 - `POST /focus/start` · `/focus/pause` · `/focus/resume` · `/focus/stop` → `FocusView`(같은 걸 두 번 눌러도 안전). `stop`은 `stopped: { id, seconds } | null`도 주고, 1초 이상이면 「25분 집중했어요」 말풍선을 띄운다
 - `GET /focus/stats?from=YYYY-MM-DD&to=YYYY-MM-DD` → `{ from, to, days: [{ date, seconds, longest }], total }` (양끝 포함, 집중 중인 것은 지금까지. longest = 그날 일시정지 없이 가장 길게 이어서 집중한 초). `from > to`이거나 3660일보다 넓으면 400
+- `POST /focus/start`는 본문 없이 정한 시간·할 일 없이 시작한다. 정한 시간과 할 일은 채팅 `focus_ops`와 칩으로만 정한다
+- 말로 시작·멈춤: AI가 있으면 채팅 답의 `focus_ops`(위 「채팅」), AI가 없으면 캐릭터 더블클릭 칩(AI가 있으면 입력창 ＋ 칩도 같다). 칩 id는 `focus_start`(「집중 시작할래?」)와 `focus_stop`(「집중 그만할래?」)이고, 앱은 지금 집중 중이면 `focus_stop`, 아니면 `focus_start` 하나만 보인다. 누르면 `POST /local/ask { id }`가 바로 시작하거나 멈추고 `{ answer: { id, kind, text } }`를 준다. 시작할 할 일은 진행 중(▶)인 할 일, 없으면 오늘 할 일 중 안 끝낸 첫 번째, 그것도 없으면 할 일 없이다. 대사는 캐릭터 `local`의 `focusStart`·`focusStartTodo`(`{title}`)·`focusAlready`(`{mins}`)·`focusStop`(`{duration}`)·`focusIdle`이고, 칩으로 멈출 때는 「N분 집중했어요」 말풍선 대신 이 답이 말한다
+- 정한 시간을 채우면 저절로 그만한다(일시정지한 동안은 빼고 센다). 그만할 때는 보통 그만하기처럼 마무리 말풍선이 뜬다
 - 맥이 잠들었다 깨서 마지막 저장에서 3분 넘게 지났으면, 돌던 구간을 마지막 저장 시각에 닫고 깬 때부터 새 구간을 연다(잠든 시간은 빠진다). `stop`의 초와 `today`는 둘 다 버림이라 서로 맞는다
 
 ```ts
 type FocusView = {
-  active: null | { id: string; startedAt: number; paused: boolean; baseMs: number; since: number | null; seconds: number };
+  active: null | { id: string; startedAt: number; paused: boolean; baseMs: number; since: number | null; seconds: number;
+    goalSec: number | null;                       // 정한 시간(초). 없으면 null
+    todo: { id: string; title: string } | null }; // 이 집중의 할 일. 없으면 null
   day: string; today: number; now: number; // today = 오늘 집중한 초(집중 중인 것 포함)
 };
 ```
@@ -284,26 +340,48 @@ type FocusView = {
 - `todoId?`: 대화 대상 할 일
 - `kind?: chat|hover`: 새 대화 종류. `hover`는 더블클릭 대화(threadId 없이 보내면 가장 최근의 보관 안 한 hover 대화에 이어 말하고, 없으면 새로 만든다)
 - `parentRunId?`, `model?`, `clientId?`
+- `provider?`: 이 말을 보낼 뇌(`claude-code|codex|anthropic|gemini|openai|genspark`, 로컬은 안 된다). 있으면 `model?`은 그 뇌의 모델 이름(`[A-Za-z0-9._:/-]` 1~100자)이고, 둘 다 그 대화에 기억된다. 그 뇌에 맞지 않는 이름(예: Codex에 `claude-…`)은 400
+- `useDefault?: true`: 기본 뇌·모델로 보내고 그 대화의 기억도 지운다(`provider`와 함께 쓸 수 없다)
+- `provider`가 없으면 그 대화에 기억한 뇌·모델을 쓰고, 기억이 없으면 기본(설정의 뇌·모델)이다. 기본 뇌 설정 자체는 바뀌지 않는다
 - `attachments?`: `POST /chat/attachments`로 올린 id
 
 응답은 202 `{ chatId, threadId, queued?, position? }`. 진행은 SSE `chat`으로 온다.
 - `{ status: "step", step }`
-- `{ status: "done", text, show? }`
-- `{ status: "error", text }`
+- `{ status: "done", text, show?, by? }`: `by = { provider, model?, label, picked? }`는 답한 뇌·모델이다(대화 기록의 답에도 같은 `by`가 붙는다)
+- `{ status: "error", text, retry? }`: 고른 뇌·모델이 답하지 못하면 글이 「○○ 모델이 답하지 못했어요: 이유」이고 `retry = { n, text, label }`가 온다. `POST /chat/threads/:id/messages/:n/edit { text, useDefault: true }`로 그 말을 기본으로 다시 보낸다
+
+업무 도구(MCP·코드 읽기·쓰기 승인)는 Claude Code 뇌일 때만 붙는다. 다른 뇌를 고르면 그 대화의 답은 도구 없이 맥락만으로 한다.
+
+### `GET /chat/models`
+
+채팅에서 고를 수 있는 뇌·모델 `{ active, brains: [{ provider, label, active, ready, why?, tools, defaults: { general?, quick?, light? }, defaultLabel, models: [{ id, label }], listError?, custom, note? }] }`. 지금 뇌가 맨 앞이다. `ready`가 false면 `why`(키가 없음·로그인 안 됨 등)만 있고 목록은 받지 않는다. `?fresh=1`이면 목록을 다시 받는다(평소에는 10분 기억한다).
+
+모델 목록을 얻는 곳:
+- Claude Code: 목록 API가 없어 알려 둔 Claude 모델과 설정에 적힌 모델
+- Codex: Codex CLI가 남긴 `~/.codex/models_cache.json`(`CODEX_HOME`이 있으면 그 아래)을 읽기만 한다. codex를 실행하지 않는다
+- Claude API·Gemini·OpenAI·Genspark: 그 키로 공식 모델 목록(GET)을 받는다. 못 받으면 기본 모델 하나와 `listError`
+
+`defaults`는 설정 창 「세부 모델」의 그 뇌 값이다(Claude 뇌는 `models`, 그 밖의 뇌는 `brainModels[뇌]`).
 
 같은 대화 안에서는 차례로, 다른 대화끼리는 동시에 돈다.
 
 채팅 답의 `project_ops`(만들기 `add`·고치기 `edit`·끝내기 `done`·다시 열기 `reopen`, 지우기는 패널에서만)는 `todo_ops`보다 먼저 적용된다. `todo_ops`의 `project`(id 나 이름, `null`은 빼기)로 할 일을 묶으니, 한 답에서 프로젝트를 만들고 할 일을 넣을 수 있다.
 
+채팅 답의 `focus_ops`는 집중하기를 시작하거나 멈춘다(모든 뇌, 아래 「집중하기」). 모양은 `[{ op: "start", minutes: number | null, todo: string | null } | { op: "stop" }]`이다. 데몬이 적용하고 대화에 「✓ 집중 시작 (25분 · 할 일: 보고서)」·「✓ 집중 그만: 25분」 줄을 남긴다. 채팅 프롬프트 맥락에는 지금 집중 상태 한 줄(`- 집중하기: 5분째 집중 중 · 정한 시간 25분 · 할 일 "…"(id=…)`)이 붙는다.
+
+- `minutes`: 1분 이상이면 그 시간을 채울 때 저절로 그만한다. 그 밖의 값은 정한 시간 없이 시작한다.
+- `todo`: 열린 할 일의 id 나 이름이다. id 가 같은 것, 제목이 같은 것, 제목에 그 이름이 든 것 순서로 찾는다. 못 찾으면 할 일 없이 시작하고 답에 「⚠️ '…' 할 일을 못 찾아서 할 일 없이 집중을 시작했어요」를 붙인다.
+- 이미 집중 중이면 새로 시작하지 않고 답에 「ℹ️ 이미 N분째 집중하고 있어요」(캐릭터 대사 `local.focusAlready`)를 붙인다. 집중 중이 아닐 때 `stop`은 「ℹ️ 지금은 집중하고 있지 않아요」(`local.focusIdle`)다.
+
 | | |
 |---|---|
 | `GET /chat/threads?limit&before&archived=0\|1` · `POST /chat/threads { title?, kind?, todoId? }` | 대화 목록·새 대화 |
-| `POST /chat/threads/:id { title?, archived? }` · `POST /chat/threads/:id/delete` | 이름·보관·삭제 |
+| `POST /chat/threads/:id { title?, archived?, pick? }` · `POST /chat/threads/:id/delete` | 이름·보관·고른 뇌·모델(`pick = { provider, model? }`, `null`은 기본으로)·삭제. 대화 목록의 대화에도 `pick?`이 붙는다 |
 | `GET /chat/threads/:id/messages?limit&before` | 대화 내용 |
 | `GET /chat/threads/:id/agents` | `{ agents, sessions?, worktrees? }`: 대화 속 백그라운드 에이전트·작업 세션·워크트리 카드 |
 | `POST /chat/agents/:toolUseId/stop` | 백그라운드 에이전트 멈추기 |
 | `POST /chat/:chatId/stop` · `/now` · `/edit { text }` | 답하는 중 멈추기 · 줄 선 말 지금 보내기 · 줄 선 말 고치기 |
-| `POST /chat/threads/:id/messages/:n/edit { text, stopAgents?, model? }` | 마지막 사용자 말 고쳐 그 턴을 다시 |
+| `POST /chat/threads/:id/messages/:n/edit { text, stopAgents?, model?, provider?, useDefault? }` | 마지막 사용자 말 고쳐 그 턴을 다시(`provider`·`useDefault`는 `POST /chat`과 같다) |
 | `POST /chat/threads/:id/sync` | 터미널 Claude Code에서 이어 간 대화 불러오기 |
 | `GET /chat/queue` | 대기·답하는 중인 말(패널을 다시 열어도 되살림) |
 | `GET /chat/history` | 예전 모양 기록(최근 50개) |
