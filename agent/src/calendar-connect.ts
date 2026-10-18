@@ -11,6 +11,7 @@ import { readConfigObject } from "./mail-connect.ts";
 import { writeFileAtomic } from "./fs-atomic.ts";
 import { addLogSecret } from "./log.ts";
 import type { CalendarState } from "./calendar-state.ts";
+import { okCalColor, type CalColor } from "./calendar-view.ts";
 
 export type CalendarAddResult =
   | { ok: true; id: string; name: string; events: number; calendars: number }
@@ -32,11 +33,17 @@ export function okCalendarUrl(v: unknown): v is string {
   return u.protocol === "http:" && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname);
 }
 
-// 파일의 connectors.calendar → 새 모양 값. api 가 아니면 캘린더 없음
-export function calendarValue(file: Record<string, unknown>): { calendars: CalendarEntry[]; timeZone?: unknown; email?: unknown } {
+// 파일의 connectors.calendar → 새 모양 값. api 가 아니면 캘린더 없음. 캘린더 탭에서 고른 색(color)은 그대로 둔다
+export type SavedCalendar = CalendarEntry & { color?: CalColor };
+export function calendarValue(file: Record<string, unknown>): { calendars: SavedCalendar[]; timeZone?: unknown; email?: unknown } {
   const c = obj(obj(file.connectors)?.calendar);
   if (!c || c.mode !== "api") return { calendars: [] };
-  return { calendars: calendarEntries(rawCalendars(c)), ...(c.timeZone !== undefined ? { timeZone: c.timeZone } : {}), ...(c.email !== undefined ? { email: c.email } : {}) };
+  const raw = rawCalendars(c);
+  const calendars = calendarEntries(raw).map((e) => {
+    const color = raw.find((x) => x.id === e.id || (typeof x.url === "string" && x.url.trim() === e.url))?.color;
+    return okCalColor(color) ? { ...e, color } : e;
+  });
+  return { calendars, ...(c.timeZone !== undefined ? { timeZone: c.timeZone } : {}), ...(c.email !== undefined ? { email: c.email } : {}) };
 }
 
 export function writeCalendarConnector(path: string, cal: Record<string, unknown>): void {
@@ -79,7 +86,7 @@ export async function addCalendar(body: unknown, deps: { path: string; probe: Pr
 }
 
 // GET /connectors/calendar: 저장된 캘린더(주소 없음) + 캘린더마다 마지막 결과(가져오는 중이면 phase pending)
-export function calendarList(path: string, state: CalendarState): { phase: string; calendars: { id: string; name: string; enabled: boolean; phase: string; meetings?: number; reason?: string }[] } {
+export function calendarList(path: string, state: CalendarState): { phase: string; calendars: { id: string; name: string; enabled: boolean; phase: string; meetings?: number; reason?: string; color?: string }[] } {
   let v: ReturnType<typeof calendarValue> = { calendars: [] };
   try { v = calendarValue(readConfigObject(path)); } catch { /* 깨진 파일: 빈 목록 */ }
   return {
@@ -88,7 +95,7 @@ export function calendarList(path: string, state: CalendarState): { phase: strin
       const p = state.calendars?.find((x) => x.id === c.id);
       const name = c.name || (p && !/^캘린더( \d+)?$/.test(p.name) ? p.name : "") || `캘린더 ${i + 1}`; // 별칭 없는 예전 주소: ICS 이름 → 「캘린더 N」
       const phase = !c.enabled ? "off" : state.phase === "pending" || !p ? "pending" : p.phase;
-      return { id: c.id, name, enabled: c.enabled, phase, ...(phase === "ok" && p?.meetings !== undefined ? { meetings: p.meetings } : {}), ...(phase === "failed" && p?.reason ? { reason: p.reason } : {}) };
+      return { id: c.id, name, enabled: c.enabled, phase, ...(c.color ? { color: c.color } : {}), ...(phase === "ok" && p?.meetings !== undefined ? { meetings: p.meetings } : {}), ...(phase === "failed" && p?.reason ? { reason: p.reason } : {}) };
     }),
   };
 }

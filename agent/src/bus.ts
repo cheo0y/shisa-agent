@@ -14,6 +14,7 @@ import { FOCUS_CMDS, DAY_RE, type FocusApi, type FocusCmd } from "./focus.ts";
 import { createReadStream, statSync } from "node:fs";
 import { extname } from "node:path";
 import { ATTACH_ID, attachmentInput, attachmentRef, type Attachment, type ContentBlock } from "./attachments.ts";
+import { parseRange } from "./calendar-view.ts";
 
 export type Mood = "idle" | "thinking" | "working" | "alert";
 export type Bubble = {
@@ -146,6 +147,8 @@ export type BusHandlers = {
   // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
   calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
   calendarList?: () => unknown;
+  // 캘린더 탭: 보는 기간의 일정(캘린더마다 id·별칭·색). GET /calendar/events?from=&to=(&fresh=1) — calendar-view.ts. 없으면 503
+  calendarEvents?: (range: { from: string; to: string; fresh: boolean }) => Promise<unknown>;
   // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
   mailRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 행동 지침(guidelines.ts): GET/POST /guidelines · GET/PUT/DELETE /guidelines/:id. 없으면 503
@@ -567,6 +570,12 @@ export class Bus {
     }
     if (req.method === "GET" && url.pathname === "/connectors/calendar") {
       return h.calendarList ? json(res, 200, h.calendarList()) : json(res, 503, { error: "calendar list unavailable" });
+    }
+    if (req.method === "GET" && url.pathname === "/calendar/events") {
+      if (!h.calendarEvents) return json(res, 503, { error: "calendar events unavailable" });
+      const r = parseRange(url.searchParams);
+      if ("error" in r) return json(res, 400, { error: r.error });
+      return json(res, 200, await h.calendarEvents(r));
     }
     // 직접 만든 프로젝트 — 쓰기(POST·PATCH·DELETE)는 POST 와 같은 헤더 규칙
     if (req.method === "GET" && url.pathname === "/projects/calendar-events") {

@@ -606,6 +606,12 @@ export class CalendarSync {
     return rows.map((r) => ({ id: r.id, subject: r.subject, start: r.start, end: r.end, ...(r.link ? { link: r.link } : {}), ...(r.web_link ? { webLink: r.web_link } : {}), ...(r.response ? { response: r.response } : {}), ...(r.location ? { location: r.location } : {}), ...(r.calendar ? { calendar: r.calendar } : {}) }));
   }
 
+  // [from, to) 와 겹치는 저장된 회의, 시작 순(캘린더 탭의 MCP 보기)
+  between(from: string, to: string): Meeting[] {
+    const rows = this.store.db.prepare("SELECT id, subject, start, end, link, web_link, response, location, calendar, cal_id FROM meetings WHERE end > ? AND start < ? ORDER BY start").all(new Date(from).toISOString(), new Date(to).toISOString()) as any[];
+    return rows.map((r) => ({ id: r.id, subject: r.subject, start: r.start, end: r.end, ...(r.link ? { link: r.link } : {}), ...(r.web_link ? { webLink: r.web_link } : {}), ...(r.response ? { response: r.response } : {}), ...(r.location ? { location: r.location } : {}), ...(r.calendar ? { calendar: r.calendar } : {}), ...(r.cal_id ? { calId: r.cal_id } : {}) }));
+  }
+
   alerted(key: string): boolean {
     return !!this.store.db.prepare("SELECT 1 FROM meeting_alerts WHERE key = ?").get(key);
   }

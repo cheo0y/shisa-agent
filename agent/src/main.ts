@@ -34,6 +34,7 @@ import { MailSync, withMailSync } from "./mail-sync.ts";
 import { connectMail, removeMailAccount } from "./mail-connect.ts";
 import { addCalendar, calendarList as calendarListOf } from "./calendar-connect.ts";
 import { calendarPick } from "./manual-projects.ts";
+import { CalendarView } from "./calendar-view.ts";
 import { withRun, asRoutine } from "./runs.ts";
 import { KgBackfill } from "./kg/backfill.ts";
 import { refineIncremental } from "./kg/refine.ts";
@@ -106,6 +107,8 @@ setFocusPeek(() => focus.view()); // 채팅 프롬프트의 「집중하기」 �
 // 일정 알림(설정 calendarAlert, 기본 10분 전): 오늘·내일 일정(커넥터 calendar: ICS·MCP, 읽기 전용). 30분마다·깨어날 때 다시 가져온다
 const calendar = new CalendarSync(cfg, store, { wrapRun: (fn) => withRun({ kind: "calendar", title: "캘린더 동기화", model: cfg.models.light }, fn) });
 calendar.onChange = () => bus.dashboardChanged();
+// 캘린더 탭: 보는 기간을 ICS 에서 직접 읽는다(받은 글은 몇 분 들고 있다). MCP 는 동기화해 둔 회의만
+const calendarView = new CalendarView({ conn: () => cfg.connectors.calendar, configPath: join(HOME_DIR, "config.json"), state: () => calendar.state(), meetings: (from, to) => calendar.between(from, to) });
 // 메일(앱 비밀번호 IMAP, 읽기 전용): 15분마다·브리핑 직전에 받은편지함을 가져와 브리핑·채팅 맥락에 넣는다(mail-sync.ts)
 const mailSync = new MailSync(store, cfg.connectors.mail);
 mailSync.onChange = () => bus.dashboardChanged();
@@ -271,6 +274,7 @@ await bus.listen(cfg.port, {
   manualProjects: agent.manualProjectsApi(),
   projectExists: (id) => agent.projectExists(id),
   calendarPick: () => calendarPick(calendar),
+  calendarEvents: (range) => calendarView.events(range),
   todoAsk: (id, text) => agent.askTodo(id, text),
   todoApply: (id, ops, rev, rule) => agent.applyAsk(id, ops, rev, rule),
   todoReject: (id, text, ops, rule) => agent.rejectAsk(id, text, ops, rule),
