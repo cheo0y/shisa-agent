@@ -17,7 +17,7 @@
 |---|---|---|
 | `bubble` | `Bubble`(아래) | 말풍선. 같은 `id`로 다시 오면 통째로 바꾼다 |
 | `clear` | `{ id }` | 말풍선 걷기 |
-| `state` | `{ mood: idle\|thinking\|working\|alert, activity: idle\|studying\|dancing, runs: [{ id, kind, title, startedAt }], danceId?, danceClip?, danceVariant?, character }` | 캐릭터 상태. `danceClip`은 춤 자리에 틀 칸(`plan` 일정 알림·`dance` 춤·`cheer` 응원·`lunch` 점심시간), `danceVariant`는 그 칸 영상 목록에서 데몬이 고른 번호(0부터)다. `character`는 고른 캐릭터 id(`shisa`·`hachi`·`rakko`·`momonga`·`usagi`·`kani`·`chiikawa`·`kuri` 또는 사용자가 만든 `u-…`)이고, 바뀌면 바로 다시 보낸다 |
+| `state` | `{ mood: idle\|thinking\|working\|alert, activity: idle\|studying\|dancing, runs: [{ id, kind, title, startedAt }], danceId?, danceClip?, danceVariant?, character, language }` | 캐릭터 상태. `danceClip`은 춤 자리에 틀 칸(`plan` 일정 알림·`dance` 춤·`cheer` 응원·`lunch` 점심시간), `danceVariant`는 그 칸 영상 목록에서 데몬이 고른 번호(0부터)다. `character`는 고른 캐릭터 id(`shisa`·`hachi`·`rakko`·`momonga`·`usagi`·`kani`·`chiikawa`·`kuri` 또는 사용자가 만든 `u-…`)이고, 바뀌면 바로 다시 보낸다. `language`는 언어(`ko`·`ja`)다 |
 | `status` | `{ status: Status }` | 연결 상태가 바뀜(`GET /status`와 같은 모양) |
 | `dashboard` | `{}` | 대시보드를 다시 가져오라는 신호 |
 | `open_panel` | `{ section: overview\|projects\|todos\|today\|chat\|null }` | 패널을 그 탭으로 열기 |
@@ -98,7 +98,8 @@ type Bubble = {
 - `brain{provider,model,keys{gemini,openai,anthropic: boolean}}`
 - `user{name?}`, `repoRoots[]`, `configPath`
 - `onboarded`(설치 마법사를 마쳤나), `readSessions`(이 맥의 Claude Code·Codex 작업 기록을 읽나)
-- `character`(고른 캐릭터 id), `characters[{id,name}]`(고를 수 있는 캐릭터)
+- `character`(고른 캐릭터 id), `characters[{id,name}]`(고를 수 있는 캐릭터, 이름은 지금 언어)
+- `language`(`ko` 기본·`ja`), `languages[{id,label}]`(고를 수 있는 언어, `label`은 그 언어 글자: 한국어·日本語)
 - `weather{place,morning,leave,times,attribution}`: `place`는 `{ name, label, latitude, longitude, timezone }` 또는 `null`(꺼짐), `morning`·`leave` 기본 `true`, `times` 기본 `[]`, `attribution`은 `{ label: "날씨: Open-Meteo", url, license: "CC BY 4.0" }`
 
 `PUT` 본문(전부 선택, 모르는 키는 400):
@@ -121,7 +122,8 @@ type Bubble = {
   "startAlert": true, "leaveAlert": true,                 // 출근 인사·퇴근 10분 전 인사 켜고 끄기(기본 켬)
   "weather": { "place": { "name": "서울", "label": "서울특별시 · 대한민국", "latitude": 37.566, "longitude": 126.9784, "timezone": "Asia/Seoul" } | null,
                "morning": true, "leave": true, "times": ["13:00"] }, // 준 칸만 바꾼다. place: null = 날씨 끔. times 는 HH:MM 목록
-  "character": "hachi"                                    // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
+  "character": "hachi",                                   // shisa·hachi·rakko·momonga·usagi·kani·chiikawa·kuri. 모르는 값은 400
+  "language": "ja"                                        // ko(기본)·ja. 모르는 값은 400
 }
 ```
 
@@ -134,6 +136,8 @@ type Bubble = {
 - `onboarded`가 `false`인 동안(새 설치)은 브리핑·Slack 할 일·할 일 자동 완료·진행 확인·지식그래프·프로필 학습을 돌리지 않고 작업 기록·git 도 읽지 않는다. `true`가 되면 그때 첫 정리를 한 번 한다. 처음 `true`를 적을 때 빈 칸(`readSessions`·`repoRoots`·`brain.provider`)은 지금 쓰는 값으로 같이 적는다.
 - `calendarAlert`가 바뀌면 알림 시각을 바로 다시 잡는다. 일정마다 알린 분을 `meeting_alerts`에 남기고(키 `id@start#분`), 이미 알린 분보다 작은 분만 남은 알림으로 본다. 그래서 설정을 바꿔도 이미 울린 알림은 다시 울리지 않는다.
 - `character`가 바뀌면 다음 말풍선과 답부터 그 캐릭터 말투가 된다. 모델에 넣는 시스템 프롬프트의 첫 문장과 말투 줄, 고정 문구의 기본값, AI 없이 하는 정해진 말이 모두 바뀐다. 사용자가 「문구」에서 고친 줄은 캐릭터와 상관없이 그대로 쓴다. 앱은 SSE `state`로 그림·영상·앱 이름(「하치와레 비서」)을 바꾼다.
+- `language`가 바뀌면 데몬을 다시 켜지 않고 바로 바뀐다(`agent/src/lang.ts`). 기본 캐릭터 이름(シーサー·ハチワレ·ラッコ·モモンガ·うさぎ·カニちゃん·ちいかわ·栗まんじゅう)과 대사 기본값은 `assets/characters/lines.<언어>.json`(한국어는 `lines.json`과 코드의 시사 기본값)에서 온다. 일본어 파일은 `lines.json`과 같은 칸·줄 수·자리표시이고 시사도 들어 있다(렌더러 사본 `desktop/src/character-lines.ja.js`, `sync-character-lines.mjs`가 맞춘다). 바뀌면 SSE `characters`와 `state`를 보내고, 앱은 `GET /characters`의 `language`로 캐릭터 창 화면 글(칩·입력창)과 앱 이름(「ハチワレ秘書」, カニちゃん은 「カニ秘書」)을 바꾼다. 설정 창·패널 메뉴 글은 아직 한국어다.
+- 한국어가 아니면 모델에 주는 모든 시스템 프롬프트 끝에 언어 지시가 붙는다(`LANG_RULE`): 사용자에게 보이는 말은 전부 그 언어로 쓰고, 할 일 제목·메모는 원문 언어 그대로 둔다(사용자가 적은 제목·이미 있는 제목은 번역하지 않고, 새 제목은 그 일이 나온 원문의 언어로). 사용자가 「문구」에서 고친 줄과 사용자 캐릭터 이름은 언어와 상관없이 그대로 쓴다.
 - 일정 알림 말풍선은 문구 `meeting_alert`(`{mins}` `{title}` `{time}` `{where}`)다. `{mins}`는 실제로 남은 분이다(늦게 켜졌으면 설정보다 작다). `{mins}`가 없는 예전 고친 문구도 그대로 쓴다.
 - 커넥터(`connectors`)는 여기서 바꾸지 않는다. 파일을 고친 뒤 데몬을 다시 켜야 한다.
 
@@ -143,9 +147,9 @@ type Bubble = {
 
 | | |
 |---|---|
-| `GET /characters` | `{ current, characters, slots, types, help, schema }`. `characters`는 기본 여덟(`builtin`, `defaults` 기본 대사, `override` 고친 칸 또는 `null`, `lines` 둘을 합친 것)과 사용자 캐릭터(`custom`, `from`, `media { 칸: 첫 저장 이름 }`, `frames { 칸: 테두리 }`, `clips { 칸: [{ file, say?, frame }] }`, `lines`)다. 응원·춤·집중·일정 알림·점심시간은 파일을 여러 개 넣는 칸이라 `clips`에 전부 있고, `media`·`frames`에는 칸마다 첫 파일만 있다. `schema`는 고칠 수 있는 칸 목록 `[{ path, kind: text\|list, vars, oneLine?, label? }]`, `help`는 `lines.json`의 `_help`다 |
+| `GET /characters` | `{ current, language, characters, slots, types, help, schema }`. `characters`는 기본 여덟(`builtin`, `defaults` 기본 대사, `override` 고친 칸 또는 `null`, `lines` 둘을 합친 것)과 사용자 캐릭터(`custom`, `from`, `media { 칸: 첫 저장 이름 }`, `frames { 칸: 테두리 }`, `clips { 칸: [{ file, say?, frame }] }`, `lines`)다. 응원·춤·집중·일정 알림·점심시간은 파일을 여러 개 넣는 칸이라 `clips`에 전부 있고, `media`·`frames`에는 칸마다 첫 파일만 있다. `schema`는 고칠 수 있는 칸 목록 `[{ path, kind: text\|list, vars, oneLine?, label? }]`, `help`는 `lines.json`의 `_help`다 |
 | `POST /characters { name, from?, lines?, frames? }` | 새 캐릭터. `from`(기본 `shisa`)의 대사를 전부 복사하고 이름이 든 줄은 새 이름으로 바꾼다. `lines`를 주면 그 위에 덮는다(시사의 정해진 답처럼 앱에만 있는 칸). 201 `{ character }` |
-| `GET /characters/:id` · `PUT /characters/:id` | 사용자 캐릭터는 `{ name?, lines?, frames?, files? }`(`lines`는 통째로, `frames`는 준 칸만이고 여러 개 넣는 칸은 그 칸 파일 전부, `files`는 `{ 저장 이름: { say?, frame? } }`로 파일마다 한마디·테두리이며 `null`이면 기본으로 돌린다. `say`에 그 칸이 모르는 자리표시가 있으면 400). 기본 캐릭터는 `{ lines }`만 받고 기본값과 다른 칸만 `overrides/<id>.json`에 남긴다 |
+| `GET /characters/:id` · `PUT /characters/:id` | 사용자 캐릭터는 `{ name?, lines?, frames?, files? }`(`lines`는 통째로, `frames`는 준 칸만이고 여러 개 넣는 칸은 그 칸 파일 전부, `files`는 `{ 저장 이름: { say?, frame? } }`로 파일마다 한마디·테두리이며 `null`이면 기본으로 돌린다. `say`에 그 칸이 모르는 자리표시가 있으면 400). 기본 캐릭터는 `{ lines }`만 받고 기본값과 다른 칸만 `overrides/<id>.json`(한국어)·`overrides/<id>.<언어>.json`(그 밖의 언어, 예: `hachi.ja.json`)에 남긴다. 기본값·고친 칸은 지금 언어 것이다 |
 | `DELETE /characters/:id/lines` | 기본 캐릭터 대사를 기본값으로(덮어쓰기 파일을 지운다) |
 | `DELETE /characters/:id` | 사용자 캐릭터를 폴더째 지운다. 지금 쓰던 캐릭터면 시사로 돌아가고 `config.json`도 고친다. 기본 캐릭터는 400 |
 | `PUT /characters/:id/media/:slot` · `DELETE …` · `DELETE …/:file` | 그림·영상 올리기(본문 = 파일 바이트, 이름은 `x-file-name`) · 칸 비우기 · 그 파일 하나만 빼기. 칸은 `eyes_open`·`eyes_closed`·`cheer`·`dance`(꼭 넣을 넷)와 `study`·`plan`·`lunch`(골라서 넣는 것)다. 눈 그림은 바꾸고, 나머지 칸은 더한다(개수 상한 없음) |
