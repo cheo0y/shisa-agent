@@ -1,56 +1,58 @@
 // 패널 「캘린더」 탭의 계산(화면 없이 시험할 수 있게): 보는 기간(주·월·일), 일정 배치(겹치면 나란히·종일 줄·자정 넘김),
 // 캘린더 색·보이기 필터, 일정 카드 글. 화면은 renderer/calendar-view.js 가 그린다.
 // 시각은 데몬이 준 캘린더 시간대(timeZone, 기본 Asia/Seoul)로 센다. 주는 월요일에 시작한다.
-// 화면 글은 아래 CALTAB_TEXT 한 곳에 모았다(언어 옮기기 쉽게). 해요체.
+// 화면 글은 아래 CALTAB_TEXT 한 곳(글은 src/i18n/views.js 표, 부를 때마다 지금 언어로). 해요체.
+import { t, monthDay, weekdays } from './i18n.js';
 
+const tv = (k, vars) => t(`views.cal_${k}`, vars);
 export const CALTAB_TEXT = {
-  today: '오늘',
-  prev: '이전',
-  next: '다음',
-  views: { week: '주', month: '월', day: '일' },
-  viewLabel: '보기',
-  allDay: '종일',
-  loading: '일정을 불러오고 있어요…',
-  offTitle: '설정에서 캘린더를 연결하면 여기 보여요',
-  offBlurb: '구글·Outlook 캘린더의 iCal 비공개 주소를 넣으면 회사·개인 일정을 한눈에 볼 수 있어요.',
-  connect: '연결하기',
-  daemonOff: (who) => `${who}가 꺼져 있어서 일정을 불러오지 못했어요.`,
-  loadFail: '일정을 불러오지 못했어요.',
-  retry: '다시 해 보기',
-  partFail: (names) => `${names.join(', ')} 캘린더를 읽지 못했어요. 읽은 것만 보여 줘요.`,
-  noEvents: '이 기간에는 일정이 없어요.',
-  chipsLabel: '캘린더',
-  chipShow: (name) => `「${name}」 일정 보이기`,
-  chipHide: (name) => `「${name}」 일정 숨기기`,
-  chipOff: '꺼 둠',
-  chipOffTitle: (name) => `「${name}」 캘린더는 연결에서 꺼 뒀어요. 설정에서 켜면 일정이 보여요.`,
-  colorMenu: (name) => `「${name}」 색 바꾸기`,
-  colorAuto: '자동',
-  colorNames: { blue: '파랑', green: '초록', orange: '주황', purple: '보라', red: '빨강', teal: '청록', pink: '분홍', brown: '갈색' },
-  colorSaved: '색을 바꿨어요.',
-  colorFail: '색을 저장하지 못했어요.',
-  more: (n) => `+${n}`,
-  moreTitle: (n) => `일정 ${n}개 더 보기`,
-  close: '닫기',
-  join: '회의 참여',
-  openEvent: '캘린더에서 열기',
-  makeProject: '프로젝트로 만들기',
-  makeTodo: '할 일로 만들기',
-  todoAdded: (t) => `「${t}」을 할 일에 넣었어요.`,
-  todoFail: '할 일을 넣지 못했어요.',
-  declined: '거절함',
-  tentative: '미정',
-  free: '한가함',
-  untitled: '(제목 없음)',
-  noTime: '시간 없음',
-  weekdays: ['일', '월', '화', '수', '목', '금', '토'],
-  todoWhen: (when) => `일정: ${when}`,
-  todoWhere: (w) => `장소: ${w}`,
-  todoLink: (u) => `회의 링크: ${u}`,
-  todoCal: (c) => `캘린더: ${c}`,
-  cardFold: (n) => `캘린더 ${n}개`,
-  cardToggle: (name, on) => `「${name}」 캘린더 ${on ? '끄기' : '켜기'}`,
-  cardToggleFail: '캘린더를 켜고 끄지 못했어요.',
+  get today() { return tv('today'); },
+  get prev() { return tv('prev'); },
+  get next() { return tv('next'); },
+  get views() { return { week: tv('view_week'), month: tv('view_month'), day: tv('view_day') }; },
+  get viewLabel() { return tv('view_label'); },
+  get allDay() { return tv('all_day'); },
+  get loading() { return tv('loading'); },
+  get offTitle() { return tv('off_title'); },
+  get offBlurb() { return tv('off_blurb'); },
+  get connect() { return tv('connect'); },
+  daemonOff: (who) => tv('daemon_off', { who }),
+  get loadFail() { return tv('load_fail'); },
+  get retry() { return tv('retry'); },
+  partFail: (names) => tv('part_fail', { names: names.join(tv('names_sep')) }),
+  get noEvents() { return tv('no_events'); },
+  get chipsLabel() { return tv('chips_label'); },
+  chipShow: (name) => tv('chip_show', { name }),
+  chipHide: (name) => tv('chip_hide', { name }),
+  get chipOff() { return tv('chip_off'); },
+  chipOffTitle: (name) => tv('chip_off_title', { name }),
+  colorMenu: (name) => tv('color_menu', { name }),
+  get colorAuto() { return tv('color_auto'); },
+  get colorNames() { return Object.fromEntries(['blue', 'green', 'orange', 'purple', 'red', 'teal', 'pink', 'brown'].map((c) => [c, tv(`color_${c}`)])); },
+  get colorSaved() { return tv('color_saved'); },
+  get colorFail() { return tv('color_fail'); },
+  more: (n) => tv('more', { n }),
+  moreTitle: (n) => tv('more_title', { n }),
+  get close() { return tv('close'); },
+  get join() { return tv('join'); },
+  get openEvent() { return tv('open_event'); },
+  get makeProject() { return tv('make_project'); },
+  get makeTodo() { return tv('make_todo'); },
+  todoAdded: (title) => tv('todo_added', { title }),
+  get todoFail() { return tv('todo_fail'); },
+  get declined() { return tv('declined'); },
+  get tentative() { return tv('tentative'); },
+  get free() { return tv('free'); },
+  get untitled() { return tv('untitled'); },
+  get noTime() { return tv('no_time'); },
+  get weekdays() { return weekdays(); },
+  todoWhen: (when) => tv('todo_when', { when }),
+  todoWhere: (where) => tv('todo_where', { where }),
+  todoLink: (url) => tv('todo_link', { url }),
+  todoCal: (cal) => tv('todo_cal', { cal }),
+  cardFold: (n) => tv('card_fold', { n }),
+  cardToggle: (name, on) => tv(on ? 'card_turn_off' : 'card_turn_on', { name }),
+  get cardToggleFail() { return tv('card_toggle_fail'); },
 };
 // 개요 연결 카드: 캘린더가 이보다 많으면 처음엔 접어 둔다(「캘린더 N개 ▸」)
 export const CARD_FOLD_AT = 4;
@@ -135,17 +137,17 @@ export function shiftAnchor(view, anchor, dir) {
   return addDays(anchor, 7 * d);
 }
 
-const md = (ymd) => `${Number(ymd.slice(5, 7))}월 ${Number(ymd.slice(8, 10))}일`;
+const md = (ymd) => monthDay(Number(ymd.slice(5, 7)), Number(ymd.slice(8, 10)));
 const wd = (ymd) => CALTAB_TEXT.weekdays[weekday(ymd)];
 // 지금 보는 기간 제목: 「2026년 10월」 · 「2026년 10월 19일 ~ 25일」(달·해가 바뀌면 그만큼 더) · 「2026년 10월 19일 (월)」
 export function periodTitle(p) {
   const a = p.days[0], b = p.days[p.days.length - 1];
-  const y = (s) => `${Number(s.slice(0, 4))}년`;
-  if (p.view === 'month') { const mid = p.anchor; return `${y(mid)} ${Number(mid.slice(5, 7))}월`; }
-  if (p.view === 'day') return `${y(a)} ${md(a)} (${wd(a)})`;
-  if (a.slice(0, 4) !== b.slice(0, 4)) return `${y(a)} ${md(a)} ~ ${y(b)} ${md(b)}`;
-  if (a.slice(0, 7) !== b.slice(0, 7)) return `${y(a)} ${md(a)} ~ ${md(b)}`;
-  return `${y(a)} ${md(a)} ~ ${Number(b.slice(8, 10))}일`;
+  const y = (s) => Number(s.slice(0, 4));
+  if (p.view === 'month') { const mid = p.anchor; return tv('title_month', { y: y(mid), m: Number(mid.slice(5, 7)) }); }
+  if (p.view === 'day') return tv('title_day', { y: y(a), md: md(a), w: wd(a) });
+  if (a.slice(0, 4) !== b.slice(0, 4)) return tv('title_years', { y1: y(a), md1: md(a), y2: y(b), md2: md(b) });
+  if (a.slice(0, 7) !== b.slice(0, 7)) return tv('title_months', { y: y(a), md1: md(a), md2: md(b) });
+  return tv('title_days', { y: y(a), md1: md(a), d2: Number(b.slice(8, 10)) });
 }
 
 // ---- 데몬 응답 다듬기 ----
@@ -158,7 +160,7 @@ export function shapeEvents(r) {
   if (d.connected === false) return { state: 'off', calendars: [], events: [], failed: [] };
   const calendars = (Array.isArray(d.calendars) ? d.calendars : [])
     .filter((c) => c && str(c.id))
-    .map((c) => ({ id: c.id, name: str(c.name).trim() || '캘린더', color: okCalendarColor(c.color) ? c.color : CAL_COLORS[0], colorSet: c.colorSet === true, enabled: c.enabled !== false, phase: str(c.phase), reason: str(c.reason) }));
+    .map((c) => ({ id: c.id, name: str(c.name).trim() || tv('fallback_name'), color: okCalendarColor(c.color) ? c.color : CAL_COLORS[0], colorSet: c.colorSet === true, enabled: c.enabled !== false, phase: str(c.phase), reason: str(c.reason) }));
   const known = new Set(calendars.map((c) => c.id));
   const events = (Array.isArray(d.events) ? d.events : [])
     .filter((e) => e && str(e.id) && known.has(e.calId) && !Number.isNaN(Date.parse(e.start)))
@@ -296,16 +298,17 @@ export function agendaDays(events, days, tz) {
 
 // ---- 글 ----
 export const hhmm = (ms, tz) => { const m = zoned(ms, tz).min; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
-export const dayLabel = (ymd) => `${md(ymd)} (${wd(ymd)})`;
+export const dayLabel = (ymd) => tv('day_label', { md: md(ymd), w: wd(ymd) });
 // 일정 카드의 때: 「10월 21일 (수) 14:00 ~ 15:30」 · 「10월 23일 (금) 23:00 ~ 10월 24일 (토) 01:00」 · 「10월 22일 (목) ~ 23일 (금) · 종일」
 export function eventWhen(e, tz) {
+  const sep = tv('range_sep');
   if (e.allDay) {
     const [a, z] = spanDays(e, tz);
-    return a === z ? `${dayLabel(a)} · ${CALTAB_TEXT.allDay}` : `${dayLabel(a)} ~ ${a.slice(0, 7) === z.slice(0, 7) ? `${Number(z.slice(8, 10))}일 (${wd(z)})` : dayLabel(z)} · ${CALTAB_TEXT.allDay}`;
+    return a === z ? `${dayLabel(a)} · ${CALTAB_TEXT.allDay}` : `${dayLabel(a)}${sep}${a.slice(0, 7) === z.slice(0, 7) ? tv('end_day', { d: Number(z.slice(8, 10)), w: wd(z) }) : dayLabel(z)} · ${CALTAB_TEXT.allDay}`;
   }
   const a = zoned(e.s, tz).ymd, z = zoned(e.e, tz).ymd;
   if (e.e === e.s) return `${dayLabel(a)} ${hhmm(e.s, tz)}`;
-  return a === z ? `${dayLabel(a)} ${hhmm(e.s, tz)} ~ ${hhmm(e.e, tz)}` : `${dayLabel(a)} ${hhmm(e.s, tz)} ~ ${dayLabel(z)} ${hhmm(e.e, tz)}`;
+  return a === z ? `${dayLabel(a)} ${hhmm(e.s, tz)}${sep}${hhmm(e.e, tz)}` : `${dayLabel(a)} ${hhmm(e.s, tz)}${sep}${dayLabel(z)} ${hhmm(e.e, tz)}`;
 }
 // 응답 표시(거절·미정·한가함)
 export function responseTag(e) {

@@ -21,6 +21,7 @@ export function createCalendarView({ h, cy, fill, el, openSetup, openProject, on
   let anchor = zoned(now(), tz).ymd;
   let hidden = readHidden(storage);
   let data = null; // shapeEvents 결과
+  let raw = null; // 받은 그대로(언어가 바뀌면 다시 다듬는다: 「(제목 없음)」 등)
   let loadedKey = '';
   let loadedAt = 0;
   let loading = false;
@@ -69,6 +70,7 @@ export function createCalendarView({ h, cy, fill, el, openSetup, openProject, on
       return load(fresh);
     }
     data = next;
+    raw = r;
     loadedKey = keyOf(p);
     loadedAt = now();
     if (visible) draw();
@@ -373,6 +375,12 @@ export function createCalendarView({ h, cy, fill, el, openSetup, openProject, on
     hide() { visible = false; pop = null; menu = null; clearInterval(nowTimer); },
     reload: (fresh = true) => load(fresh), // 패널 새로고침 단추
     changed() { if (visible) loadSoon(); else loadedAt = 0; }, // SSE dashboardChanged
+    // 언어가 바뀜(패널이 부른다): 보던 기간·보기 그대로 지금 언어 글로 다시 그린다
+    relang() {
+      if (raw) { const keepCals = data?.calendars; data = shapeEvents(raw); if (keepCals && data.calendars) for (const c of data.calendars) { const o = keepCals.find((x) => x.id === c.id); if (o) { c.color = o.color; c.colorSet = o.colorSet; } } }
+      if (msg) msg = null;
+      draw();
+    },
     state: () => ({ view, anchor, tz, hidden: [...hidden], pop: pop?.id ?? null, menu: menu?.calId ?? null, narrow }),
   };
 }

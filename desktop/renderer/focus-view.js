@@ -2,6 +2,7 @@
 // 기록 보기는 GitHub 기여 그래프(잔디)처럼 오래 집중한 날일수록 진한 칸. 상태는 데몬(GET /focus · SSE focus)이 기준이고,
 // 경과 시간·오늘 합계는 1초마다 글자만 바꾼다(목록을 다시 그리지 않는다). 순수 계산은 src/focus.js.
 import { who } from './who.js';
+import { t } from '../src/i18n.js';
 import {
   normFocus, focusSend, elapsedSec, todayLive, fmtClock, fmtDuration, fmtShort, focusLevel, LEVEL_LABELS, localDay, rangeOf, shiftAnchor,
   monthGrid, rangeTitle, cellTitle, dayLabel, dayDetail, summarize, barRatio, parseDay, WEEKDAYS,
@@ -43,7 +44,7 @@ export function createFocusView({ h, cy }) {
     busy = false;
     if (r?.ok && r.data) set(r.data);
     else {
-      err = r?.error || r?.status === 503 || !r?.status ? `${who()}가 꺼져 있어서 못 했어요` : '잠깐 뒤에 다시 눌러 주세요';
+      err = r?.error || r?.status === 503 || !r?.status ? t('views.focus_err_off', { who: who() }) : t('views.focus_err_retry');
       redraw();
       load(); // 데몬 상태로 다시 맞춘다(이미 끝난 세션이면 「그만하기」 줄이 [집중하기]로 돌아간다)
     }
@@ -93,17 +94,17 @@ export function createFocusView({ h, cy }) {
     const kids = [];
     if (!a) {
       kids.push(h('button.focus-start', {
-        type: 'button', disabled: busy, title: `${who()}가 옆에서 같이 공부해요. 집중한 시간은 아래 「오늘 집중」에 쌓여요`,
+        type: 'button', disabled: busy, title: t('views.focus_start_title', { who: who() }),
         onclick: () => cmd('start'),
-      }, h('span.focus-ico', { 'aria-hidden': 'true', text: '▶' }), '집중하기'));
+      }, h('span.focus-ico', { 'aria-hidden': 'true', text: '▶' }), t('views.focus_start')));
     } else {
       kids.push(
-        h(`span.focus-live${a.paused ? '.paused' : ''}`, { role: 'timer', 'aria-label': a.paused ? '집중 일시정지' : '집중 중' },
+        h(`span.focus-live${a.paused ? '.paused' : ''}`, { role: 'timer', 'aria-label': a.paused ? t('views.focus_live_paused') : t('views.focus_live_on') },
           h('span.focus-dot', { 'aria-hidden': 'true' }),
-          h('span', { text: a.paused ? '쉬는 중' : '집중 중' }),
+          h('span', { text: a.paused ? t('views.focus_paused') : t('views.focus_on') }),
           h('b', { dataset: { focusClock: '' }, text: fmtClock(elapsedSec(a)) })),
-        h('button.small', { type: 'button', disabled: busy, text: a.paused ? '다시 시작' : '일시정지', onclick: () => cmd(a.paused ? 'resume' : 'pause') }),
-        h('button.small.ghost', { type: 'button', disabled: busy, text: '그만하기', onclick: () => cmd('stop') }),
+        h('button.small', { type: 'button', disabled: busy, text: a.paused ? t('views.focus_resume') : t('views.focus_pause'), onclick: () => cmd(a.paused ? 'resume' : 'pause') }),
+        h('button.small.ghost', { type: 'button', disabled: busy, text: t('views.focus_stop'), onclick: () => cmd('stop') }),
       );
     }
     if (err) kids.push(h('span.focus-err.small', { role: 'status', text: err }));
@@ -113,12 +114,12 @@ export function createFocusView({ h, cy }) {
   // ---- 맨 아래 「오늘 집중 N」 → 누르면 기록 보기 ----
   function foot(scope = 'todos') {
     const btn = h('button.focus-today', {
-      type: 'button', 'aria-expanded': String(open), title: open ? '집중 기록 접기' : '주·월 집중 기록 보기',
+      type: 'button', 'aria-expanded': String(open), title: open ? t('views.focus_fold_title') : t('views.focus_open_title'),
       onclick: () => toggle(scope),
     },
-    h('span.focus-today-label', { text: '오늘 집중' }),
+    h('span.focus-today-label', { text: t('views.focus_today') }),
     h('b', { dataset: { focusToday: '' }, text: fmtDuration(todayLive(focus)) }),
-    h('span.focus-more', { text: open ? '접기' : '기록 보기', 'aria-hidden': 'true' }));
+    h('span.focus-more', { text: open ? t('views.focus_fold') : t('views.focus_open'), 'aria-hidden': 'true' }));
     return h('div.focus-foot', { dataset: { scope } }, btn, open ? statsCard() : null);
   }
   function toggle(scope) {
@@ -146,26 +147,26 @@ export function createFocusView({ h, cy }) {
     const today = localDay(Date.now());
     const isNow = r && today >= r.from && today <= r.to;
     const data = stats?.key === `${r?.from}|${r?.to}` && stats.status === 'ok' ? stats.data : null;
-    const tabs = h('div.focus-tabs', { role: 'tablist', 'aria-label': '기간' },
-      [['week', '주'], ['month', '월']].map(([id, label]) => h(`button.focus-tab${tab === id ? '.on' : ''}`, {
+    const tabs = h('div.focus-tabs', { role: 'tablist', 'aria-label': t('views.focus_range') },
+      [['week', t('views.focus_tab_week')], ['month', t('views.focus_tab_month')]].map(([id, label]) => h(`button.focus-tab${tab === id ? '.on' : ''}`, {
         type: 'button', role: 'tab', 'aria-selected': String(tab === id), text: label, onclick: () => setTab(id),
       })));
     const nav = h('div.focus-nav', null,
-      h('button.ghost.small', { type: 'button', text: '‹', title: tab === 'month' ? '이전 달' : '이전 주', 'aria-label': tab === 'month' ? '이전 달' : '이전 주', onclick: () => move(-1) }),
+      h('button.ghost.small', { type: 'button', text: '‹', title: t(tab === 'month' ? 'views.focus_prev_month' : 'views.focus_prev_week'), 'aria-label': t(tab === 'month' ? 'views.focus_prev_month' : 'views.focus_prev_week'), onclick: () => move(-1) }),
       h('span.focus-range', { text: rangeTitle(tab, r) }),
-      h('button.ghost.small', { type: 'button', text: '›', title: tab === 'month' ? '다음 달' : '다음 주', 'aria-label': tab === 'month' ? '다음 달' : '다음 주', disabled: !!(r && r.to >= today), onclick: () => move(1) }),
-      isNow ? null : h('button.ghost.small', { type: 'button', text: tab === 'month' ? '이번 달' : '이번 주', onclick: () => move(0) }));
+      h('button.ghost.small', { type: 'button', text: '›', title: t(tab === 'month' ? 'views.focus_next_month' : 'views.focus_next_week'), 'aria-label': t(tab === 'month' ? 'views.focus_next_month' : 'views.focus_next_week'), disabled: !!(r && r.to >= today), onclick: () => move(1) }),
+      isNow ? null : h('button.ghost.small', { type: 'button', text: t(tab === 'month' ? 'views.focus_this_month' : 'views.focus_this_week'), onclick: () => move(0) }));
     let body;
     if (!data) {
-      body = h('div.focus-empty.muted.small', { text: stats?.status === 'error' ? `기록을 못 불러왔어요. ${who()}가 켜져 있는지 확인해 주세요.` : '불러오는 중…' });
+      body = h('div.focus-empty.muted.small', { text: stats?.status === 'error' ? t('views.focus_load_fail', { who: who() }) : t('views.focus_loading') });
     } else {
       const days = mergeLive(data.days, today);
       const sum = summarize(days, today);
       body = h('div', null,
         h('div.focus-sum', null,
-          h('span', null, '합계 ', h('b', { text: fmtDuration(sum.total) })),
-          h('span', null, '하루 평균 ', h('b', { text: fmtDuration(sum.avg) })),
-          sum.best ? h('span.muted', { text: `가장 오래 집중한 날 ${dayLabel(sum.best.date)} · ${fmtDuration(sum.best.seconds)}` }) : null),
+          h('span', null, t('views.focus_total'), h('b', { text: fmtDuration(sum.total) })),
+          h('span', null, t('views.focus_avg'), h('b', { text: fmtDuration(sum.avg) })),
+          sum.best ? h('span.muted', { text: t('views.focus_best', { day: dayLabel(sum.best.date), time: fmtDuration(sum.best.seconds) }) }) : null),
         tab === 'month' ? monthView(r, days, today) : weekView(days, today),
         pickedLine(days),
         legend());
@@ -221,13 +222,15 @@ export function createFocusView({ h, cy }) {
 
   function legend() {
     return h('div.focus-legend.muted.small', null,
-      h('span', { text: '적게' }),
+      h('span', { text: t('views.focus_less') }),
       LEVEL_LABELS.map((label, lv) => h(`span.fl-sw.lv-${lv}`, { title: label })),
-      h('span', { text: '많이' }));
+      h('span', { text: t('views.focus_more') }));
   }
 
   // 할 일 탭 / 오늘 할 일 탭에서 부른다
   cy.onFocus?.((p) => set(p));
   load();
-  return { bar, foot, load, isOpen: () => open };
+  // 언어가 바뀜(패널이 부른다): 보던 주·달 그대로 집중 줄·기록 카드를 지금 언어로
+  function relang() { err = ''; redraw(); redrawStats(); }
+  return { bar, foot, load, relang, isOpen: () => open };
 }

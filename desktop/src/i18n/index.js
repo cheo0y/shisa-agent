@@ -8,5 +8,6 @@ import session from './session.js';
 import setup from './setup.js';
 import overlay from './overlay.js';
 import panel from './panel.js';
+import views from './views.js';
 
-export const TABLES = { common, date, main, settings, session, setup, overlay, panel };
+export const TABLES = { common, date, main, settings, session, setup, overlay, panel, views };
