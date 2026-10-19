@@ -134,3 +134,20 @@ export function missingRequired(chosen) {
 export function sourceOptions(list) {
   return (Array.isArray(list) ? list : []).filter((c) => c && typeof c.id === 'string').map((c) => ({ id: c.id, name: c.name ?? c.id, custom: !!c.custom }));
 }
+
+// 고치기 화면을 새 목록(SSE characters)에 맞출 때 무엇을 다시 그릴지. 테두리·한마디는 화면이 이미 사용자가 바꾼 값이라 보지 않는다
+// (한마디를 저장할 때마다 편집 화면을 통째로 다시 그리면 다음 한마디 칸에 쓰던 글·포커스·열어 둔 파일 고르기 창이 날아간다)
+// base: 이름·대사 등 그림 칸 밖 · files: 칸마다 파일 이름 목록
+export function editorSig(e) {
+  if (!e || typeof e !== 'object') return { base: '', files: '' };
+  const { frames, media, clips, updated, ...rest } = e;
+  const files = Object.entries(clips && typeof clips === 'object' ? clips : {}).map(([k, l]) => [k, Array.isArray(l) ? l.map((x) => x?.file ?? null) : []]);
+  return { base: JSON.stringify(rest), files: JSON.stringify([media ?? {}, files]) };
+}
+// shown: 지금 화면을 그린 editorSig · next: 새 목록의 editorSig · dirty: 고치던 글(이름·대사)이 있나
+// → 'none'(그대로) | 'slots'(그림 칸만) | 'all'(편집 화면 전부)
+export function editorRefresh(shown, next, dirty) {
+  if (!shown) return dirty ? 'none' : 'all';
+  if (shown.base !== next.base && !dirty) return 'all';
+  return shown.files !== next.files ? 'slots' : 'none';
+}

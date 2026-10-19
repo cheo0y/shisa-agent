@@ -6,7 +6,8 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { CHARACTERS, characterAssets, customAssets, redrawCharacter, clipFor, clipKind, fitBox, okCharacter, okCharacterId, characterName, appName, localSay, characterIds, CHARACTER_IDS } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf, shisaDesktopLines, mergeLines } from '../src/character-registry.js';
-import { editorSections, fieldText, fieldValue, fieldProblem, linesFromTexts, diffLines, flattenLines, unflattenLines, slotRows, okMediaName, missingRequired, changedCount, SECTIONS } from '../src/character-edit.js';
+import { editorSections, fieldText, fieldValue, fieldProblem, linesFromTexts, diffLines, flattenLines, unflattenLines, slotRows, okMediaName, missingRequired, changedCount, SECTIONS, editorSig, editorRefresh } from '../src/character-edit.js';
+import { rerunLatest } from '../src/sse.js';
 import { resolveAsset, userCharacterFile } from '../src/assets.js';
 import { sanitizeSettingsPatch, sanitizeCharacterBody, okMediaSlot } from '../src/settings.js';
 import { setupSettings } from '../src/settings-window.js';
@@ -375,4 +376,62 @@ test('여러 개 넣는 칸: 칸 목록·설명, 파일마다 한마디·테두�
   // 목록을 받으면 clips 도 캐릭터에
   applyCharacters({ characters: [{ id: U, name: '까망', custom: true, media: list[0].media, clips: list[0].clips, frames: {}, lines: { name: '까망' } }] });
   assert.equal(characterAssets(U).variants.dance.length, 2);
+});
+
+// 제보: 만든 캐릭터를 고치기(연필)로 열면 그림 칸이 안 먹었다. 테두리·한마디를 저장할 때마다 SSE characters 로
+// 편집 화면을 통째로 다시 그려서, 다음 한마디 칸에 쓰던 글·포커스·열어 둔 파일 고르기가 사라졌다
+test('고치기 화면: 테두리·한마디만 바뀐 새 목록은 다시 그리지 않고, 파일이 바뀌면 그림 칸만, 이름·대사는 고치던 글이 없을 때만 전부', () => {
+  const e = { id: U, name: '까망', custom: true, from: 'shisa', frames: { eyes_open: false }, media: { eyes_open: 'eyes_open-0a1b2c3d.png', cheer: 'cheer-0a1b2c3d.png' },
+    clips: { cheer: [{ file: 'cheer-0a1b2c3d.png', frame: false }, { file: 'cheer-1a1b2c3d.png', frame: false }] }, lines: { name: '까망' }, created: '2026-10-19T00:00:00Z', updated: '2026-10-19T00:00:00Z' };
+  const shown = editorSig(e);
+  const said = { ...e, clips: { cheer: [{ file: 'cheer-0a1b2c3d.png', say: '화이팅', frame: false }, e.clips.cheer[1]] }, updated: '2026-10-19T00:01:00Z' };
+  const framed = { ...e, frames: { eyes_open: true }, clips: { cheer: [{ ...e.clips.cheer[0], frame: true }, e.clips.cheer[1]] }, updated: '2026-10-19T00:02:00Z' };
+  assert.equal(editorRefresh(shown, editorSig(said), false), 'none');
+  assert.equal(editorRefresh(shown, editorSig(framed), false), 'none');
+  assert.equal(editorRefresh(shown, editorSig(framed), true), 'none');
+  const added = { ...e, clips: { cheer: [...e.clips.cheer, { file: 'cheer-2a1b2c3d.png', frame: false }] } };
+  const swapped = { ...e, media: { ...e.media, eyes_open: 'eyes_open-9a1b2c3d.png' } };
+  const removed = { ...e, clips: { cheer: [e.clips.cheer[1]] }, media: { ...e.media, cheer: 'cheer-1a1b2c3d.png' } };
+  for (const x of [added, swapped, removed]) {
+    assert.equal(editorRefresh(shown, editorSig(x), false), 'slots');
+    assert.equal(editorRefresh(shown, editorSig(x), true), 'slots');
+  }
+  const renamed = { ...e, name: '까망이', lines: { name: '까망이' } };
+  assert.equal(editorRefresh(shown, editorSig(renamed), false), 'all');
+  assert.equal(editorRefresh(shown, editorSig(renamed), true), 'none');
+  assert.equal(editorRefresh(shown, editorSig({ ...renamed, media: swapped.media }), true), 'slots');
+  assert.equal(editorRefresh(null, editorSig(e), false), 'all');
+  // 기본 캐릭터(그림 칸 없음): 대사 덮어쓰기가 바뀌면 전부
+  const b = { id: 'shisa', name: '시사', builtin: true, lines: {}, defaults: {}, override: null };
+  assert.equal(editorRefresh(editorSig(b), editorSig({ ...b, override: { name: '시사2' } }), false), 'all');
+  assert.equal(editorRefresh(editorSig(b), editorSig(b), false), 'none');
+  // 설정 창: 새 목록은 refreshCharEditor 로, 그림 칸 다시 그리기는 charView.redrawSlots 로
+  const r = readFileSync(new URL('../renderer/settings.js', import.meta.url), 'utf8');
+  const take = r.slice(r.indexOf('function takeCharacters'), r.indexOf('function refreshCharEditor'));
+  assert.match(take, /if \(editing\) refreshCharEditor\(\);/);
+  assert.doesNotMatch(take, /!editDirty\) renderCharEditor/);
+  assert.match(r, /editorRefresh\(charView\.sig, next, editDirty\)/);
+  assert.match(r, /charView\.redrawSlots = \(\) =>/);
+});
+
+test('메인의 캐릭터 목록 다시 읽기: 읽는 중에 또 알림이 오면 끝난 뒤 한 번 더(방금 넣은 그림이 목록에서 빠지지 않게)', async () => {
+  let version = 1;
+  const seen = [];
+  let release;
+  let gate = new Promise((r) => { release = r; });
+  const load = rerunLatest(async () => { const v = version; await gate; seen.push(v); });
+  const p1 = load();
+  version = 2; // 읽는 중에 바뀜(SSE characters)
+  const p2 = load();
+  const p3 = load(); // 몇 번 와도 한 번만 더
+  assert.equal(p1, p2);
+  assert.equal(p2, p3);
+  gate = Promise.resolve();
+  release();
+  await p1;
+  assert.deepEqual(seen, [1, 2]);
+  await load();
+  assert.deepEqual(seen, [1, 2, 2]);
+  const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+  assert.match(m, /const loadCharacters = rerunLatest\(/);
 });

@@ -14,7 +14,7 @@ import { createPlaceSearch } from '../src/weather-search.js';
 import { mountGuidelines } from '../src/guidelines.js';
 import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf, staticCharacters } from '../src/character-registry.js';
-import { editorSections, flattenLines, unflattenLines, fieldText, fieldProblem, linesFromTexts, diffLines, slotRows, okMediaName, previewKind, missingRequired, sourceOptions, ACCEPT, MULTI_HINT, sayPlaceholder, sayTitle } from '../src/character-edit.js';
+import { editorSections, flattenLines, unflattenLines, fieldText, fieldProblem, linesFromTexts, diffLines, slotRows, okMediaName, previewKind, missingRequired, sourceOptions, ACCEPT, MULTI_HINT, sayPlaceholder, sayTitle, editorSig, editorRefresh } from '../src/character-edit.js';
 import { who, whoId, setWho, onWho } from './who.js';
 // 안내 글 속 이름(<span class="who">)도 캐릭터 이름으로
 onWho(() => { for (const n of document.querySelectorAll('.who')) n.textContent = who(); });
@@ -357,6 +357,7 @@ function renderLocal() {
 let chars = null; // GET /characters
 let editing = null; // { mode: 'new' } | { mode: 'edit', id }
 let editDirty = false; // 고치던 글이 있으면 새 목록이 와도 편집 화면을 다시 그리지 않는다
+let charView = null; // 고치기 화면이 그린 것 { id, sig: editorSig, redrawSlots() }. 새 목록이 오면 바뀐 만큼만 다시 그린다
 const charList = () => (Array.isArray(chars?.characters) && chars.characters.length ? chars.characters
   : (Array.isArray(settings?.characters) && settings.characters.length ? settings.characters : CHARACTER_IDS.map((id) => ({ id, name: CHARACTERS[id].name, builtin: true }))));
 const charEntry = (id) => charList().find((c) => c.id === id);
@@ -368,7 +369,16 @@ function takeCharacters(data) {
   renderCharacter();
   renderAppPrefs(); // 이름이 든 줄(로그인할 때 … 켜기): 새 목록(언어가 바뀌었으면 그 언어 이름)으로
   if (editing?.mode === 'edit' && !charEntry(editing.id)) { editing = null; editDirty = false; }
-  if (editing && !editDirty) renderCharEditor();
+  if (editing) refreshCharEditor();
+}
+// 새 목록에 맞추기. 고치기 화면은 그림 칸 파일이 바뀌었을 때만 그림 칸을, 이름·대사가 바뀌었을 때만(고치던 글이 없으면) 전부 다시 그린다.
+// 테두리·한마디 저장도 새 목록을 부르는데, 그때마다 통째로 다시 그리면 쓰던 한마디·포커스·열어 둔 파일 고르기가 사라진다
+function refreshCharEditor() {
+  if (editing?.mode !== 'edit' || charView?.id !== editing.id) { if (!editDirty) renderCharEditor(); return; }
+  const next = editorSig(charEntry(editing.id));
+  const what = editorRefresh(charView.sig, next, editDirty);
+  if (what === 'all') renderCharEditor();
+  else if (what === 'slots') charView.redrawSlots();
 }
 async function loadCharacters() {
   const r = await cy.getCharacters?.().catch(() => null);
@@ -622,6 +632,7 @@ function sourceSelect(selected) {
 function renderCharEditor() {
   const box = $('char-editor');
   box.replaceChildren();
+  charView = null;
   box.hidden = !editing;
   if ($('char-new')) $('char-new').disabled = editing?.mode === 'new';
   if (!editing) return;
@@ -720,6 +731,7 @@ function renderCharEditor() {
   if (!entry) { editing = null; box.hidden = true; return; }
   const custom = !!entry.custom;
   const name = characterName(entry.id);
+  charView = { id: entry.id, sig: editorSig(entry), redrawSlots: () => {} };
   head.append(el('h3', null, t('settings.ce_edit_title', { name })), close);
   box.append(head);
   const base = custom ? null : defaultsOf(entry);
@@ -732,12 +744,11 @@ function renderCharEditor() {
     nameIn.addEventListener('input', () => { editDirty = true; });
     const nameRow = el('label', 'ce-row');
     nameRow.append(el('span', null, t('settings.ce_name')), nameIn);
-    // 그림은 고르면 바로 올리고, 테두리·한마디도 바꾸면 바로 저장. 새 목록이 오면 편집 화면을 다시 그린다(고치던 글이 있으면 그림 칸만)
+    // 그림은 고르면 바로 올리고, 테두리·한마디도 바꾸면 바로 저장. 새 목록이 오면 refreshCharEditor 가 그림 칸을 맞춘다
     const done = async (r, ok, err) => {
       if (!r?.ok) { if (err) err.textContent = r?.data?.error ?? t('settings.save_fail_short'); else flash(r?.data?.error ?? t('settings.save_fail'), true); return false; }
       flash(ok);
       await loadCharacters();
-      if (editDirty) { const n = drawSlots(charEntry(entry.id)); slots.replaceWith(n); slots = n; }
       return true;
     };
     const handlers = {
@@ -761,6 +772,13 @@ function renderCharEditor() {
     };
     const drawSlots = (e) => slotList(slotRows(e?.media, e?.clips), (f) => `${USER_CHAR_DIR}/${entry.id}/${f}`, (f) => f, e?.frames ?? {}, handlers);
     let slots = drawSlots(entry);
+    charView.redrawSlots = () => {
+      const e = charEntry(entry.id);
+      const n = drawSlots(e);
+      slots.replaceWith(n);
+      slots = n;
+      charView.sig = { ...charView.sig, files: editorSig(e).files };
+    };
     box.append(nameRow, el('h3', null, t('settings.ce_media')), el('p', 'hint', t('settings.ce_media_hint_edit', { multi: MULTI_HINT })), slots);
   }
   // 다른 캐릭터 대사로 채우기(저장 전까지는 화면만)

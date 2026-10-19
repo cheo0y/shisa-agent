@@ -82,3 +82,17 @@ export function createSSEGate(onLive) {
     get live() { return live; },
   };
 }
+
+// SSE 알림마다 다시 읽기(GET /characters 등). 읽는 중에 또 알림이 오면 그 읽기는 바뀌기 전 것일 수 있으니,
+// 끝난 뒤 한 번 더 읽는다(알림을 버리지 않는다). 기다리는 쪽은 마지막 읽기까지 끝나야 풀린다
+export function rerunLatest(fn) {
+  let running = null;
+  let again = false;
+  return () => {
+    if (running) { again = true; return running; }
+    running = (async () => {
+      do { again = false; await fn(); } while (again);
+    })().finally(() => { running = null; });
+    return running;
+  };
+}

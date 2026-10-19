@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
 import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
-import { createSSEParser, backoffDelay, isEventStream, createSSEGate } from './src/sse.js';
+import { createSSEParser, backoffDelay, isEventStream, createSSEGate, rerunLatest } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
 import { defaultPosition, restorePosition } from './src/geometry.js';
 import { normalizeSection } from './src/dashboard.js';
@@ -1121,22 +1121,19 @@ function onCharacter(id, force = false) {
 // 사용자 캐릭터·고친 대사(데몬 GET /characters, src/character-registry.js): 이 프로세스 기본값 위에 덮고 창마다 알린다.
 // 데몬에 붙을 때와 SSE characters 때 다시 읽는다. cy-asset 이 사용자 캐릭터 파일을 줄 때도 이 목록을 본다
 let charactersData = null;
-let charactersLoading = null;
-function loadCharacters() {
-  charactersLoading ??= (async () => {
-    const r = await request('GET', '/characters');
-    if (!r.ok || !r.data || !Array.isArray(r.data.characters)) return;
-    charactersData = r.data;
-    applyCharacters(r.data);
-    send('characters', r.data);
-    sendPanel('characters', r.data);
-    sendSession('characters', r.data);
-    const sw = settingsUi?.window;
-    if (sw && !sw.isDestroyed()) sw.webContents.send('characters', r.data);
-    onCharacter(wantChar ?? charId, true);
-  })().finally(() => { charactersLoading = null; });
-  return charactersLoading;
-}
+// 읽는 중에 또 바뀌었다는 알림이 오면 끝난 뒤 한 번 더 읽는다(그냥 합치면 방금 넣은 그림이 목록에 없어 cy-asset 이 못 준다)
+const loadCharacters = rerunLatest(async () => {
+  const r = await request('GET', '/characters');
+  if (!r.ok || !r.data || !Array.isArray(r.data.characters)) return;
+  charactersData = r.data;
+  applyCharacters(r.data);
+  send('characters', r.data);
+  sendPanel('characters', r.data);
+  sendSession('characters', r.data);
+  const sw = settingsUi?.window;
+  if (sw && !sw.isDestroyed()) sw.webContents.send('characters', r.data);
+  onCharacter(wantChar ?? charId, true);
+});
 
 function setupAppActivation() {
   if (process.platform === 'darwin') {
