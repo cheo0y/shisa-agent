@@ -1486,6 +1486,15 @@ button.focus-tab.on { background: var(--surface); color: var(--fg); box-shadow: 
 .setup-mail-accounts code { min-width: 0; max-width: 100%; }
 .setup-mail-acct { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .setup-mail-acct.fail { color: var(--warn-fg, #b45309); }
+/* 네이버 캘린더 카드: 계정마다 아이디·[빼기] 한 줄, 그 아래 캘린더 줄(체크 = 가져오기) */
+.setup-ncal-accounts { margin: 6px 0 8px; gap: 10px; }
+.setup-ncal-accounts > li { display: block; }
+.setup-ncal-accounts > li > .setup-fields.row { margin: 0 0 2px; }
+.setup-ncal-calendars { margin: 4px 0 0 4px; }
+.setup-ncal-calendars li { flex-wrap: wrap; min-width: 0; }
+.setup-ncal-cal { display: inline-flex; align-items: center; gap: 6px; min-width: 0; cursor: pointer; }
+.setup-ncal-cal span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-ncal-timetree { display: block; margin-top: 8px; }
 .setup-mail-add-title { display: block; margin-top: 10px; font-size: 13px; }
 
 /* ---- 패널 손질(ui-kit 조각과 같이) ---- */

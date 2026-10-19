@@ -1,5 +1,5 @@
 // 캘린더 여러 개(별칭 + iCal 주소 세트): 데몬 설정(config.json connectors.calendar)을 읽고, 별칭 고치기·켜기/끄기·하나 빼기를 한다.
-// 저장 모양: { mode: 'api', calendars: [{ id, name, url, enabled, color? }], timeZone }. color 는 캘린더 탭에서 고른 색(팔레트 이름). 예전 모양(icsUrl 하나 · icsUrls 배열, 이름 없음)도 그대로 읽고,
+// 저장 모양: { mode: 'api', calendars: [{ id, name, url, enabled, color?, account? }], timeZone, caldav? }. account 가 붙은 줄은 네이버 캘린더(CalDAV) 계정 caldav[].id 의 캘린더. color 는 캘린더 탭에서 고른 색(팔레트 이름). 예전 모양(icsUrl 하나 · icsUrls 배열, 이름 없음)도 그대로 읽고,
 // 이 파일이 고쳐 쓸 때 새 모양으로 옮긴다. 더하기는 데몬이 한다(그 캘린더만 시험으로 읽어 본 뒤 저장, POST /connectors/calendar).
 // 주소는 비밀번호와 같아서 화면에는 알아볼 수 있는 부분(캘린더 id 앞부분·도메인)만 보이고, 고를 땐 주소 대신 id(sha-256 앞 16글자)를 쓴다.
 // 개수 상한은 없다. 파일 읽기·쓰기와 데몬 호출은 main 이 한다. 화면 글은 아래 CAL_TEXT 한 곳(글은 src/i18n/settings.js cal_*).
@@ -10,6 +10,7 @@ import { t, onLanguage } from './i18n.js';
 const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : null);
 const okId = (x) => typeof x === 'string' && /^[0-9a-f]{16}$/.test(x);
 const cleanName = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 80) : '');
+const okAccount = (x) => typeof x === 'string' && /^[\w-]{1,64}$/.test(x);
 
 // 화면 글(해요체 · 일본어는 src/i18n/settings.js cal_*). 캘린더 카드·설정 창이 같이 쓴다. 부를 때마다 지금 언어로(게터·함수)
 export const CAL_TEXT = {
@@ -58,7 +59,7 @@ export function calendarEntries(cfg) {
   for (const x of raw) {
     const url = typeof x.url === 'string' ? x.url.trim() : '';
     if (!url || /\.\.\.|…|YOUR_/.test(url) || out.some((e) => e.url === url)) continue;
-    out.push({ ...(okId(x.id) ? { id: x.id } : {}), name: cleanName(x.name), url, enabled: x.enabled !== false, ...(okCalendarColor(x.color) ? { color: x.color } : {}) });
+    out.push({ ...(okId(x.id) ? { id: x.id } : {}), name: cleanName(x.name), url, enabled: x.enabled !== false, ...(okCalendarColor(x.color) ? { color: x.color } : {}), ...(okAccount(x.account) ? { account: x.account } : {}) });
   }
   return out;
 }
@@ -70,15 +71,18 @@ export function calendarUrls(cfg) {
 
 const idOf = (e, hash) => e.id ?? hash?.(e.url);
 
-// 캘린더 목록을 새 모양으로 다시 쓴다(id 를 채우고 예전 icsUrl·icsUrls 는 지운다). 남은 게 없으면 { mode: 'off' }
+// 캘린더 목록을 새 모양으로 다시 쓴다(id 를 채우고 예전 icsUrl·icsUrls 는 지운다). 남은 게 없으면 { mode: 'off' }.
+// 네이버 계정(caldav)은 남은 캘린더가 쓰는 것만 둔다(그 계정 캘린더를 다 빼면 비밀번호도 지운다)
 function withEntries(cfg, entries, hash) {
   const c = obj(cfg) ?? {};
   const conns = { ...(obj(c.connectors) ?? {}) };
   const cal = obj(conns.calendar) ?? {};
   if (!entries.length) conns.calendar = { mode: 'off' };
   else {
-    const { icsUrl: _a, icsUrls: _b, ...rest } = cal;
-    conns.calendar = { ...rest, mode: 'api', calendars: entries.map((e) => ({ ...(idOf(e, hash) ? { id: idOf(e, hash) } : {}), name: e.name, url: e.url, enabled: e.enabled !== false, ...(okCalendarColor(e.color) ? { color: e.color } : {}) })), timeZone: cal.timeZone || 'Asia/Seoul' };
+    const { icsUrl: _a, icsUrls: _b, caldav: oldDav, ...rest } = cal;
+    const used = new Set(entries.map((e) => e.account).filter(Boolean));
+    const caldav = (Array.isArray(oldDav) ? oldDav : []).filter((a) => obj(a) && used.has(a.id));
+    conns.calendar = { ...rest, mode: 'api', calendars: entries.map((e) => ({ ...(idOf(e, hash) ? { id: idOf(e, hash) } : {}), name: e.name, url: e.url, enabled: e.enabled !== false, ...(okCalendarColor(e.color) ? { color: e.color } : {}), ...(e.account ? { account: e.account } : {}) })), timeZone: cal.timeZone || 'Asia/Seoul', ...(caldav.length ? { caldav } : {}) };
   }
   return { ...c, connectors: conns };
 }
@@ -115,17 +119,19 @@ export function withCalendarColor(cfg, id, color, hash) {
   }), hash);
 }
 
-// 어느 캘린더인가: 구글(calendar.google.com) · Outlook(outlook·office 주소) · 그 밖의 ICS
-export function calendarKind(url) {
+// 어느 캘린더인가: 구글(calendar.google.com) · Outlook(outlook·office 주소) · 네이버(CalDAV, 계정이 붙은 줄) · 그 밖의 ICS
+export function calendarKind(url, account) {
+  if (account) return 'naver';
   let host = '';
   try { host = new URL(url).hostname.toLowerCase(); } catch { return 'ics'; }
   if (host === 'calendar.google.com') return 'gcal';
+  if (host === 'caldav.calendar.naver.com') return 'naver';
   if (/(^|\.)(outlook\.(office365|office|live)\.com|office365\.com|outlook\.com)$/.test(host)) return 'outlook';
   return 'ics';
 }
-export const CALENDAR_TITLE = { get gcal() { return t('settings.cal_title_gcal'); }, get outlook() { return t('settings.cal_title_outlook'); }, get ics() { return t('settings.cal_title_ics'); } };
-// 설치 카드(gcal·outlook)가 세는 종류: 구글 카드는 구글 주소, Outlook 카드는 그 밖(Outlook·다른 ICS)
-export const cardOfKind = (kind) => (kind === 'gcal' ? 'gcal' : 'outlook');
+export const CALENDAR_TITLE = { get gcal() { return t('settings.cal_title_gcal'); }, get outlook() { return t('settings.cal_title_outlook'); }, get ics() { return t('settings.cal_title_ics'); }, get naver() { return t('settings.cal_title_naver'); } };
+// 설치 카드(gcal·outlook)가 세는 종류: 구글 카드는 구글 주소, Outlook 카드는 그 밖(Outlook·다른 ICS). 네이버는 따로(네이버 캘린더 카드)
+export const cardOfKind = (kind) => (kind === 'gcal' ? 'gcal' : kind === 'naver' ? 'naver' : 'outlook');
 
 // 이름 앞부분만: 4글자(짧으면 절반, 적어도 1글자) + …
 const head = (s) => `${s.slice(0, Math.max(1, Math.min(4, Math.ceil(s.length / 2))))}…`;
@@ -146,11 +152,20 @@ export function maskCalendarUrl(url) {
   return u.hostname;
 }
 
+// 네이버 계정 id → 아이디(설정의 caldav[]). 비밀번호는 읽지 않는다
+function calDavUsers(cfg) {
+  const list = obj(obj(obj(cfg)?.connectors)?.calendar)?.caldav;
+  return new Map((Array.isArray(list) ? list : []).filter((a) => obj(a) && okAccount(a.id) && typeof a.user === 'string').map((a) => [a.id, a.user.trim().slice(0, 64)]));
+}
+
 // 화면 줄: { id, kind, title, label, name, enabled }. 주소는 싣지 않는다. name = 별칭(없으면 「캘린더 N」, 데몬 결과가 ICS 이름으로 바꿔 준다)
+// 네이버 줄은 label = 네이버 아이디, account = 계정 id(네이버 캘린더 카드가 계정마다 묶고 계정을 뺄 때 쓴다)
 export function calendarRows(cfg, hash) {
+  const users = calDavUsers(cfg);
   return calendarEntries(cfg).map((e, i) => {
-    const kind = calendarKind(e.url);
-    return { id: idOf(e, hash), kind, title: CALENDAR_TITLE[kind], label: maskCalendarUrl(e.url), name: e.name || t('settings.cal_n', { n: i + 1 }), named: !!e.name, enabled: e.enabled };
+    const kind = calendarKind(e.url, e.account);
+    const label = kind === 'naver' ? users.get(e.account) || CALENDAR_TITLE.naver : maskCalendarUrl(e.url);
+    return { id: idOf(e, hash), kind, title: CALENDAR_TITLE[kind], label, name: e.name || t('settings.cal_n', { n: i + 1 }), named: !!e.name, enabled: e.enabled, ...(e.account ? { account: e.account } : {}) };
   });
 }
 
@@ -210,7 +225,7 @@ export function okCalendarUrl(v) {
 // 남은 주소로 설치 마법사 표시(sisa-ai.json done)를 맞춘다: 구글 주소가 하나도 없으면 gcal 을, Outlook(그 밖 ICS 포함)이 없으면 outlook 을 뗀다
 export function hubDoneFor(done, urls) {
   const next = { ...(obj(done) ?? {}) };
-  const kinds = new Set(urls.map(calendarKind));
+  const kinds = new Set(urls.map((u) => calendarKind(u)));
   if (!kinds.has('gcal')) delete next.gcal;
   if (!kinds.has('outlook') && !kinds.has('ics')) delete next.outlook;
   return next;
