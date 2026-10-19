@@ -151,6 +151,10 @@ export type BusHandlers = {
   // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
   calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
   calendarList?: () => unknown;
+  // 네이버 캘린더(CalDAV, 읽기 전용): 아이디 + 애플리케이션 비밀번호로 로그인해 캘린더 목록을 찾아 보고 되면 저장(calendar-naver.ts).
+  // POST /connectors/calendar/naver { user, password } · 계정 빼기 DELETE /connectors/calendar/caldav/:id. 비밀번호는 응답에 없다
+  naverCalendarConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  calDavRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 캘린더 탭: 보는 기간의 일정(캘린더마다 id·별칭·색). GET /calendar/events?from=&to=(&fresh=1) — calendar-view.ts. 없으면 503
   calendarEvents?: (range: { from: string; to: string; fresh: boolean }) => Promise<unknown>;
   // 메일 계정 하나 빼기(비밀번호·가져온 메일까지). DELETE /connectors/mail/:id. 마지막 계정이면 메일 연결이 꺼진다
@@ -614,6 +618,13 @@ export class Bus {
       const r = h.guidelines.handle(method, gl[1], body);
       return json(res, r.status, r.body);
     }
+    const cr = url.pathname.match(/^\/connectors\/calendar\/caldav\/([\w-]{1,64})$/);
+    if (cr && req.method === "DELETE") {
+      if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });
+      if (!h.calDavRemove) return json(res, 503, { error: "caldav remove unavailable" });
+      const r = h.calDavRemove(cr[1]);
+      return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error });
+    }
     const mr = url.pathname.match(/^\/connectors\/mail\/([\w-]{1,64})$/);
     if (mr && req.method === "DELETE") {
       if (req.headers["x-cy-agent"] !== "1" || (req.headers.origin && !req.headers.origin.startsWith("file://"))) return json(res, 403, { error: "forbidden" });
@@ -643,6 +654,11 @@ export class Bus {
       if (url.pathname === "/connectors/calendar") {
         if (!h.calendarAdd) return json(res, 503, { error: "calendar add unavailable" });
         const r = await h.calendarAdd(await readJson(req));
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
+      }
+      if (url.pathname === "/connectors/calendar/naver") {
+        if (!h.naverCalendarConnect) return json(res, 503, { error: "naver calendar unavailable" });
+        const r = await h.naverCalendarConnect(await readJson(req));
         return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
       }
       if (url.pathname === "/connectors/mail") {

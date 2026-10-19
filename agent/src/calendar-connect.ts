@@ -38,7 +38,8 @@ export function okCalendarUrl(v: unknown): v is string {
 
 // 파일의 connectors.calendar → 새 모양 값. api 가 아니면 캘린더 없음. 캘린더 탭에서 고른 색(color)은 그대로 둔다
 export type SavedCalendar = CalendarEntry & { color?: CalColor };
-export function calendarValue(file: Record<string, unknown>): { calendars: SavedCalendar[]; timeZone?: unknown; email?: unknown } {
+// caldav: 네이버 캘린더 계정 원본(비밀번호 포함, 그대로 다시 쓴다)
+export function calendarValue(file: Record<string, unknown>): { calendars: SavedCalendar[]; timeZone?: unknown; email?: unknown; caldav?: unknown[] } {
   const c = obj(obj(file.connectors)?.calendar);
   if (!c || c.mode !== "api") return { calendars: [] };
   const raw = rawCalendars(c);
@@ -46,7 +47,7 @@ export function calendarValue(file: Record<string, unknown>): { calendars: Saved
     const color = raw.find((x) => x.id === e.id || (typeof x.url === "string" && x.url.trim() === e.url))?.color;
     return okCalColor(color) ? { ...e, color } : e;
   });
-  return { calendars, ...(c.timeZone !== undefined ? { timeZone: c.timeZone } : {}), ...(c.email !== undefined ? { email: c.email } : {}) };
+  return { calendars, ...(c.timeZone !== undefined ? { timeZone: c.timeZone } : {}), ...(c.email !== undefined ? { email: c.email } : {}), ...(Array.isArray(c.caldav) && c.caldav.length ? { caldav: c.caldav } : {}) };
 }
 
 export function writeCalendarConnector(path: string, cal: Record<string, unknown>): void {
@@ -81,6 +82,7 @@ export async function addCalendar(body: unknown, deps: { path: string; probe: Pr
     calendars: [...v.calendars, { id, name, url, enabled: true }],
     timeZone: typeof v.timeZone === "string" && v.timeZone.trim() ? v.timeZone : "Asia/Seoul",
     ...(v.email !== undefined ? { email: v.email } : {}),
+    ...(v.caldav ? { caldav: v.caldav } : {}),
   };
   try { writeCalendarConnector(deps.path, value); } catch (e: any) { return { ok: false, status: 500, error: String(e?.message ?? e) }; }
   console.log(`[calendar] 캘린더 추가함(일정 ${r.events}개, 캘린더 ${value.calendars.length}개)`); // 주소·별칭은 남기지 않는다
