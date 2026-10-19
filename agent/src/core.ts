@@ -624,7 +624,7 @@ export class Agent {
   // start: 묻지 않고 바로 실행(채팅에서 시킨 작업) — 승인 버튼·"할까요?" 말풍선 없이 곧장 수정 큐로. PR 까지 올리고 머지만 묻는다
   // pr.base: PR 대상 브랜치(없으면 레포 기본 브랜치). 그 브랜치가 origin 에 없으면 수정 run 이 실패로 알린다
   async propose(pr: { repo: string; title: string; plan: string; base?: string }, threadTs?: string, explicit = false, threadId?: string, start = false): Promise<Proposal | undefined> {
-    try { resolveRepo(this.cfg, pr.repo); } catch { return undefined; } // 허용 밖 레포 제안은 버린다
+    try { resolveRepo(this.cfg, pr.repo); } catch (e) { console.error(`[propose] 레포 확인 실패: ${pr.repo}: ${e instanceof Error ? e.message : String(e)}`); return undefined; } // 허용 밖 레포 제안은 버린다(이유는 로그에)
     const id = randomUUID().replace(/-/g, "").slice(0, 16);
     const base = normalizeBase(pr.base);
     this.store.addProposal({ id, repo: pr.repo, title: pr.title, plan: pr.plan, ...(threadId ? { threadId } : {}), ...(base ? { base } : {}) });
