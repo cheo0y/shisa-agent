@@ -40,6 +40,7 @@ import { characterAssets, okCharacter, appName } from '../src/character.js';
 import { applyCharacters } from '../src/character-registry.js';
 import { who, whoId, setWho, onWho } from './who.js';
 import { t as tr, bindLanguage } from '../src/i18n.js';
+import { createPointerDrag, gripKey } from '../src/todo-drag.js';
 import { normWorktrees, worktreeCard, openTarget, placeWorktrees, worktreesSig, worktreesPlaceSig } from '../src/worktrees.js';
 
 const cy = window.cy;
@@ -1122,6 +1123,7 @@ let opSeq = 0;
 let openId = null; // 펼친 할 일(한 번에 하나)
 const details = new Map(); // id → { status: 'loading'|'ok'|'error', data?, error? } — GET /todos/:id/detail
 let refocusId = null; // 다시 그린 뒤 키보드 포커스를 돌려줄 줄
+let refocusGrip = false; // 그 줄의 손잡이로(손잡이에서 ↑↓ 로 옮겼을 때)
 let recentDone = []; // 이 창에서 방금 완료한 것 — 되돌리기용
 let todoMsg = null; // { ok, text }
 let todosStale = false;
@@ -1475,7 +1477,9 @@ function renderTodos() {
   const sec = listSec();
   const addFocused = ADD_INPUTS.includes(document.activeElement?.id) ? document.activeElement.id : null;
   const rowFocus = refocusId ?? (sec.contains(document.activeElement) ? document.activeElement?.closest?.('.todo.row')?.dataset.id : null);
+  const gripFocus = refocusId ? refocusGrip : !!document.activeElement?.classList?.contains('todo-grip');
   refocusId = null;
+  refocusGrip = false;
   if (confirmState?.kind === 'trash' && !findTodo(confirmState.id)) confirmState = null; // 지워졌거나 끝난 줄
   todosSec.replaceChildren(...todoListKids());
   todaySec.replaceChildren(...todayListKids());
@@ -1483,7 +1487,11 @@ function renderTodos() {
   focusConfirm = false;
   if (yes) yes.focus();
   else if (addFocused) $(addFocused)?.focus();
-  else if (rowFocus) sec.querySelector(`.todo.row[data-id="${CSS.escape(rowFocus)}"]`)?.focus();
+  else if (rowFocus) {
+    const row = sec.querySelector(`.todo.row[data-id="${CSS.escape(rowFocus)}"]`);
+    const g = gripFocus ? row?.querySelector('.todo-grip') : null;
+    if (g) g.focus(); else row?.focus();
+  }
 }
 
 function todoListKids() {
@@ -1564,7 +1572,7 @@ function todoGroup(g, scope = 'todos') {
       h('span.chip', { text: String(g.items.length) }));
   const body = collapsed
     ? h('div.card.todos.drop-empty.collapsed', null, g.items.length ? null : h('div.muted.small', { text: tr('panel.drop_here') }))
-    : h(`div.card.todos${g.items.length ? '' : '.drop-empty'}`, null, g.items.length ? g.items.map(todoRow) : h('div.muted.small', { text: tr('panel.drop_here') }));
+    : h(`div.card.todos${g.items.length ? '' : '.drop-empty'}`, null, g.items.length ? g.items.map((t, i) => todoRow(t, i, g.items.length)) : h('div.muted.small', { text: tr('panel.drop_here') }));
   return h(`div.group.p${g.priority}`, { dataset: [1, 2, 3, BACKLOG].includes(g.priority) ? { priority: String(g.priority) } : null }, head, body);
 }
 
@@ -1661,7 +1669,7 @@ async function loadDetail(id, force = false) {
   if (openId === id) renderTodos();
 }
 
-function todoRow(t) {
+function todoRow(t, i = 0, n = 1) {
   if (todoEditing?.id === t.id) return todoEditRow(t);
   const open = openId === t.id;
   const confirming = isConfirming(confirmState, 'trash', t.id);
@@ -1678,6 +1686,7 @@ function todoRow(t) {
     onkeydown: (e) => onRowKey(t, e),
     onpointerdown: (e) => onRowPointerDown(t, e),
   },
+  gripButton(t, i, n),
   h('input.check', { type: 'checkbox', 'aria-label': tr('panel.done_aria', { title: t.title }), title: tr('panel.done'), disabled: t.pending, onchange: () => completeTodo(t) }),
   // (진행중): 사용자가 ▶ 로 켠 것, 아니면 작업 세션을 보니 하는 중(todo-progress.ts 가 진척을 남김) → 제목 앞
   h('span.t', null, isDoing(t) ? h('span.doing', { text: tr('panel.doing_prefix'), title: t.progress ? tr('panel.progress_title', { text: t.progress }) : tr('panel.doing_manual') }) : null, t.title),
@@ -1687,6 +1696,31 @@ function todoRow(t) {
   confirming ? null : doingButton(t),
   confirming ? confirmBox('trash', () => trashTodo(t)) : trashButton(t));
   return open ? h('div.todo-wrap', null, row, todoDetailView(t)) : row;
+}
+
+// 손잡이(⋮⋮): 줄 왼쪽 여백에 떠 있고 마우스를 올리거나 키보드로 갔을 때만 보인다(프로젝트 카드 손잡이와 같은 모양).
+// 끌면 바로(5px 문턱) 끌기, ↑↓ = 같은 묶음 안 한 칸, Alt+1~4 = 그 우선순위 맨 아래. 기다리는 동안은 누르기만 막는다(포커스는 남게 disabled 대신 aria-disabled)
+function gripButton(t, i, n) {
+  return h('button.ghost.todo-grip.nodrag', {
+    type: 'button', title: tr('panel.todo_grip_title'), 'aria-label': tr('panel.todo_grip_aria', { title: t.title, i: i + 1, n }),
+    'aria-disabled': t.pending ? 'true' : null, dataset: { grip: t.id },
+    onpointerdown: (e) => {
+      e.stopPropagation(); // 줄의 꾹 누르기·클릭 구분은 안 탄다
+      if (t.pending || drag) return;
+      cancelPress();
+      if (rowDrag.grip(t.id, e)) sorter.cancel();
+    },
+    onclick: (e) => e.stopPropagation(),
+    onkeydown: (e) => {
+      const k = gripKey(e);
+      if (!k) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (t.pending || drag) return;
+      const m = keyMove(listTodos(), t.id, k);
+      if (m) { refocusId = t.id; refocusGrip = true; moveTodo(t.id, m.priority, m.beforeId); }
+    },
+  }, h('span.grip-dots', { 'aria-hidden': 'true' }));
 }
 
 // 묶인 직접 만든 프로젝트 이름(프로젝트 탭의 카드)
@@ -1854,32 +1888,46 @@ function saveTodoEdit(t, s) {
   if (notice) todoMsg = { ok: false, text: notice }; // 빈 제목: 원래 제목 그대로(mutate 가 지운 뒤에 단다)
 }
 
-// ---- 꾹 눌러 끌기 ----
-let press = null; // { id, x, y, timer }
+// ---- 끌기: 손잡이(⋮⋮)를 끌거나 줄을 꾹 눌러 ----
+// 포인터 처리(잡기·문턱·취소)는 todo-drag.js(프로젝트 카드 끌기와 같은 방식, 윈도우도 같은 코드), 여기는 화면(유령 줄·놓을 자리 선)과 저장
+let press = null; // { id, x, y, timer, pointerId }
 let drag = null; // { id, ghost, line, target, raf, y }
 let dragGroups = false;
+const rowDrag = createPointerDrag({
+  onStart: (id, x, y) => startDrag(id, x, y),
+  onMove: (x, y) => moveDrag(y, x),
+  onEnd: (commit) => {
+    if (commit) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
+    finishDrag(commit);
+  },
+});
 
 function onRowPointerDown(t, e) {
-  if (e.button !== 0 || t.pending || e.target.closest(ROW_CONTROLS)) return;
+  if (e.button !== 0 || t.pending || drag || e.target.closest(ROW_CONTROLS)) return;
   cancelPress();
-  press = { id: t.id, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, timer: setTimeout(() => startDrag(press?.x, press?.y), LONG_PRESS) };
+  press = { id: t.id, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, pointerId: e.pointerId, timer: setTimeout(longPress, LONG_PRESS) };
 }
 function cancelPress() {
   if (press) clearTimeout(press.timer);
   press = null;
 }
-
-function startDrag(x, y) {
-  const id = press?.id;
+// 꾹 눌렀다: 끌기를 시작하고 그 포인터를 넘긴다
+function longPress() {
+  const p = press;
   cancelPress();
+  if (!p || rowDrag.active) return;
+  if (startDrag(p.id, p.x, p.y)) rowDrag.adopt(p.id, { pointerId: p.pointerId, clientX: p.x, clientY: p.y });
+}
+
+function startDrag(id, x, y) {
   const t = id && findTodo(id);
-  if (!t) return;
+  if (!t || t.pending || drag) return false;
   sorter.cancel();
   window.getSelection()?.removeAllRanges();
   dragGroups = true;
   renderTodos(); // 빈 우선순위 칸까지 그린 뒤 고정
   const row = listSec().querySelector(`.todo.row[data-id="${CSS.escape(id)}"]`);
-  if (!row) { dragGroups = false; return; }
+  if (!row) { dragGroups = false; renderTodos(); return false; }
   const rect = row.getBoundingClientRect();
   const ghost = row.cloneNode(true);
   ghost.classList.add('drag-ghost');
@@ -1890,6 +1938,7 @@ function startDrag(x, y) {
   row.classList.add('drag-src');
   drag = { id, ghost, line, target: null, raf: 0, y, x, offY: y - rect.top };
   moveDrag(y, x);
+  return true;
 }
 
 function dropGroups() {
@@ -1954,17 +2003,14 @@ function finishDrag(commit) {
   else if (commit && target) moveTodo(id, target.priority, target.beforeId);
 }
 
+// 꾹 누르기 전: 움직이면(스크롤·글자 선택) 끌기 아님, 떼면 그냥 클릭. 끌기가 시작된 뒤는 rowDrag 가 받는다
 document.addEventListener('pointermove', (e) => {
-  if (drag) { e.preventDefault(); moveDrag(e.clientY, e.clientX); return; }
-  if (press) {
-    press.x = e.clientX; press.y = e.clientY;
-    if (Math.hypot(e.clientX - press.x0, e.clientY - press.y0) > MOVE_SLOP) cancelPress();
-  }
+  if (!press) return;
+  press.x = e.clientX; press.y = e.clientY;
+  if (Math.hypot(e.clientX - press.x0, e.clientY - press.y0) > MOVE_SLOP) cancelPress();
 });
-document.addEventListener('pointerup', () => {
-  if (drag) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); finishDrag(true); } else cancelPress();
-});
-document.addEventListener('pointercancel', () => { if (drag) finishDrag(false); else cancelPress(); });
+document.addEventListener('pointerup', cancelPress);
+document.addEventListener('pointercancel', cancelPress);
 
 // ---- 채팅: 대화 목록(스레드) + 선택한 대화 ----
 const chatLog = $('chat-log');
@@ -3336,7 +3382,7 @@ cy.caps?.().then(applyCaps).catch(() => {});
 cy.onCaps?.(applyCaps);
 $('close').addEventListener('click', () => cy.close());
 document.addEventListener('keydown', (e) => {
-  if (drag && e.key === 'Escape') { e.preventDefault(); finishDrag(false); return; } // 끌기 취소
+  if (drag && e.key === 'Escape') { e.preventDefault(); rowDrag.cancel(); finishDrag(false); return; } // 끌기 취소
   if (e.key === 'Escape' && !e.isComposing) {
     if (section === 'chat' && rowMode) { rowMode = null; renderThreadList(); return; }
     if (section === 'chat' && listOpen) { setListOpen(false); return; }

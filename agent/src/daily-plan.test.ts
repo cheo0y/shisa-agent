@@ -28,7 +28,7 @@ test("오늘 할 일 = 우선순위 1(오늘 꼭): 추가는 P1, 넣기 = P1 로
     { op: "add", id: old.id },
   ]);
   assert.deepEqual(r.errors, []);
-  assert.deepEqual(r.plan.items.map((x) => [x.title, x.priority, x.done]), [["이미 있던 일", 1, false], ["원래 오늘 꼭", 1, false], ["회의 준비", 1, false], ["메일 답장", 1, false]]);
+  assert.deepEqual(r.plan.items.map((x) => [x.title, x.priority, x.done]), [["원래 오늘 꼭", 1, false], ["회의 준비", 1, false], ["메일 답장", 1, false], ["이미 있던 일", 1, false]], "있던 일을 넣으면 오늘 할 일 맨 아래");
   assert.equal(store.getTodo(old.id)?.priority, 1, "넣기 = 할 일 자체가 P1");
   assert.ok(store.getTodo(old.id)?.userEdited?.includes("priority"), "사용자가 고른 것이라 브리핑이 덮지 않는다");
   const byTitle = (t: string) => r.plan.items.find((x) => x.title === t)!;
@@ -36,7 +36,7 @@ test("오늘 할 일 = 우선순위 1(오늘 꼭): 추가는 P1, 넣기 = P1 로
   const r2 = p.applyOps([{ op: "toggle", id: mail.id }, { op: "remove", id: p1.id }]);
   doneOnWed(store, "메일 답장");
   r2.plan = p.state();
-  assert.deepEqual(r2.plan.items.map((x) => [x.title, x.done]), [["이미 있던 일", false], ["회의 준비", false], ["메일 답장", true]]);
+  assert.deepEqual(r2.plan.items.map((x) => [x.title, x.done]), [["회의 준비", false], ["메일 답장", true], ["이미 있던 일", false]]);
   assert.equal(store.getTodo(p1.id)?.priority, 2, "빼기 = 이번 주로(할 일은 남는다)");
   assert.equal(store.getTodo(p1.id)?.status, "open");
   // 할 일 API 의 today 필드도 같은 뜻: true = P1, false = P1 이면 P2

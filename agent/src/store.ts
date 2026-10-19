@@ -283,6 +283,7 @@ export class Store {
     const link = mine.has("link") ? cur.link : (t.link ?? cur.link);
     if (priority === cur.priority && link === cur.link) return "skipped";
     this.db.prepare("UPDATE todos SET priority = ?, link = ?, updated = ? WHERE id = ?").run(priority, link ?? null, now(), t.id);
+    if (priority !== cur.priority) this.toGroupEnd(t.id);
     this.log(t.id, cur.title, "edited", by, priority !== cur.priority ? `P${cur.priority} → P${priority}` : "링크");
     return "updated";
   }
@@ -391,7 +392,10 @@ export class Store {
     const cur = this.getTodo(id);
     const what = cur?.status !== "open" ? [] : [p.priority !== undefined && p.priority !== cur.priority ? `P${cur.priority} → P${p.priority}` : "", p.note !== undefined && (p.note ?? undefined) !== cur.note ? "메모" : ""].filter(Boolean);
     if (cur && what.length) this.log(id, cur.title, "edited", "rule", what.join(", "));
-    if (p.priority !== undefined) this.db.prepare("UPDATE todos SET priority = ?, updated = ? WHERE id = ? AND status = 'open'").run(p.priority, now(), id);
+    if (p.priority !== undefined && p.priority !== cur?.priority) {
+      this.db.prepare("UPDATE todos SET priority = ?, updated = ? WHERE id = ? AND status = 'open'").run(p.priority, now(), id);
+      this.toGroupEnd(id);
+    }
     if (p.note !== undefined) this.db.prepare("UPDATE todos SET note = ?, updated = ? WHERE id = ? AND status = 'open'").run(p.note, now(), id);
   }
 
@@ -406,7 +410,8 @@ export class Store {
   }
 
   // 드래그 순서 바꾸기: priority 그룹으로 옮기고 beforeId 앞(없으면 끝)에. 그 그룹 순서를 0..n으로 다시 매긴다.
-  // 우선순위가 바뀌면 사용자 편집으로 기억. 없는 id면 undefined, beforeId가 그 그룹의 열린 할 일이 아니면 "bad_before"
+  // 옮긴 할 일의 우선순위는 같은 묶음 안에서 옮겨도 사용자 편집으로 기억한다(사용자가 그 자리에 둔 것이라 브리핑·규칙이 다른 묶음으로 빼서
+  // 정한 순서를 흩뜨리지 않게). 없는 id면 undefined, beforeId가 그 그룹의 열린 할 일이 아니면 "bad_before"
   reorderTodo(id: string, priority: number, beforeId?: string): Todo | "bad_before" | undefined {
     const cur = this.getTodo(id);
     if (!cur) return undefined;
@@ -419,13 +424,23 @@ export class Store {
     const order = [...group.slice(0, at), cur, ...group.slice(at)];
     const st = this.db.prepare("UPDATE todos SET sort = ? WHERE id = ?");
     order.forEach((t, i) => st.run(i, t.id));
-    if (cur.priority !== priority) {
-      const mine = new Set(cur.userEdited);
+    const mine = new Set(cur.userEdited);
+    if (cur.priority !== priority || !mine.has("priority")) {
       mine.add("priority");
       this.db.prepare("UPDATE todos SET priority = ?, user_edited = ?, updated = ? WHERE id = ?").run(priority, JSON.stringify([...mine]), now(), id);
-      this.log(id, cur.title, "edited", "user", `P${cur.priority} → P${priority}`);
     }
+    if (cur.priority !== priority) this.log(id, cur.title, "edited", "user", `P${cur.priority} → P${priority}`);
     return this.getTodo(id);
+  }
+
+  // 우선순위가 바뀐 열린 할 일을 그 묶음 맨 아래로: 끌어 둔 자리(sort)는 옛 묶음 것이라 새 묶음 순서를 보이는 그대로 0..n 으로 매기고 맨 끝에 둔다.
+  // 브리핑·규칙·오늘로·되살리기가 우선순위를 바꿔도 사용자가 정한 다른 줄 순서는 흩어지지 않는다
+  private toGroupEnd(id: string) {
+    const cur = this.getTodo(id);
+    if (!cur || cur.status !== "open") return;
+    const order = [...this.openTodos().filter((t) => t.priority === cur.priority && t.id !== id), cur];
+    const st = this.db.prepare("UPDATE todos SET sort = ? WHERE id = ?");
+    order.forEach((t, i) => st.run(i, t.id));
   }
 
   // 사용자 수정: 바꾼 필드를 user_edited에 기억한다. 없는 id면 undefined
@@ -463,6 +478,7 @@ export class Store {
     sets.push("user_edited = ?", "updated = ?");
     vals.push(JSON.stringify([...mine]), now());
     this.db.prepare(`UPDATE todos SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);
+    if (patch.priority !== undefined && patch.priority !== cur.priority) this.toGroupEnd(id); // 다른 묶음으로(오늘로 등) → 그 묶음 맨 아래
     const title = typeof patch.title === "string" ? patch.title : cur.title;
     const fields = (Object.keys(col) as TodoField[]).filter((k) => k !== "status" && k in patch && patch[k] !== undefined);
     if (patch.status !== undefined && patch.status !== cur.status) this.log(id, title, patch.status === "done" ? "done" : "reopened", "user");
@@ -512,9 +528,11 @@ export class Store {
     const gone = this.trashedTodo(id);
     if (!gone) return undefined;
     this.log(id, gone.title, "restored", by);
+    const moved = (this.db.prepare("SELECT coalesce(prev_priority, priority) <> priority AS m FROM todos WHERE id = ?").get(id) as any)?.m === 1;
     this.db.prepare(`UPDATE todos SET status = coalesce(prev_status, 'open'), priority = coalesce(prev_priority, priority),
       trashed_at = NULL, prev_status = NULL, prev_priority = NULL, updated = ? WHERE id = ? AND trashed_at IS NOT NULL`).run(now(), id);
     this.db.prepare("DELETE FROM todo_tombstones WHERE id = ?").run(id);
+    if (moved) this.toGroupEnd(id); // 다른 우선순위로 돌아갔으면 끌어 둔 자리는 옛 묶음 것 → 그 묶음 맨 아래
     return this.getTodo(id);
   }
   // 영구 삭제(휴지통에 있는 것만). 묘비는 남는다

@@ -696,8 +696,20 @@ button.setup-copy { padding: 2px 8px; font-size: 11.5px; }
 /* 끌기 */
 body.dragging-todo, body.dragging-todo * { cursor: grabbing !important; user-select: none !important; }
 .todo.row.drag-src { opacity: 0.35; }
-.drag-ghost { position: fixed; z-index: 60; pointer-events: none; background: var(--surface); box-shadow: var(--pop-shadow); opacity: 0.8; transform: translate(14px, 6px); }
+.drag-ghost, .todo.row.drag-ghost { position: fixed; z-index: 60; pointer-events: none; background: var(--surface); box-shadow: var(--pop-shadow); opacity: 0.8; transform: translate(14px, 6px); }
 .drop-line { position: fixed; z-index: 61; height: 2px; border-radius: 2px; background: var(--accent); pointer-events: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+/* 손잡이(⋮⋮): 줄 왼쪽 여백에 떠 있고 마우스를 올리거나 키보드로 갔을 때만(프로젝트 카드 할 일 손잡이와 같은 모양).
+   윈도우 무테 창에서 drag 영역이 포인터를 먹지 않게 no-drag, 끄는 동안 브라우저 스크롤·터치 동작은 끈다(touch-action: none) */
+.todo.row { position: relative; -webkit-app-region: no-drag; }
+button.todo-grip {
+  position: absolute; left: -3px; top: 50%; width: 13px; height: 24px; margin-top: -12px; padding: 0;
+  color: var(--faint); background: none; opacity: 0; cursor: grab; touch-action: none; user-select: none; -webkit-app-region: no-drag;
+}
+.todo.row:hover button.todo-grip, .todo.row:focus-visible button.todo-grip, button.todo-grip:focus-visible { opacity: 1; }
+button.todo-grip:hover:not([aria-disabled="true"]), button.todo-grip:focus-visible { color: var(--fg); background: none; }
+button.todo-grip[aria-disabled="true"] { cursor: default; }
+button.todo-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.drag-ghost button.todo-grip { opacity: 1; color: var(--fg); }
 button.danger { background: var(--err); color: #fff; }
 button.ghost.danger-text { color: var(--err); }
 .group.done h2::before { background: var(--ok); }

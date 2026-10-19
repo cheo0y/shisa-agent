@@ -267,6 +267,8 @@ type Bubble = {
 - `projectId?`: 묶인 직접 만든 프로젝트
 - `projectOrder?`: 그 프로젝트 안 순서(작을수록 위). 묶였을 때만
 
+할 일 순서는 우선순위 묶음 안에서 `sort`(작을수록 위, 없으면 만든 순서로 맨 아래)를 따른다. 패널에서 끌거나 키보드로 옮기면 그 묶음을 0부터 다시 매긴다. 브리핑·규칙·「오늘」·되살리기로 우선순위가 바뀐 할 일은 새 묶음 맨 아래로 가고, 다른 줄의 순서는 그대로다. 새로 생긴 할 일도 맨 아래다.
+
 화면에 「(진행중)」은 `doing`이 있으면 그 값으로, 없으면 `progress`가 있을 때 붙는다.
 
 | | |
@@ -276,7 +278,7 @@ type Bubble = {
 | `POST /todos/:id/done` | 완료 |
 | `POST /todos/:id/delete` → `/restore` → `/purge`, `POST /todos/trash/empty` | 휴지통(30일 뒤 자동 비움) |
 | `POST /todos/:id/revert` | 자동 완료 되돌리기. 409 = 자동 완료가 아님 |
-| `POST /todos/reorder { id, priority, beforeId? }` | 그 우선순위 묶음의 `beforeId` 앞으로 옮김 |
+| `POST /todos/reorder { id, priority, beforeId? }` | 그 우선순위 묶음의 `beforeId` 앞(없으면 맨 끝)으로 옮김. 순서는 `todos.sort`(묶음 안 0부터)에 남고, 옮긴 할 일의 우선순위는 사용자 편집으로 친다 |
 | `GET /todos/:id/detail` | `{ description, source: { kind, ref, excerpt?, author?, at?, channel?, permalink?, repo?, sha?, title? } \| null, link }` |
 | `GET /todos/ledger?day=YYYY-MM-DD` | 하루치 할 일 일지(추가·완료·휴지통) |
 | `GET /todos/:id/thread/last` | 그 할 일 팝오버의 마지막 문답 |

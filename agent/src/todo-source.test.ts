@@ -76,7 +76,8 @@ test("store.reorderTodo: 그룹 안 순서·그룹 옮기기(우선순위 사용
   assert.deepEqual(ids(), ["1a", "1b", "2c", "2d", "2e"]);
   s.reorderTodo("e", 2, "c"); // 그룹 안 맨 앞으로
   assert.deepEqual(ids(), ["1a", "1b", "2e", "2c", "2d"]);
-  assert.deepEqual(s.getTodo("e")!.userEdited, [], "같은 그룹이면 우선순위 편집 아님");
+  assert.deepEqual(s.getTodo("e")!.userEdited, ["priority"], "같은 그룹이어도 사용자가 그 자리에 둔 것이라 브리핑이 다른 묶음으로 빼지 못하게");
+  assert.deepEqual(s.getTodo("c")!.userEdited, [], "자리만 밀린 줄은 아님");
   s.reorderTodo("c", 1, "b"); // P1로, b 앞
   assert.deepEqual(ids(), ["1a", "1c", "1b", "2e", "2d"]);
   assert.ok(s.getTodo("c")!.userEdited!.includes("priority"));

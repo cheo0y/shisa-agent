@@ -109,3 +109,61 @@ test("채팅 기록: 예전 DB에 todo_id·todo_title 열을 덧붙이고, 할 �
   ]);
   new Store(path); // 두 번 열어도 안전
 });
+
+test("할 일 끌어 순서: sort 로 저장돼 다시 열어도 그대로, 브리핑·규칙·오늘로가 정한 순서를 흩뜨리지 않는다", () => {
+  const path = join(mkdtempSync(join(tmpdir(), "cy-sort-")), "cy.db");
+  // 예전 DB: sort 열이 없다 → 열을 붙이고, 끌기 전엔 만든 순서
+  const old = new DatabaseSync(path);
+  old.exec("CREATE TABLE todos (id TEXT PRIMARY KEY, title TEXT NOT NULL, source TEXT NOT NULL, link TEXT, priority INTEGER NOT NULL DEFAULT 2, status TEXT NOT NULL DEFAULT 'open', created TEXT NOT NULL)");
+  const ins = old.prepare("INSERT INTO todos (id, title, source, priority, status, created) VALUES (?, ?, 'mail', ?, 'open', ?)");
+  [["a", 2, "1"], ["b", 2, "2"], ["c", 2, "3"], ["d", 2, "4"], ["x", 1, "5"], ["y", 1, "6"]].forEach(([id, p, c]) => ins.run(id, `일 ${id}`, p, c));
+  old.close();
+  const p2 = (s: Store) => s.openTodos().filter((t) => t.priority === 2).map((t) => t.id);
+  const p1 = (s: Store) => s.openTodos().filter((t) => t.priority === 1).map((t) => t.id);
+  let s = new Store(path);
+  assert.ok((s.db.prepare("PRAGMA table_info(todos)").all() as any[]).some((c) => c.name === "sort"));
+  assert.deepEqual(p2(s), ["a", "b", "c", "d"]);
+  // 같은 묶음 안: d 를 맨 위로, a 를 c 앞으로
+  assert.equal((s.reorderTodo("d", 2, "a") as any).priority, 2);
+  s.reorderTodo("a", 2, "c");
+  assert.deepEqual(p2(s), ["d", "b", "a", "c"]);
+  assert.ok(s.getTodo("d")!.userEdited!.includes("priority"), "끌어 둔 할 일은 우선순위를 사용자가 정한 것으로");
+  assert.ok(!s.getTodo("b")!.userEdited!.includes("priority"), "자리만 밀린 줄은 아니다");
+  s.db.close();
+  // 다시 열어도(앱 재시작) 그대로
+  s = new Store(path);
+  assert.deepEqual(p2(s), ["d", "b", "a", "c"]);
+  // 브리핑이 같은 할 일을 다시 올려도(같은 우선순위) 그대로, 끌어 둔 d 를 P1 로 올리려 해도 안 움직인다
+  s.upsertTodo({ id: "c", title: "일 c", source: "mail", priority: 2 });
+  assert.equal(s.upsertTodo({ id: "d", title: "일 d", source: "mail", priority: 1 }), "skipped");
+  assert.deepEqual(p2(s), ["d", "b", "a", "c"]);
+  // 새로 올라온 일은 그 묶음 맨 아래
+  s.upsertTodo({ id: "e", title: "일 e", source: "mail", priority: 2 });
+  assert.deepEqual(p2(s), ["d", "b", "a", "c", "e"]);
+  // 끌지 않은 b 를 브리핑이 P1 로: 옛 자리(sort) 를 지워 P1 맨 아래로, 남은 P2 순서는 그대로
+  s.reorderTodo("y", 1, "x"); // P1 도 끌어 둠: y, x
+  assert.equal(s.upsertTodo({ id: "b", title: "일 b", source: "mail", priority: 1 }), "updated");
+  assert.deepEqual(p1(s), ["y", "x", "b"]);
+  assert.deepEqual(p2(s), ["d", "a", "c", "e"]);
+  // 규칙이 우선순위를 바꿔도 새 묶음 맨 아래
+  s.ruleUpdateTodo("e", { priority: 1 });
+  assert.deepEqual(p1(s), ["y", "x", "b", "e"]);
+  // 오늘로(P2 → P1)·빼기(P1 → P2)도 그 묶음 맨 아래
+  s.editTodo("a", { today: true });
+  assert.deepEqual(p1(s), ["y", "x", "b", "e", "a"]);
+  s.editTodo("y", { today: false });
+  assert.deepEqual(p2(s), ["d", "c", "y"]);
+  // 다른 묶음으로 끌어 놓기: 그 자리에, 우선순위는 사용자 편집
+  s.reorderTodo("c", 1, "x");
+  assert.deepEqual(p1(s), ["c", "x", "b", "e", "a"]);
+  assert.deepEqual(p2(s), ["d", "y"]);
+  assert.ok(s.getTodo("c")!.userEdited!.includes("priority"));
+  // 오늘 할 일 목록도 같은 순서
+  assert.deepEqual(s.todayTodos("2099-01-01").filter((t) => t.status === "open").map((t) => t.id), p1(s));
+  // 휴지통에 넣었다 되살리면(같은 우선순위) 자리 그대로
+  const before = p1(s);
+  s.trashTodo("b");
+  s.restoreTodo("b");
+  assert.deepEqual(p1(s), before);
+  s.db.close();
+});

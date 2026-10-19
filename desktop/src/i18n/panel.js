@@ -168,6 +168,8 @@ export default {
     why_check: '{who} 연결 확인',
     // 할 일 조작 결과
     fail_reorder: '순서 바꾸기 실패',
+    todo_grip_title: '끌어서 순서 바꾸기 · 다른 묶음에 놓으면 우선순위도 바뀌어요 · ↑↓ 키로도 옮겨요',
+    todo_grip_aria: '순서 바꾸기: {title} ({i}/{n}번째). ↑↓ 한 칸, Alt+1~4 우선순위',
     fail_add: '추가 실패',
     fail_today: '오늘 할 일 바꾸기 실패',
     carry_moved: '어제 남은 {n}개를 이번 주로 내렸어요',
@@ -689,6 +691,8 @@ export default {
     why_check: '{who}の接続を確認してください',
     // 할 일 조작 결과
     fail_reorder: '並べ替えに失敗しました',
+    todo_grip_title: 'ドラッグで並べ替え · 別のグループに置くと優先度も変わります · ↑↓ キーでも動かせます',
+    todo_grip_aria: '並べ替え: {title} ({i}/{n}番目)。↑↓ で1つ移動、Alt+1~4 で優先度',
     fail_add: '追加に失敗しました',
     fail_today: '今日やることを変更できませんでした',
     carry_moved: '昨日の残り{n}件を今週に下げました',
