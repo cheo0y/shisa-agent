@@ -47,7 +47,15 @@ export function resolveRepo(cfg: Pick<Config, "repoRoots">, repo: string): strin
     return sh("git", ["rev-parse", "--show-toplevel"], real);
   }
   const real = realpathSync(abs);
-  const inside = cfg.repoRoots.some((r) => { const root = realpathSync(resolve(r)); return real === root || real.startsWith(root + sep); });
+  // 없는 폴더가 목록에 섞여 있어도 나머지로 판단한다. macOS 한글 경로의 NFC/NFD 차이는 정규화해서 비교한다
+  const nfc = (s: string) => s.normalize("NFC");
+  const inside = cfg.repoRoots.some((r) => {
+    try {
+      const root = nfc(realpathSync(resolve(r)));
+      const p = nfc(real);
+      return p === root || p.startsWith(root + sep);
+    } catch { return false; }
+  });
   if (!inside) throw new Error(t("say.fix_outside_roots", { repo }));
   return sh("git", ["rev-parse", "--show-toplevel"], real);
 }
