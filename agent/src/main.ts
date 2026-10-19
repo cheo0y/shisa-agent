@@ -35,6 +35,7 @@ import { withCalendarSync } from "./calendar-state.ts";
 import { MailSync, withMailSync } from "./mail-sync.ts";
 import { connectMail, removeMailAccount } from "./mail-connect.ts";
 import { addCalendar, calendarCardRows, calendarList as calendarListOf } from "./calendar-connect.ts";
+import { connectNaverCalendar, removeCalDavAccount } from "./calendar-naver.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { CalendarView } from "./calendar-view.ts";
 import { setCalendarRead } from "./calendar-ai.ts";
@@ -433,6 +434,14 @@ await bus.listen(cfg.port, {
     apply: () => { reloadConnectors(); },
   }),
   calendarList: () => calendarListOf(join(HOME_DIR, "config.json"), calendar.state()),
+  // 네이버 캘린더(CalDAV): 로그인해 캘린더 목록을 찾고 되면 저장 → 다시 읽어 전체 동기화 · 계정 하나 빼기(그 계정 캘린더·비밀번호까지)
+  naverCalendarConnect: (body) => connectNaverCalendar(body, {
+    path: join(HOME_DIR, "config.json"),
+    window: () => calendar.window(),
+    timeZone: () => { const c = cfg.connectors.calendar; return c.mode === "api" && c.cap === "calendar" ? c.timeZone : "Asia/Seoul"; },
+    apply: () => { reloadConnectors(); }, // 캘린더만 바뀜: 다시 켜지 않고 원천을 바꿔 바로 가져온다(남은 게 없으면 멈춘다)
+  }),
+  calDavRemove: (id) => removeCalDavAccount(id, { path: join(HOME_DIR, "config.json"), apply: () => { reloadConnectors(); } }),
   // 메일(앱 비밀번호) 계정 추가·바꾸기: 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 그 계정의 동기화 결과로)
   mailConnect: (body) => connectMail(body, {
     path: join(HOME_DIR, "config.json"), current: () => cfg.connectors.mail,

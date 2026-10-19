@@ -6,7 +6,7 @@
 // 색: 설정 파일 connectors.calendar.calendars[].color(팔레트 이름). 없으면 id 로 정해진 팔레트 색, 다른 캘린더와 겹치지 않게 다음 색.
 import { readConfigObject } from "./mail-connect.ts";
 import { rawCalendars, type Conn } from "./connectors.ts";
-import { icsSource, type CalEvent, type CalendarPart, type Meeting } from "./calendar-sync.ts";
+import { icsSource, type CalEvent, type CalendarPart, type DavText, type Meeting } from "./calendar-sync.ts";
 import { fetchIcsText, tzOffsetMs, type FetchText } from "./ics.ts";
 import { draftFromEvent, type NewProject } from "./manual-projects.ts";
 import type { CalendarState } from "./calendar-state.ts";
@@ -106,6 +106,7 @@ export type CalendarViewDeps = {
   state: () => CalendarState;             // 캘린더마다 마지막 결과(이름·못 가져온 이유)
   meetings: (from: string, to: string) => Meeting[]; // MCP: 동기화해 둔 회의
   fetchText?: FetchText;
+  davText?: DavText;                      // CalDAV(네이버) 캘린더 받기(시험용 가짜)
   now?: () => number;
 };
 
@@ -146,7 +147,7 @@ export class CalendarView {
       const tz = conn.timeZone;
       const saved = this.savedColors();
       const colors = calendarColors(conn.calendars.map((c) => ({ id: c.id, color: saved.get(c.id) })));
-      const src = icsSource(conn.calendars, { timeZone: tz, email: conn.email }, this.fetcher(!!range.fresh, new Set(conn.calendars.map((c) => c.url))));
+      const src = icsSource(conn.calendars, { timeZone: tz, email: conn.email, caldav: conn.caldav }, this.fetcher(!!range.fresh, new Set(conn.calendars.map((c) => c.url))), this.deps.davText);
       const r = await src({} as never, base);
       const parts = new Map<string, CalendarPart>((r.parts ?? []).map((p) => [p.id, p]));
       const calendars: ViewCalendar[] = conn.calendars.map((c, i) => {

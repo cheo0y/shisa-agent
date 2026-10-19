@@ -4,7 +4,9 @@
 //                       slack: 내 Slack 앱의 사용자 토큰(xoxp-…, 읽기 스코프만)으로 Web API
 //                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더").
 //                       calendars = [{ id, name, url, enabled }] 여러 개(상한 없음). name = 별칭(비면 ICS 의 X-WR-CALNAME, 그것도 없으면 「캘린더 N」),
-//                       enabled = false 면 저장은 두고 가져오지 않는다. 예전 모양(icsUrl 하나 · icsUrls 배열)도 calendars 로 읽는다
+//                       enabled = false 면 저장은 두고 가져오지 않는다. 예전 모양(icsUrl 하나 · icsUrls 배열)도 calendars 로 읽는다.
+//                       네이버 캘린더(CalDAV, 읽기 전용): caldav = [{ id, preset: "naver", user(네이버 아이디), password(애플리케이션 비밀번호) }],
+//                       그 계정의 캘린더는 calendars 에 { …, url(캘린더 모음 주소), account: 계정 id } 로 같이 둔다(켜기·끄기·별칭·색이 ICS 와 같다)
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
 //   mode = "imap"    — 메일만. 메일 주소 + 앱 비밀번호로 받은편지함을 읽기 전용으로 연다(mail-imap.ts: EXAMINE·BODY.PEEK, 쓰기 명령 없음).
@@ -85,8 +87,11 @@ export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
 // 캘린더 하나(ICS 주소 + 별칭). url 은 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다). id = sha-256(주소) 앞 16글자(데스크톱과 같은 값)
-export type CalendarEntry = { id: string; name: string; url: string; enabled: boolean };
-export type CalendarApiConn = { cap: "calendar"; mode: "api"; calendars: CalendarEntry[]; timeZone: string; email?: string };
+// account: CalDAV 캘린더(네이버)면 그 계정 id(caldav[].id). 없으면 ICS 주소
+export type CalendarEntry = { id: string; name: string; url: string; enabled: boolean; account?: string };
+// CalDAV 계정(네이버). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다)
+export type CalDavAccount = { id: string; preset: "naver"; user: string; password?: string };
+export type CalendarApiConn = { cap: "calendar"; mode: "api"; calendars: CalendarEntry[]; timeZone: string; email?: string; caldav?: CalDavAccount[] };
 // 메일 IMAP: 계정 여러 개(accounts). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다).
 // sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24, 모든 계정 같이). skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬)
 // id: 계정마다 고정 이름(설정에 없으면 주소로 만든다 — 예전 한 계정 모양도 같은 id). 같은 주소는 한 번만
@@ -132,11 +137,13 @@ export function resolveConnectors(env: NodeJS.ProcessEnv = process.env, file: Fi
     if (mode === "imap") return mailImapConn(c, env);
     // api
     if (cap === "slack") return { cap, mode: "api", userToken: secret(env.CY_AGENT_SLACK_USER_TOKEN) || secret(c?.userToken) };
+    const caldav = env.CY_AGENT_CALENDAR_ICS_URL ? [] : calDavAccounts(c);
     return {
       cap: "calendar", mode: "api",
       calendars: env.CY_AGENT_CALENDAR_ICS_URL ? calendarEntries(strs(env.CY_AGENT_CALENDAR_ICS_URL.split(/\s+/)).map((url) => ({ url }))) : calendarEntries(rawCalendars(c)),
       timeZone: str(c?.timeZone) ?? "Asia/Seoul",
       ...(str(c?.email) ? { email: str(c?.email)!.toLowerCase() } : {}),
+      ...(caldav.length ? { caldav } : {}),
     };
   };
   return {
@@ -166,7 +173,25 @@ export function calendarEntries(list: Record<string, any>[]): CalendarEntry[] {
     const url = secret(x?.url);
     if (!url || out.some((e) => e.url === url)) continue;
     const name = typeof x?.name === "string" ? x.name.replace(/\s+/g, " ").trim().slice(0, 80) : "";
-    out.push({ id: okCalId(x?.id) ? x.id : calendarId(url), name, url, enabled: x?.enabled !== false });
+    out.push({ id: okCalId(x?.id) ? x.id : calendarId(url), name, url, enabled: x?.enabled !== false, ...(okAccountId(x?.account) ? { account: x.account } : {}) });
+  }
+  return out;
+}
+
+// CalDAV 계정 id: 서비스 + 아이디(대소문자 무시, 늘 같은 값)
+export const calDavAccountId = (preset: string, user: string) => `${preset === "naver" ? "n" : "c"}-${createHash("sha256").update(`${preset}:${user.trim().toLowerCase()}`).digest("hex").slice(0, 10)}`;
+
+// connectors.calendar.caldav 원본 → 계정(네이버만). 틀린 것·같은 id 는 뺀다. 비밀번호가 비거나 자리표시자면 password 없음
+export function calDavAccounts(c: Record<string, any> | undefined): CalDavAccount[] {
+  const out: CalDavAccount[] = [];
+  for (const a of Array.isArray(c?.caldav) ? c!.caldav : []) {
+    if (!a || typeof a !== "object" || a.preset !== "naver") continue;
+    const user = str(a.user);
+    if (!user) continue;
+    const id = okAccountId(a.id) ? a.id : calDavAccountId("naver", user);
+    if (out.some((x) => x.id === id)) continue;
+    const password = typeof a.password === "string" && a.password.trim() && !/\.\.\.|…|YOUR_/.test(a.password) ? a.password.trim() : undefined;
+    out.push({ id, preset: "naver", user, ...(password ? { password } : {}) });
   }
   return out;
 }
@@ -308,7 +333,9 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
         {
           const off = x.calendars.filter((e) => !e.enabled).length;
           const calendars = x.calendars.map(({ id, name, enabled }) => ({ id, name, enabled }));
-          return { ...base, ready: true, calendars, detail: `${t("status.ics_n", { n: x.calendars.length })}${off ? t("status.ics_off", { n: off }) : ""}` };
+          const naver = x.calendars.filter((e) => e.account).length;
+          const head = naver ? t("status.cal_n_naver", { n: x.calendars.length, naver }) : t("status.ics_n", { n: x.calendars.length });
+          return { ...base, ready: true, calendars, detail: `${head}${off ? t("status.ics_off", { n: off }) : ""}` };
         }
     }
   });

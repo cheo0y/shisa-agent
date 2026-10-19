@@ -13,7 +13,8 @@ import { join } from "node:path";
 import { HOME_DIR, type Config } from "./config.ts";
 import type { Store } from "./store.ts";
 import { addDays, kstDate } from "./calendar.ts";
-import { CONNECTORS, calendarId, isWriteName, mcpTool, type Conn } from "./connectors.ts";
+import { CONNECTORS, calendarId, isWriteName, mcpTool, type CalDavAccount, type Conn } from "./connectors.ts";
+import { CalDavError, caldavFailReason, fetchCalendarText } from "./caldav.ts";
 import { addLogSecret } from "./log.ts";
 import { calendarName, eventsInWindow, fetchIcsText, type FetchText } from "./ics.ts";
 import { phrase } from "./phrases.ts";
@@ -227,13 +228,25 @@ export function icsFailReason(e: any, url: string): { code: string; reason: stri
 
 // 캘린더 하나의 가져오기 결과(ICS). off = 꺼 둔 캘린더(가져오지 않음). name = 화면·맥락에 쓰는 이름(별칭 → X-WR-CALNAME → 「캘린더 N」)
 export type CalendarPart = { id: string; name: string; ok: boolean; off?: boolean; events: number; reason?: string; code?: string };
-export type IcsCalendar = string | { id?: string; name?: string; url: string; enabled?: boolean };
+export type IcsCalendar = string | { id?: string; name?: string; url: string; enabled?: boolean; account?: string };
+// CalDAV 캘린더(account 가 붙은 것) 하나의 기간 일정 → ICS 글. 시험은 가짜를 넘긴다
+export type DavText = (url: string, account: CalDavAccount, w: { from: string; to: string }) => Promise<string>;
+// 반복 일정이 창 앞에서 시작해도 서버가 빠뜨리지 않게 앞뒤로 하루씩 넓혀 묻는다(창 밖 회차는 eventsInWindow 가 거른다)
+export const davText: DavText = (url, a, w) => fetchCalendarText(url, { login: a.user, password: a.password ?? "" }, Date.parse(w.from) - 864e5, Date.parse(w.to) + 864e5);
 
 // api: 비공개 ICS 주소들(여러 캘린더면 여러 개, 별칭·켜짐과 함께). 하나라도 실패하면 ok=false, 이유는 처음 실패한 것(「별칭: 이유」).
 // parts: 캘린더마다 결과(성공한 캘린더의 일정은 바로 바꾸고, 실패한 캘린더는 예전 것을 둔다. CalendarSync.replaceParts). 꺼 둔 캘린더는 읽지 않는다
-export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?: string }, fetchText: FetchText = fetchIcsText): CalendarSource {
-  const cals = list.map((x, i) => (typeof x === "string" ? { id: calendarId(x), name: "", url: x, enabled: true, n: i + 1 } : { id: x.id ?? calendarId(x.url), name: x.name?.trim() ?? "", url: x.url, enabled: x.enabled !== false, n: i + 1 }));
+// CalDAV 캘린더(account 있음)는 opts.caldav 의 그 계정으로 기간을 붙여 받는다(dav). 계정이 없거나 비밀번호가 없으면 그 캘린더만 실패
+export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?: string; caldav?: CalDavAccount[] }, fetchText: FetchText = fetchIcsText, dav: DavText = davText): CalendarSource {
+  const cals = list.map((x, i) => (typeof x === "string" ? { id: calendarId(x), name: "", url: x, enabled: true, n: i + 1, account: undefined } : { id: x.id ?? calendarId(x.url), name: x.name?.trim() ?? "", url: x.url, enabled: x.enabled !== false, n: i + 1, account: x.account }));
   for (const c of cals) addLogSecret(c.url); // 주소가 어떤 모양이든 데몬 로그에 그대로 나오지 않게
+  for (const a of opts.caldav ?? []) addLogSecret(a.password);
+  const read = (c: (typeof cals)[number], w: { from: string; to: string }) => {
+    if (!c.account) return fetchText(c.url);
+    const a = opts.caldav?.find((x) => x.id === c.account);
+    if (!a?.password) return Promise.reject(new CalDavError("noaccount", "no account"));
+    return dav(c.url, a, w);
+  };
   const on = cals.filter((c) => c.enabled);
   return async (_cfg, w) => {
     const events: CalEvent[] = [];
@@ -244,7 +257,7 @@ export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?:
       const fallback = c.name || (cals.length > 1 ? t("status.cal_n", { n: c.n }) : "");
       if (!c.enabled) { parts.push({ id: c.id, name: fallback || t("status.cal_default"), ok: true, off: true, events: 0 }); continue; }
       try {
-        const text = await fetchText(c.url);
+        const text = await read(c, w);
         const name = c.name || calendarName(text) || fallback;
         const got = eventsInWindow(text, Date.parse(w.from), Date.parse(w.to), opts).map((e) => ({ ...e, calId: c.id, ...(name ? { calendar: name } : {}), ...(name && (c.name || cals.length > 1) ? { tag: name } : {}) }));
         events.push(...got);
@@ -252,11 +265,11 @@ export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?:
       }
       catch (e: any) {
         errors++;
-        const r = icsFailReason(e, c.url);
+        const r = c.account ? caldavFailReason(e) : icsFailReason(e, c.url);
         const label = c.name || (cals.length > 1 ? t("status.cal_nth", { n: c.n }) : "");
         fail ??= label ? { code: r.code, reason: `${label}: ${r.reason}` } : r;
         parts.push({ id: c.id, name: fallback || t("status.cal_default"), ok: false, events: 0, reason: r.reason, code: r.code });
-        console.warn(`[calendar] ICS 실패(${c.n}/${cals.length}, ${r.code}):`, String(e?.message ?? e).slice(0, 80), e?.cause?.code ? `(${e.cause.code})` : "");
+        console.warn(`[calendar] ${c.account ? "CalDAV" : "ICS"} 실패(${c.n}/${cals.length}, ${r.code}):`, String(e?.message ?? e).slice(0, 80), e?.cause?.code ? `(${e.cause.code})` : "");
       }
     }
     return { ok: !errors && cals.length > 0, events, calls: on.length, errors, costUsd: 0, parts, ...(fail ? fail : {}) };
@@ -377,7 +390,7 @@ export const connKey = (conn: Conn | undefined): string => createHash("sha256").
 
 // 커넥터 설정 → 원천. off·준비 안 됨은 null
 export function sourceFor(conn: Conn): CalendarSource | null {
-  if (conn.mode === "api" && conn.cap === "calendar") return conn.calendars.length ? icsSource(conn.calendars, { timeZone: conn.timeZone, email: conn.email }) : null;
+  if (conn.mode === "api" && conn.cap === "calendar") return conn.calendars.length ? icsSource(conn.calendars, { timeZone: conn.timeZone, email: conn.email, caldav: conn.caldav }) : null;
   if (conn.mode === "mcp") return mcpCalendarSource(conn);
   return null;
 }

@@ -133,6 +133,10 @@ contextBridge.exposeInMainWorld('cy', {
   calendarRename: (id, name) => ipcRenderer.invoke('calendar-rename', String(id || ''), String(name ?? '')),
   calendarToggle: (id, on) => ipcRenderer.invoke('calendar-toggle', String(id || ''), !!on),
   calendarRemove: (id) => ipcRenderer.invoke('calendar-remove', String(id || '')),
+  // 네이버 캘린더(CalDAV, 애플리케이션 비밀번호): { user, password } → 데몬이 로그인해 캘린더를 찾아 보고 저장 { ok, account, calendars, events, updated, items } | { ok: false, error, code?, items }
+  // · 계정 하나 빼기(계정 id) → { ok, account, items } | { ok: false, error, items }
+  naverCalConnect: (body) => ipcRenderer.invoke('naver-cal-connect', { user: String(body?.user ?? ''), password: String(body?.password ?? '') }),
+  naverCalRemove: (id) => ipcRenderer.invoke('naver-cal-remove', String(id || '')),
   // 뇌(말 거는 AI) 연결 상태(brain-state.js brainView) — 없으면 입력 대신 연결 안내 카드
   brain: () => ipcRenderer.invoke('brain-get'),
   onBrain: on('brain'),
