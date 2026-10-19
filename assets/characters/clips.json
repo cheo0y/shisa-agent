@@ -51,7 +51,7 @@
     "dance": [{ "file": "dance", "scene": true }],
     "cheer": [{ "file": "cheer", "scene": true }],
     "lunch": [{ "file": "lunch", "scene": true }],
-    "study": [{ "file": "study", "scene": true }]
+    "study": [{ "file": "study" }]
   },
   "chiikawa": {
     "dance": [

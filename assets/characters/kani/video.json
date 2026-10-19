@@ -82,7 +82,7 @@
     "fps": 30,
     "frames": 113,
     "duration": 3.767,
-    "scene": true,
+    "scene": false,
     "source": {
       "file": "kani-study.mp4",
       "w": 1024,
@@ -92,6 +92,7 @@
       21,
       41,
       819
-    ]
+    ],
+    "alpha": true
   }
 }

@@ -19,7 +19,8 @@ test('카니: 고를 수 있고, 눈 뜬·감은 그림으로 깜빡이고, 춤�
     const v = a.variants[k];
     assert.equal(v.length, 1, k);
     assert.match(v[0].src, new RegExp(`characters/kani/${f}\\.webm$`), k);
-    assert.equal(v[0].scene, true, `${k}: 배경 있는 장면이라 테두리`);
+    // 집중(study)은 원본 회색 배경을 빼서 투명(테두리 카드 없이), 나머지는 배경 있는 장면이라 테두리
+    assert.equal(v[0].scene, k !== 'study', `${k}: ${k === 'study' ? '투명 영상' : '배경 있는 장면이라 테두리'}`);
     assert.ok(fs.existsSync(fileOf(v[0].src)) && fs.existsSync(fileOf(v[0].poster)), k);
   }
   assert.match(a.videos.studying.src, /kani\/study\.webm$/, '집중 영상(kani-study.mp4)');

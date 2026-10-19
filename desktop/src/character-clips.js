@@ -153,8 +153,7 @@ export const CHARACTER_CLIPS = {
     ],
     "study": [
       {
-        "file": "study",
-        "scene": true
+        "file": "study"
       }
     ]
   },
