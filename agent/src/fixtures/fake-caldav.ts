@@ -1,6 +1,8 @@
 // 시험용 가짜 CalDAV 서버(평문 http, 127.0.0.1). 네이버처럼 Basic 인증(401 + www-authenticate: basic realm="Naver Calendar")을 받고,
 // PROPFIND(current-user-principal → calendar-home-set → 캘린더 목록) · REPORT(calendar-query · calendar-multiget)에만 답한다. 그 밖의 메서드는 405.
 // 받은 요청(메서드·경로·Depth·인증 헤더 유무·본문)을 requests 에 남긴다. href 는 일부러 상대 주소·절대 주소를 섞어 준다.
+// iCloud 흉내(principalBase): 맨 위 PROPFIND 가 principal 을 다른 서버(그 주소, 보통 가짜 서버 하나 더) 위 절대 주소로 알려 준다.
+//   진짜 iCloud 는 caldav.icloud.com 이 https://p123-caldav.icloud.com:443/<dsid>/principal/ 처럼 계정마다 다른 서버를 준다.
 // 따로 띄우기(앱 확인용): node src/fixtures/fake-caldav.ts <port> [user] [pass]
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
@@ -12,6 +14,8 @@ export type FakeCalDavOpts = {
   hrefOnly?: boolean;            // calendar-query 에 calendar-data 없이 href 만(multiget 이 필요)
   redirectTo?: string;           // PROPFIND / 를 이 주소로 302(다른 출처로 넘기기 시험)
   principalRedirect?: boolean;   // principal 주소를 끝 / 없이 알려 주고, 그 주소는 / 붙은 곳으로 301
+  principalBase?: string;        // PROPFIND / 의 principal 을 이 서버(끝 /) 위 절대 주소로(iCloud 의 다른 서버 넘기기 흉내)
+  realm?: string;                // 401 의 basic realm(없으면 "Naver Calendar")
   port?: number;                 // 들을 포트(없으면 아무 빈 포트)
 };
 export type FakeReq = { method: string; path: string; depth?: string; auth: boolean; body: string };
@@ -34,10 +38,11 @@ export async function startFakeCalDav(o: FakeCalDavOpts): Promise<FakeCalDav> {
     requests.push({ method: req.method ?? "", path, ...(req.headers.depth ? { depth: String(req.headers.depth) } : {}), auth: !!req.headers.authorization, body });
     const send = (status: number, text = "", type = "application/xml; charset=utf-8") => { res.writeHead(status, { "content-type": type }); res.end(text); };
     if (o.redirectTo && path === "/") { res.writeHead(302, { location: o.redirectTo }); res.end(); return; }
-    if (req.headers.authorization !== want) { res.writeHead(401, { "www-authenticate": 'basic realm="Naver Calendar"', "content-length": "0" }); res.end(); return; }
+    if (req.headers.authorization !== want) { res.writeHead(401, { "www-authenticate": `basic realm="${o.realm ?? "Naver Calendar"}"`, "content-length": "0" }); res.end(); return; }
     if (o.forbid) return send(403);
     if (req.method === "PROPFIND") {
-      if (path === "/") return send(207, ms(ok("/", `<D:current-user-principal><D:href>${o.principalRedirect ? principal.replace(/\/$/, "") : principal}</D:href></D:current-user-principal>`)));
+      const at = o.principalBase ? `${o.principalBase}${principal.slice(1)}` : o.principalRedirect ? principal.replace(/\/$/, "") : principal;
+      if (path === "/") return send(207, ms(ok("/", `<D:current-user-principal><D:href>${at}</D:href></D:current-user-principal>`)));
       if (o.principalRedirect && path === principal.replace(/\/$/, "")) { res.writeHead(301, { location: principal }); res.end(); return; }
       if (path === principal) return send(207, ms(ok(principal, `<C:calendar-home-set><D:href>http://127.0.0.1:${port()}${home}</D:href></C:calendar-home-set>`)));
       if (path === home && req.headers.depth === "1") {

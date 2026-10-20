@@ -248,7 +248,7 @@ AI 없이 쓰는 중에 캐릭터를 두 번 누르면 「오늘 할 일 얼마�
 
 1. 이름: 뭐라고 부를지 정합니다.
 2. 뇌 고르기(선택): 이 맥에 로그인된 Claude Code나 Codex가 있으면 「찾았어요 ✓」로 떠서 바로 고를 수 있습니다. Gemini·OpenAI·Claude API 키를 붙여 넣어도 됩니다. AI 없이 쓰려면 「AI 없이 쓰기」를 고르세요. 할 일, 오늘 할 일 표, 캘린더(ICS) 회의 알림, 인사와 응원은 그대로 되고, 마법사도 다음 단계로 그대로 이어집니다. AI는 나중에 설정에서 언제든 연결할 수 있습니다.
-3. 더 연결하기: 구글·Outlook 캘린더 ICS 주소, 네이버 캘린더(아이디 + 애플리케이션 비밀번호, 읽기만), Slack, 레포 폴더를 연결합니다. 캘린더는 「＋ 캘린더 추가」로 별칭(회사·개인 등)과 주소를 짝지어 여러 개 넣을 수 있고, 줄마다 켜고 끄거나 별칭을 고치거나 뺄 수 있습니다.
+3. 더 연결하기: 구글·Outlook 캘린더 ICS 주소, 네이버 캘린더(아이디 + 애플리케이션 비밀번호, 읽기만), iCloud 캘린더(Apple ID 이메일 + 앱 암호, 읽기만), Slack, 레포 폴더를 연결합니다. 캘린더는 「＋ 캘린더 추가」로 별칭(회사·개인 등)과 주소를 짝지어 여러 개 넣을 수 있고, 줄마다 켜고 끄거나 별칭을 고치거나 뺄 수 있습니다.
 4. 끝: 「사용법 둘러보기」를 누르면 캐릭터가 다섯 장면으로 하나씩 보여 줍니다.
 
 | 뇌 고르기 | 더 연결하기 | 사용법 둘러보기 |
@@ -390,7 +390,7 @@ cd ~/shisa-agent && ./ops/uninstall.sh
 
 | 기능 | 추천 | 다른 방법 | 안내 |
 |---|---|---|---|
-| 캘린더(회의 알림·일정) | `api`: 비공개 ICS 주소, 네이버 캘린더는 아이디 + 애플리케이션 비밀번호(CalDAV, 읽기만) | `mcp`(Google Calendar·Microsoft 365) | [calendar.md](docs/connect/calendar.md) |
+| 캘린더(회의 알림·일정) | `api`: 비공개 ICS 주소, 네이버 캘린더는 아이디 + 애플리케이션 비밀번호, iCloud 캘린더는 Apple ID 이메일 + 앱 암호(CalDAV, 읽기만) | `mcp`(Google Calendar·Microsoft 365) | [calendar.md](docs/connect/calendar.md) |
 | Slack(DM·멘션 → 할 일) | `api`: 내 Slack 앱의 읽기 전용 사용자 토큰 | `mcp` | [slack.md](docs/connect/slack.md) |
 | 메일(답장·조치 필요한 메일 → 할 일) | `imap`: 메일 주소 + 앱 비밀번호(Gmail·네이버·다음, 그 밖의 IMAP, 계정 여러 개) | `mcp`(Gmail·Microsoft 365) | [mail.md](docs/connect/mail.md) |
 | 이슈 | `mcp`(GitHub·Jira·Linear) |  | [issues.md](docs/connect/issues.md) |

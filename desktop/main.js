@@ -56,7 +56,7 @@ import { squirrelPlan, loginItemTarget, appUserModelId } from './src/squirrel.js
 import { closeAction, offlineResult } from './src/quit.js';
 import { panelOnActivation } from './src/panel-activation.js';
 import { cleanMailBody, okMailId } from './src/mail-connect.js';
-import { cleanNaverCalBody, okCalDavId } from './src/naver-calendar.js';
+import { CALDAV_CARDS, cleanCalDavBody, okCalDavId } from './src/caldav-calendar.js';
 
 // 윈도우 Squirrel 설치기가 --squirrel-* 로 띄운 실행이면 바로 가기만 고치고 끝낸다(맨 아래 시작 부분에서 갈린다)
 const SQUIRREL = squirrelPlan({ platform: process.platform, argv: process.argv, execPath: process.execPath });
@@ -1458,12 +1458,13 @@ function setupIPC() {
     if (r.data?.error) return { ok: false, error: String(r.data.error) };
     return { ok: false, error: r.status ? t('main.err_remove_status', { status: r.status }) : t('main.err_unreachable', { who: who() }) };
   });
-  // 네이버 캘린더(CalDAV, 애플리케이션 비밀번호): 데몬이 로그인해 캘린더 목록을 찾아 보고, 되면 config.json 에 저장한다(캘린더는 전부 켬). 비밀번호는 여기서 기록하지 않는다
-  ipcMain.handle('naver-cal-connect', async (e, raw) => {
-    const body = fromOurs(e) ? cleanNaverCalBody(raw) : null;
+  // 네이버·iCloud 캘린더(CalDAV, 애플리케이션 비밀번호 · 앱 암호): 데몬이 로그인해 캘린더 목록을 찾아 보고, 되면 config.json 에 저장한다(캘린더는 전부 켬). 비밀번호는 여기서 기록하지 않는다.
+  // 렌더러가 보낸 본문은 모양만 맞는 것만(cleanCalDavBody, 아이디 길이는 max: Apple ID 이메일은 254자까지) 그 서비스의 데몬 경로(CALDAV_CARDS[kind].path)로
+  const calDavConnect = (kind, max) => async (e, raw) => {
+    const body = fromOurs(e) ? cleanCalDavBody(raw, max) : null;
     if (!body) return denied();
     if (!connected) return { ok: false, error: t('main.err_offline_check', { who: who() }), items: await calendarList() };
-    const r = await post('/connectors/calendar/naver', body, 90_000);
+    const r = await post(CALDAV_CARDS[kind].path, body, 90_000);
     if (r.ok && r.data?.ok) {
       sendPanel('dashboard', {}); // 연결 카드(가져오는 중 → 결과)를 바로
       const calendars = Array.isArray(r.data.calendars) ? r.data.calendars.map((c) => ({ id: String(c?.id ?? ''), name: String(c?.name ?? ''), enabled: c?.enabled !== false })) : [];
@@ -1471,9 +1472,9 @@ function setupIPC() {
     }
     if (r.status === 400 && r.data?.error) return { ok: false, error: String(r.data.error), ...(r.data.code ? { code: String(r.data.code) } : {}), items: await calendarList() };
     return { ok: false, error: r.status ? t('main.err_connect_status', { status: r.status }) : t('main.err_unreachable', { who: who() }), items: await calendarList() };
-  });
-  // 네이버 계정 하나 빼기: 데몬이 그 계정 캘린더·비밀번호를 지운다(남은 캘린더가 없으면 캘린더 연결이 꺼짐)
-  ipcMain.handle('naver-cal-remove', async (e, id) => {
+  };
+  // CalDAV 계정 하나 빼기(서비스 상관없이 같은 데몬 경로): 데몬이 그 계정 캘린더·비밀번호를 지운다(남은 캘린더가 없으면 캘린더 연결이 꺼짐)
+  const calDavRemove = async (e, id) => {
     if (!fromOurs(e) || !okCalDavId(id)) return denied();
     if (!connected) return { ok: false, error: t('main.err_offline_remove', { who: who() }), items: await calendarList() };
     const r = await request('DELETE', `/connectors/calendar/caldav/${id}`);
@@ -1483,7 +1484,11 @@ function setupIPC() {
     }
     if (r.data?.error) return { ok: false, error: String(r.data.error), items: await calendarList() };
     return { ok: false, error: r.status ? t('main.err_remove_status', { status: r.status }) : t('main.err_unreachable', { who: who() }), items: await calendarList() };
-  });
+  };
+  ipcMain.handle('naver-cal-connect', calDavConnect('naver', 80));
+  ipcMain.handle('naver-cal-remove', calDavRemove);
+  ipcMain.handle('icloud-cal-connect', calDavConnect('icloud', 254));
+  ipcMain.handle('icloud-cal-remove', calDavRemove);
   // 연결된 캘린더 목록(가린 이름만) · 하나 빼기(id)
   // 캘린더: 목록(별칭·가린 주소·결과) · 더하기(별칭 + 주소, 데몬이 시험으로 읽고 저장) · 별칭 고치기 · 켜기/끄기 · 하나 빼기(id)
   ipcMain.handle('calendar-list', async (e) => (fromOurs(e) ? { ok: true, items: await calendarList() } : denied()));

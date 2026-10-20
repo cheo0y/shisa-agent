@@ -35,7 +35,7 @@ import { withCalendarSync } from "./calendar-state.ts";
 import { MailSync, withMailSync } from "./mail-sync.ts";
 import { connectMail, removeMailAccount } from "./mail-connect.ts";
 import { addCalendar, calendarCardRows, calendarList as calendarListOf } from "./calendar-connect.ts";
-import { connectNaverCalendar, removeCalDavAccount } from "./calendar-naver.ts";
+import { connectCalDavCalendar, removeCalDavAccount, type CalDavConnectDeps } from "./calendar-caldav.ts";
 import { calendarPick } from "./manual-projects.ts";
 import { CalendarView } from "./calendar-view.ts";
 import { setCalendarRead } from "./calendar-ai.ts";
@@ -288,6 +288,14 @@ function pushStatus() {
 onBrainAuthChange(() => pushStatus()); // API 키가 401·403 을 받음 ↔ 다시 됨 → 데스크톱에 바로
 if (cfg.configError) console.error("[config] 안전 모드: 설정 파일을 고칠 때까지 아무것도 읽지 않고 로컬 뇌로 돌아요");
 
+// CalDAV 캘린더(네이버·iCloud) 연결이 같이 쓰는 것: 설정 파일 · 일정 수를 셀 기간 · 시간대 · 저장한 뒤 다시 읽기
+const calDavDeps = (): CalDavConnectDeps => ({
+  path: join(HOME_DIR, "config.json"),
+  window: () => calendar.window(),
+  timeZone: () => { const c = cfg.connectors.calendar; return c.mode === "api" && c.cap === "calendar" ? c.timeZone : "Asia/Seoul"; },
+  apply: () => { reloadConnectors(); }, // 캘린더만 바뀜: 다시 켜지 않고 원천을 바꿔 바로 가져온다(남은 게 없으면 멈춘다)
+});
+
 await bus.listen(cfg.port, {
   approve: (id) => agent.approve(id),
   hold: (id) => agent.hold(id),
@@ -434,13 +442,9 @@ await bus.listen(cfg.port, {
     apply: () => { reloadConnectors(); },
   }),
   calendarList: () => calendarListOf(join(HOME_DIR, "config.json"), calendar.state()),
-  // 네이버 캘린더(CalDAV): 로그인해 캘린더 목록을 찾고 되면 저장 → 다시 읽어 전체 동기화 · 계정 하나 빼기(그 계정 캘린더·비밀번호까지)
-  naverCalendarConnect: (body) => connectNaverCalendar(body, {
-    path: join(HOME_DIR, "config.json"),
-    window: () => calendar.window(),
-    timeZone: () => { const c = cfg.connectors.calendar; return c.mode === "api" && c.cap === "calendar" ? c.timeZone : "Asia/Seoul"; },
-    apply: () => { reloadConnectors(); }, // 캘린더만 바뀜: 다시 켜지 않고 원천을 바꿔 바로 가져온다(남은 게 없으면 멈춘다)
-  }),
+  // 네이버·iCloud 캘린더(CalDAV): 로그인해 캘린더 목록을 찾고 되면 저장 → 다시 읽어 전체 동기화 · 계정 하나 빼기(그 계정 캘린더·비밀번호까지)
+  naverCalendarConnect: (body) => connectCalDavCalendar("naver", body, calDavDeps()),
+  icloudCalendarConnect: (body) => connectCalDavCalendar("icloud", body, calDavDeps()),
   calDavRemove: (id) => removeCalDavAccount(id, { path: join(HOME_DIR, "config.json"), apply: () => { reloadConnectors(); } }),
   // 메일(앱 비밀번호) 계정 추가·바꾸기: 로그인해 보고 되면 저장 → 메모리도 바로(가져온 메일은 그대로 그 계정의 동기화 결과로)
   mailConnect: (body) => connectMail(body, {

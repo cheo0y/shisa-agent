@@ -137,6 +137,9 @@ contextBridge.exposeInMainWorld('cy', {
   // · 계정 하나 빼기(계정 id) → { ok, account, items } | { ok: false, error, items }
   naverCalConnect: (body) => ipcRenderer.invoke('naver-cal-connect', { user: String(body?.user ?? ''), password: String(body?.password ?? '') }),
   naverCalRemove: (id) => ipcRenderer.invoke('naver-cal-remove', String(id || '')),
+  // iCloud 캘린더(CalDAV, 앱 암호): { user(Apple ID 이메일), password(앱 암호) } → 위 네이버와 같은 모양의 답
+  icloudCalConnect: (body) => ipcRenderer.invoke('icloud-cal-connect', { user: String(body?.user ?? ''), password: String(body?.password ?? '') }),
+  icloudCalRemove: (id) => ipcRenderer.invoke('icloud-cal-remove', String(id || '')),
   // 뇌(말 거는 AI) 연결 상태(brain-state.js brainView) — 없으면 입력 대신 연결 안내 카드
   brain: () => ipcRenderer.invoke('brain-get'),
   onBrain: on('brain'),

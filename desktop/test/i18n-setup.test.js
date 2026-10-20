@@ -78,6 +78,11 @@ function allScreens() {
   push({ phase: 'extras', done: { gcal: true, slack: true }, repos: ['/Users/me/code'], coder: false, readSessions: true, calendars: [], mail }, 'extras');
   push({ phase: 'extras', done: {}, repos: [], calendars: [], mail: { ...mail, mail: mailOn, result: { ok: true, text: mailConnectedText({ account: 'taro@gmail.com', count: 3 }) } } }, 'extras mail on');
   push({ phase: 'extras', done: {}, repos: [], calendars: [], mail: { ...mail, busy: true, result: { ok: false, text: mailFormCheck({ user: 'x@y.com', service: 'gmail', password: '1' }).why } } }, 'extras mail fail');
+  // 네이버·iCloud 캘린더 카드(빈 폼 · 연결된 계정과 캘린더 줄)
+  const cal = { busy: false, result: null, onOpen: noop, onConnect: noop, onToggle: noop, onRemove: noop };
+  const calRows = [{ id: 'a', kind: 'naver', account: 'n-1', label: 'taro', name: 'Work', enabled: true }, { id: 'b', kind: 'icloud', account: 'i-1', label: 'taro@icloud.com', name: 'Home', enabled: false }];
+  push({ phase: 'extras', done: {}, repos: [], calendars: [], mail, naverCal: cal, icloudCal: cal }, 'extras caldav');
+  push({ phase: 'extras', done: {}, repos: [], calendars: calRows, mail, naverCal: cal, icloudCal: cal }, 'extras caldav on');
   push({ phase: 'done', brain: { ready: true, label: 'Gemini' }, done: { gcal: true }, repos: ['/Users/me/code'], name: 'Taro', readSessions: true }, 'done');
   push({ phase: 'done', brain: { local: true }, done: {}, repos: [], name: '', readSessions: false }, 'done empty');
   push({ phase: 'walk', picked: [], cursor: 0 }, 'no step');
