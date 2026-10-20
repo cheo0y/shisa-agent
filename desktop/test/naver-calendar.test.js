@@ -160,14 +160,15 @@ test('화면 연결: 패널·프리로드·main 이 네이버 캘린더 연결·
   const panel = read('../renderer/panel.js');
   assert.match(panel, /cy\.naverCalConnect\(body\)/);
   assert.match(panel, /cy\.naverCalRemove\(account\)/);
-  assert.match(panel, /if \(setupNaverCal\.busy\) return;/);
+  assert.match(panel, /if \(st\(\)\.busy\) return;/, '연타해도 한 번만(calDavCardState)');
   const pre = read('../preload-panel.cjs');
   assert.match(pre, /naverCalConnect: .*'naver-cal-connect'/);
   assert.match(pre, /naverCalRemove: .*'naver-cal-remove'/);
   const main = read('../main.js');
   assert.match(main, /ipcMain\.handle\('naver-cal-connect'/);
-  assert.match(main, /cleanNaverCalBody\(raw\)/);
-  assert.match(main, /post\('\/connectors\/calendar\/naver', body/);
+  assert.match(main, /cleanCalDavBody\(raw, max\)/);
+  assert.match(main, /post\(CALDAV_CARDS\[kind\]\.path, body/);
+  assert.match(main, /ipcMain\.handle\('naver-cal-connect', calDavConnect\('naver', 80\)\)/);
   assert.match(main, /ipcMain\.handle\('naver-cal-remove'/);
   assert.match(main, /request\('DELETE', `\/connectors\/calendar\/caldav\/\$\{id\}`\)/);
 });

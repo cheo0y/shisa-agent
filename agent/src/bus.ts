@@ -151,9 +151,10 @@ export type BusHandlers = {
   // 같은 주소는 409. 주소는 응답에 없다. 목록: GET /connectors/calendar(id·별칭·켜짐·캘린더마다 결과)
   calendarAdd?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
   calendarList?: () => unknown;
-  // 네이버 캘린더(CalDAV, 읽기 전용): 아이디 + 애플리케이션 비밀번호로 로그인해 캘린더 목록을 찾아 보고 되면 저장(calendar-naver.ts).
-  // POST /connectors/calendar/naver { user, password } · 계정 빼기 DELETE /connectors/calendar/caldav/:id. 비밀번호는 응답에 없다
+  // 네이버·iCloud 캘린더(CalDAV, 읽기 전용): 아이디 + 애플리케이션 비밀번호(iCloud 는 Apple ID 이메일 + 앱 암호)로 로그인해 캘린더 목록을 찾아 보고 되면 저장(calendar-caldav.ts).
+  // POST /connectors/calendar/naver · /connectors/calendar/icloud { user, password } · 계정 빼기 DELETE /connectors/calendar/caldav/:id. 비밀번호는 응답에 없다
   naverCalendarConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
+  icloudCalendarConnect?: (body: unknown) => Promise<{ ok: true; [k: string]: unknown } | { ok: false; status: number; error: string; code?: string }>;
   calDavRemove?: (id: string) => { ok: true; [k: string]: unknown } | { ok: false; status: number; error: string };
   // 캘린더 탭: 보는 기간의 일정(캘린더마다 id·별칭·색). GET /calendar/events?from=&to=(&fresh=1) — calendar-view.ts. 없으면 503
   calendarEvents?: (range: { from: string; to: string; fresh: boolean }) => Promise<unknown>;
@@ -659,6 +660,11 @@ export class Bus {
       if (url.pathname === "/connectors/calendar/naver") {
         if (!h.naverCalendarConnect) return json(res, 503, { error: "naver calendar unavailable" });
         const r = await h.naverCalendarConnect(await readJson(req));
+        return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
+      }
+      if (url.pathname === "/connectors/calendar/icloud") {
+        if (!h.icloudCalendarConnect) return json(res, 503, { error: "icloud calendar unavailable" });
+        const r = await h.icloudCalendarConnect(await readJson(req));
         return r.ok ? json(res, 200, r) : json(res, r.status, { error: r.error, ...(r.code ? { code: r.code } : {}) });
       }
       if (url.pathname === "/connectors/mail") {

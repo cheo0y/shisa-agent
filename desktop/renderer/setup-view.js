@@ -7,7 +7,7 @@ import { sayFor, providerById, connectSteps, slotCheck, BRAIN_CHOICES, EXTRAS, S
 import { setupSummary, okFolder } from '../src/setup-plan.js';
 import { HUB_CAP, connectorDisconnectCopy, disconnectControl } from '../src/disconnect.js';
 import { calendarCardSummary, calendarRowState } from '../src/calendars.js';
-import { NAVER_CAL, naverCalFormCheck, naverCalBody, naverCalAccounts, naverCalRemoveCopy } from '../src/naver-calendar.js';
+import { CALDAV_CARDS, CALDAV_KINDS, calDavBody, calDavAccounts } from '../src/caldav-calendar.js';
 import { createCalendarEditor } from '../src/calendar-editor.js';
 import { MAIL_SERVICES, MAIL_CHECK, MAIL_TITLE, MAIL_BLURB, MAIL_ADVANCED, MAIL_NO_AI, MAIL_ADD_MORE, mailService, guessService, mailFormCheck, mailConnectBody, mailAccountState, mailRemoveCopy } from '../src/mail-connect.js';
 
@@ -494,54 +494,58 @@ function mailBlock({ mail, busy, result, noAi, onConnect, onDisconnect, onRemove
   box.append(...kids);
   return box;
 }
-// 네이버 캘린더(CalDAV, 애플리케이션 비밀번호), 계정 여러 개: 계정마다 아이디 · [빼기] · 그 계정 캘린더 줄(체크 = 가져오기 켜짐, 상태 글),
-// 그 아래 「계정 추가」 폼(안내·링크 · 아이디 · 애플리케이션 비밀번호(가림) · [연결]). 계정이 있으면 폼은 「＋ 다른 네이버 계정 추가」로 접어 둔다.
-// 처음 연결하면 캘린더를 전부 켠다(데몬). 고르기는 줄마다 체크로(ICS 캘린더 켜기·끄기와 같은 저장). 맨 아래 타임트리 안내
-const ncalDraft = { user: '', password: '' };
-let ncalRemoving = '';
-let ncalAddOpen = false;
-export function clearNaverCalDraft() {
-  Object.assign(ncalDraft, { user: '', password: '' });
-  ncalAddOpen = false;
+// CalDAV 캘린더 카드(네이버: 애플리케이션 비밀번호 · iCloud: 앱 암호), 계정 여러 개: 계정마다 아이디 · [빼기] · 그 계정 캘린더 줄(체크 = 가져오기 켜짐, 상태 글),
+// 그 아래 「계정 추가」 폼(안내·링크 · 아이디 · 비밀번호(가림) · [연결]). 계정이 있으면 폼은 「＋ 다른 … 계정 추가」로 접어 둔다.
+// 처음 연결하면 캘린더를 전부 켠다(데몬). 고르기는 줄마다 체크로(ICS 캘린더 켜기·끄기와 같은 저장). 네이버 카드 맨 아래 타임트리 안내.
+// 서비스마다 다른 글·링크·칸 모양은 caldav-calendar.js CALDAV_CARDS 에. 쓰다 만 칸·열린 [빼기]·펼친 폼은 서비스마다 따로 둔다
+const calDavUi = Object.fromEntries(CALDAV_KINDS.map((k) => [k, { draft: { user: '', password: '' }, removing: '', addOpen: false }]));
+export function clearCalDavDraft(kind) {
+  const ui = calDavUi[kind];
+  if (!ui) return;
+  Object.assign(ui.draft, { user: '', password: '' });
+  ui.addOpen = false;
 }
-function naverCalForm({ busy, result, onConnect, onOpen }) {
-  const user = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: NAVER_CAL.userPlaceholder, 'aria-label': NAVER_CAL.userLabel, value: ncalDraft.user, dataset: { slot: 'ncal-user' } });
-  user.addEventListener('input', () => { ncalDraft.user = user.value; });
-  const pass = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: NAVER_CAL.passwordPlaceholder, 'aria-label': NAVER_CAL.passwordLabel, value: ncalDraft.password });
-  pass.addEventListener('input', () => { ncalDraft.password = pass.value; });
-  const kids = [h('ol.setup-mail-steps', null, NAVER_CAL.steps.map((x) => h('li', null, ...richNodes(x))))];
-  if (onOpen) kids.push(h('div.setup-fields.row', null, NAVER_CAL.links.map((l) => h('button.ghost', { type: 'button', text: l.label, title: l.url, onclick: () => onOpen(l.url) }))));
+export const clearNaverCalDraft = () => clearCalDavDraft('naver');
+function calDavForm(card, { busy, result, onConnect, onOpen }) {
+  const draft = calDavUi[card.id].draft;
+  const user = h('input', { type: 'text', inputmode: card.id === 'icloud' ? 'email' : undefined, autocomplete: 'off', spellcheck: 'false', placeholder: card.userPlaceholder, 'aria-label': card.userLabel, value: draft.user, dataset: { slot: `${card.slot}-user` } });
+  user.addEventListener('input', () => { draft.user = user.value; });
+  const pass = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: card.passwordPlaceholder, 'aria-label': card.passwordLabel, value: draft.password });
+  pass.addEventListener('input', () => { draft.password = pass.value; });
+  const kids = [h('ol.setup-mail-steps', null, card.steps.map((x) => h('li', null, ...richNodes(x))))];
+  if (onOpen) kids.push(h('div.setup-fields.row', null, card.links.map((l) => h('button.ghost', { type: 'button', text: l.label, title: l.url, onclick: () => onOpen(l.url) }))));
   kids.push(h('div.setup-fields', null,
-    h('label', null, h('span', { text: NAVER_CAL.userLabel }), user),
-    h('label', null, h('span', { text: NAVER_CAL.passwordLabel }), pass)));
-  kids.push(h('small.setup-mail-note', { text: NAVER_CAL.note }));
+    h('label', null, h('span', { text: card.userLabel }), user),
+    h('label', null, h('span', { text: card.passwordLabel }), pass)));
+  kids.push(h('small.setup-mail-note', { text: card.note }));
   if (result && !result.ok) kids.push(h('p.setup-gate', null, ...richNodes(result.text)));
-  const connect = h('button.primary', { type: 'button', text: busy ? t('setup.view_connect_text_2') : t('setup.view_connect_text'), disabled: !!busy, dataset: { act: 'ncal-connect' } });
+  const connect = h('button.primary', { type: 'button', text: busy ? t('setup.view_connect_text_2') : t('setup.view_connect_text'), disabled: !!busy, dataset: { act: `${card.slot}-connect` } });
   connect.addEventListener('click', () => {
-    const chk = naverCalFormCheck(ncalDraft);
+    const chk = card.check(draft);
     if (!chk.ok) { onConnect?.(null, chk.why); return; }
-    onConnect?.(naverCalBody(ncalDraft));
+    onConnect?.(calDavBody(draft));
   });
   kids.push(h('div.setup-fields.row', null, h('span.spacer'), connect));
   return h('div.setup-mail-form.setup-ncal-form', null, ...kids);
 }
-function naverCalAccount(a, { onToggle, onRemove }) {
+function calDavAccount(card, a, { onToggle, onRemove }) {
+  const ui = calDavUi[card.id];
   return h('li.setup-ncal-account', { dataset: { account: a.account } },
     h('div.setup-fields.row', null,
-      h('span.cal-kind', { text: NAVER_CAL.title }),
+      h('span.cal-kind', { text: card.title }),
       h('code', { text: a.user }),
       h('span.spacer'),
       onRemove ? disconnectControl(document, {
-        ...naverCalRemoveCopy(a),
-        open: ncalRemoving === a.account,
-        onOpen: () => { ncalRemoving = a.account; },
-        onClose: () => { if (ncalRemoving === a.account) ncalRemoving = ''; },
+        ...card.removeCopy(a),
+        open: ui.removing === a.account,
+        onOpen: () => { ui.removing = a.account; },
+        onClose: () => { if (ui.removing === a.account) ui.removing = ''; },
         onConfirm: () => onRemove(a.account),
       }) : null),
-    h('small.setup-blurb', { text: NAVER_CAL.pick }),
+    h('small.setup-blurb', { text: card.pick }),
     h('ul.setup-repos.setup-ncal-calendars', null, a.calendars.map((r) => {
       const st = calendarRowState(r);
-      const box = h('input', { type: 'checkbox', 'aria-label': `${r.name} ${t('setup.ncal_on')}`, dataset: { id: r.id } });
+      const box = h('input', { type: 'checkbox', 'aria-label': `${r.name} ${card.on}`, dataset: { id: r.id } });
       box.checked = r.enabled !== false;
       box.addEventListener('change', () => { box.disabled = true; onToggle?.(r.id, box.checked); });
       return h(`li${st.tone === 'fail' ? '.fail' : ''}`, { dataset: { id: r.id } },
@@ -549,21 +553,24 @@ function naverCalAccount(a, { onToggle, onRemove }) {
         st.text ? h(`span.setup-mail-acct${st.tone === 'fail' ? '.fail' : ''}`, { text: st.text }) : null);
     })));
 }
-function naverCalBlock({ rows = [], busy, result, onConnect, onToggle, onRemove, onOpen }) {
-  const accounts = naverCalAccounts(rows);
+// 카드 겉 클래스: 네이버 setup-ncal · iCloud setup-ical(안쪽 줄 모양 클래스는 같이 쓴다)
+function calDavBlock(kind, { rows = [], busy, result, onConnect, onToggle, onRemove, onOpen }) {
+  const card = CALDAV_CARDS[kind];
+  const ui = calDavUi[kind];
+  const accounts = calDavAccounts(rows, kind);
   const n = accounts.reduce((k, a) => k + a.calendars.length, 0);
-  const kids = [h('span.setup-pick-title', { text: n ? NAVER_CAL.titleN(n) : NAVER_CAL.title }), h('p.setup-blurb', { text: NAVER_CAL.blurb })];
-  if (accounts.length) kids.push(h('ul.setup-repos.setup-ncal-accounts', null, accounts.map((a) => naverCalAccount(a, { onToggle, onRemove }))));
+  const kids = [h('span.setup-pick-title', { text: n ? card.titleN(n) : card.title }), h('p.setup-blurb', { text: card.blurb })];
+  if (accounts.length) kids.push(h('ul.setup-repos.setup-ncal-accounts', null, accounts.map((a) => calDavAccount(card, a, { onToggle, onRemove }))));
   if (result?.ok) kids.push(h('p.setup-gate.ok', null, ...richNodes(result.text)));
-  const open = !accounts.length || ncalAddOpen || (result && !result.ok) || busy;
+  const open = !accounts.length || ui.addOpen || (result && !result.ok) || busy;
   if (open) {
-    if (accounts.length) kids.push(h('span.setup-pick-title.setup-mail-add-title', { text: NAVER_CAL.addTitle }));
-    kids.push(naverCalForm({ busy, result, onConnect, onOpen }));
+    if (accounts.length) kids.push(h('span.setup-pick-title.setup-mail-add-title', { text: card.addTitle }));
+    kids.push(calDavForm(card, { busy, result, onConnect, onOpen }));
   } else {
-    kids.push(h('div.setup-fields.row', null, h('button.ghost.setup-mail-add', { type: 'button', text: NAVER_CAL.addMore, onclick: () => { ncalAddOpen = true; redraw?.(); } })));
+    kids.push(h('div.setup-fields.row', null, h('button.ghost.setup-mail-add', { type: 'button', text: card.addMore, onclick: () => { ui.addOpen = true; redraw?.(); } })));
   }
-  kids.push(h('small.setup-mail-note.setup-ncal-timetree', { text: NAVER_CAL.timetree }));
-  return h('div.setup-folder.setup-mail.setup-ncal', { dataset: { id: 'naver-calendar' } }, ...kids);
+  if (card.timetree) kids.push(h('small.setup-mail-note.setup-ncal-timetree', { text: card.timetree }));
+  return h(`div.setup-folder.setup-mail.setup-${card.slot}`, { dataset: { id: `${kind}-calendar` } }, ...kids);
 }
 
 // 주소 칸에 쓰는 중에 다시 그려도 커서가 그 자리에 남게
@@ -573,7 +580,7 @@ function redrawKeep(input) {
   redraw?.();
 }
 
-function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, naverCal = null, onOpen, onDisconnect, onCopy, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
+function extrasView({ done = {}, repos = [], coder = true, readSessions = false, servers = {}, calendars = [], mail = null, naverCal = null, icloudCal = null, onOpen, onDisconnect, onCopy, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish, onBack }) {
   const items = EXTRAS.filter((id) => id !== 'repos').map(hubItem).filter(Boolean);
   const input = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: t('setup.view_input_placeholder_3'), 'aria-label': t('setup.view_input_aria_label'), value: repoDraft });
   input.addEventListener('input', () => { repoDraft = input.value; });
@@ -585,10 +592,11 @@ function extrasView({ done = {}, repos = [], coder = true, readSessions = false,
     title: t('setup.view_extrasview_title'),
     identity: t('setup.view_extrasview_identity'),
     extra: h('div', null,
-      // 구글·Outlook 카드 요약에는 ICS 캘린더만 센다(네이버는 아래 네이버 캘린더 카드)
-      h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars.filter((r) => r?.kind !== 'naver')))),
+      // 구글·Outlook 카드 요약에는 ICS 캘린더만 센다(네이버·iCloud 는 아래 그 캘린더 카드)
+      h('div.setup-picks', null, items.map((item) => extraItem(item, done, onOpen, onDisconnect, onCopy, servers, calendars.filter((r) => !CALDAV_KINDS.includes(r?.kind))))),
       mail ? mailBlock(mail) : null,
-      naverCal ? naverCalBlock({ ...naverCal, rows: calendars }) : null,
+      naverCal ? calDavBlock('naver', { ...naverCal, rows: calendars }) : null,
+      icloudCal ? calDavBlock('icloud', { ...icloudCal, rows: calendars }) : null,
       h('div.setup-folder', null,
         h('span.setup-pick-title', { text: repos.length ? t('setup.view_extrasview_text_6', { title: repo.title, length: repos.length }) : repo.title }),
         h('p.setup-blurb', { text: coder ? repo.blurb : t('setup.view_extrasview_text_5', { blurb: repo.blurb }) }),
@@ -738,7 +746,7 @@ function drawSetup(root, state) {
   }
   if (phase === 'extras') {
     const keep = focusSlot;
-    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, naverCal: state.naverCal, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
+    root.replaceChildren(extrasView({ done, repos, coder, readSessions, servers: state.servers, calendars: state.calendars, mail: state.mail, naverCal: state.naverCal, icloudCal: state.icloudCal, onOpen: onOpenExtra, onDisconnect: onDisconnectExtra, onCopy: state.onCopyText, onAddRepo, onPickFolder, onRemoveRepo, onToggleSessions, onFinish: onFinishExtras, onBack }));
     if (keep) {
       const el = root.querySelector(`[data-slot="${keep}"]`);
       if (el) { el.focus({ preventScroll: true }); const at = caret ?? el.value.length; el.setSelectionRange(at, at); }

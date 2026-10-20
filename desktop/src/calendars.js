@@ -119,19 +119,22 @@ export function withCalendarColor(cfg, id, color, hash) {
   }), hash);
 }
 
-// 어느 캘린더인가: 구글(calendar.google.com) · Outlook(outlook·office 주소) · 네이버(CalDAV, 계정이 붙은 줄) · 그 밖의 ICS
-export function calendarKind(url, account) {
-  if (account) return 'naver';
-  let host = '';
-  try { host = new URL(url).hostname.toLowerCase(); } catch { return 'ics'; }
+// 어느 캘린더인가: 구글(calendar.google.com) · Outlook(outlook·office 주소) · 네이버·iCloud(CalDAV, 계정이 붙은 줄) · 그 밖의 ICS
+// 계정이 붙은 줄은 그 계정 preset(icloud 면 iCloud, 모르면 계정 id 앞글자 i- 로, 그 밖은 네이버).
+// iCloud 서버 주소라도 /published/ 아래는 「공개 캘린더」 ICS 주소라 ICS 로 둔다
+export function calendarKind(url, account, preset) {
+  if (account) return preset === 'icloud' || (!preset && /^i-/.test(account)) ? 'icloud' : 'naver';
+  let host = '', path = '';
+  try { const u = new URL(url); host = u.hostname.toLowerCase(); path = u.pathname; } catch { return 'ics'; }
   if (host === 'calendar.google.com') return 'gcal';
   if (host === 'caldav.calendar.naver.com') return 'naver';
+  if ((host === 'caldav.icloud.com' || /^p\d{1,4}-caldav\.icloud\.com$/.test(host)) && !/^\/published\//.test(path)) return 'icloud';
   if (/(^|\.)(outlook\.(office365|office|live)\.com|office365\.com|outlook\.com)$/.test(host)) return 'outlook';
   return 'ics';
 }
-export const CALENDAR_TITLE = { get gcal() { return t('settings.cal_title_gcal'); }, get outlook() { return t('settings.cal_title_outlook'); }, get ics() { return t('settings.cal_title_ics'); }, get naver() { return t('settings.cal_title_naver'); } };
-// 설치 카드(gcal·outlook)가 세는 종류: 구글 카드는 구글 주소, Outlook 카드는 그 밖(Outlook·다른 ICS). 네이버는 따로(네이버 캘린더 카드)
-export const cardOfKind = (kind) => (kind === 'gcal' ? 'gcal' : kind === 'naver' ? 'naver' : 'outlook');
+export const CALENDAR_TITLE = { get gcal() { return t('settings.cal_title_gcal'); }, get outlook() { return t('settings.cal_title_outlook'); }, get ics() { return t('settings.cal_title_ics'); }, get naver() { return t('settings.cal_title_naver'); }, get icloud() { return t('settings.cal_title_icloud'); } };
+// 설치 카드(gcal·outlook)가 세는 종류: 구글 카드는 구글 주소, Outlook 카드는 그 밖(Outlook·다른 ICS). 네이버·iCloud 는 따로(그 캘린더 카드)
+export const cardOfKind = (kind) => (kind === 'gcal' ? 'gcal' : kind === 'naver' || kind === 'icloud' ? kind : 'outlook');
 
 // 이름 앞부분만: 4글자(짧으면 절반, 적어도 1글자) + …
 const head = (s) => `${s.slice(0, Math.max(1, Math.min(4, Math.ceil(s.length / 2))))}…`;
@@ -152,19 +155,20 @@ export function maskCalendarUrl(url) {
   return u.hostname;
 }
 
-// 네이버 계정 id → 아이디(설정의 caldav[]). 비밀번호는 읽지 않는다
+// CalDAV 계정 id → { user: 아이디(네이버 아이디 · Apple ID 이메일), preset }(설정의 caldav[]). 비밀번호는 읽지 않는다
 function calDavUsers(cfg) {
   const list = obj(obj(obj(cfg)?.connectors)?.calendar)?.caldav;
-  return new Map((Array.isArray(list) ? list : []).filter((a) => obj(a) && okAccount(a.id) && typeof a.user === 'string').map((a) => [a.id, a.user.trim().slice(0, 64)]));
+  return new Map((Array.isArray(list) ? list : []).filter((a) => obj(a) && okAccount(a.id) && typeof a.user === 'string')
+    .map((a) => [a.id, { user: a.user.trim().slice(0, 254), preset: typeof a.preset === 'string' ? a.preset : '' }]));
 }
 
 // 화면 줄: { id, kind, title, label, name, enabled }. 주소는 싣지 않는다. name = 별칭(없으면 「캘린더 N」, 데몬 결과가 ICS 이름으로 바꿔 준다)
-// 네이버 줄은 label = 네이버 아이디, account = 계정 id(네이버 캘린더 카드가 계정마다 묶고 계정을 뺄 때 쓴다)
+// 네이버·iCloud 줄은 label = 아이디(Apple ID 이메일), account = 계정 id(그 캘린더 카드가 계정마다 묶고 계정을 뺄 때 쓴다)
 export function calendarRows(cfg, hash) {
   const users = calDavUsers(cfg);
   return calendarEntries(cfg).map((e, i) => {
-    const kind = calendarKind(e.url, e.account);
-    const label = kind === 'naver' ? users.get(e.account) || CALENDAR_TITLE.naver : maskCalendarUrl(e.url);
+    const kind = calendarKind(e.url, e.account, users.get(e.account)?.preset);
+    const label = kind === 'naver' || kind === 'icloud' ? users.get(e.account)?.user || CALENDAR_TITLE[kind] : maskCalendarUrl(e.url);
     return { id: idOf(e, hash), kind, title: CALENDAR_TITLE[kind], label, name: e.name || t('settings.cal_n', { n: i + 1 }), named: !!e.name, enabled: e.enabled, ...(e.account ? { account: e.account } : {}) };
   });
 }

@@ -5,7 +5,7 @@
 //                       calendar: 비공개 ICS 주소(Google "비공개 주소(iCal 형식)" · Outlook "게시된 캘린더").
 //                       calendars = [{ id, name, url, enabled }] 여러 개(상한 없음). name = 별칭(비면 ICS 의 X-WR-CALNAME, 그것도 없으면 「캘린더 N」),
 //                       enabled = false 면 저장은 두고 가져오지 않는다. 예전 모양(icsUrl 하나 · icsUrls 배열)도 calendars 로 읽는다.
-//                       네이버 캘린더(CalDAV, 읽기 전용): caldav = [{ id, preset: "naver", user(네이버 아이디), password(애플리케이션 비밀번호) }],
+//                       네이버·iCloud 캘린더(CalDAV, 읽기 전용): caldav = [{ id, preset: "naver" | "icloud", user(네이버 아이디 · Apple ID 이메일), password(애플리케이션 비밀번호 · 앱 암호) }],
 //                       그 계정의 캘린더는 calendars 에 { …, url(캘린더 모음 주소), account: 계정 id } 로 같이 둔다(켜기·끄기·별칭·색이 ICS 와 같다)
 //   mode = "mcp"     — Claude Code 에 등록한 전용 MCP 서버(`claude mcp add --scope user …`). 브리핑·채팅 모델이 읽기 도구만 쓴다.
 //                       server = 등록한 서버 이름, preset = 알려진 서버의 도구 이름 묶음, tools = 역할 → 도구 이름(프리셋 덮어쓰기)
@@ -87,10 +87,13 @@ export type OffConn = { cap: Capability; mode: "off"; reason?: string };
 export type McpConn = { cap: Capability; mode: "mcp"; server: string; preset?: string; tools: Record<string, string> };
 export type SlackApiConn = { cap: "slack"; mode: "api"; userToken?: string };
 // 캘린더 하나(ICS 주소 + 별칭). url 은 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다). id = sha-256(주소) 앞 16글자(데스크톱과 같은 값)
-// account: CalDAV 캘린더(네이버)면 그 계정 id(caldav[].id). 없으면 ICS 주소
+// account: CalDAV 캘린더(네이버·iCloud)면 그 계정 id(caldav[].id). 없으면 ICS 주소
 export type CalendarEntry = { id: string; name: string; url: string; enabled: boolean; account?: string };
-// CalDAV 계정(네이버). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다)
-export type CalDavAccount = { id: string; preset: "naver"; user: string; password?: string };
+// CalDAV 계정(네이버·iCloud). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다)
+export const CALDAV_PRESETS = ["naver", "icloud"] as const;
+export type CalDavPreset = (typeof CALDAV_PRESETS)[number];
+export const isCalDavPreset = (x: unknown): x is CalDavPreset => (CALDAV_PRESETS as readonly unknown[]).includes(x);
+export type CalDavAccount = { id: string; preset: CalDavPreset; user: string; password?: string };
 export type CalendarApiConn = { cap: "calendar"; mode: "api"; calendars: CalendarEntry[]; timeZone: string; email?: string; caldav?: CalDavAccount[] };
 // 메일 IMAP: 계정 여러 개(accounts). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다).
 // sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24, 모든 계정 같이). skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬)
@@ -178,20 +181,21 @@ export function calendarEntries(list: Record<string, any>[]): CalendarEntry[] {
   return out;
 }
 
-// CalDAV 계정 id: 서비스 + 아이디(대소문자 무시, 늘 같은 값)
-export const calDavAccountId = (preset: string, user: string) => `${preset === "naver" ? "n" : "c"}-${createHash("sha256").update(`${preset}:${user.trim().toLowerCase()}`).digest("hex").slice(0, 10)}`;
+// CalDAV 계정 id: 서비스 + 아이디(대소문자 무시, 늘 같은 값). 앞글자 n = 네이버, i = iCloud
+export const calDavAccountId = (preset: string, user: string) => `${preset === "naver" ? "n" : preset === "icloud" ? "i" : "c"}-${createHash("sha256").update(`${preset}:${user.trim().toLowerCase()}`).digest("hex").slice(0, 10)}`;
 
-// connectors.calendar.caldav 원본 → 계정(네이버만). 틀린 것·같은 id 는 뺀다. 비밀번호가 비거나 자리표시자면 password 없음
+// connectors.calendar.caldav 원본 → 계정(네이버·iCloud만). 틀린 것·같은 id 는 뺀다. 비밀번호가 비거나 자리표시자면 password 없음
 export function calDavAccounts(c: Record<string, any> | undefined): CalDavAccount[] {
   const out: CalDavAccount[] = [];
   for (const a of Array.isArray(c?.caldav) ? c!.caldav : []) {
-    if (!a || typeof a !== "object" || a.preset !== "naver") continue;
+    if (!a || typeof a !== "object" || !isCalDavPreset(a.preset)) continue;
+    const preset: CalDavPreset = a.preset;
     const user = str(a.user);
     if (!user) continue;
-    const id = okAccountId(a.id) ? a.id : calDavAccountId("naver", user);
+    const id = okAccountId(a.id) ? a.id : calDavAccountId(preset, user);
     if (out.some((x) => x.id === id)) continue;
     const password = typeof a.password === "string" && a.password.trim() && !/\.\.\.|…|YOUR_/.test(a.password) ? a.password.trim() : undefined;
-    out.push({ id, preset: "naver", user, ...(password ? { password } : {}) });
+    out.push({ id, preset, user, ...(password ? { password } : {}) });
   }
   return out;
 }
@@ -333,8 +337,12 @@ export function connectorStatus(c: Connectors = CONNECTORS, has: (server: string
         {
           const off = x.calendars.filter((e) => !e.enabled).length;
           const calendars = x.calendars.map(({ id, name, enabled }) => ({ id, name, enabled }));
-          const naver = x.calendars.filter((e) => e.account).length;
-          const head = naver ? t("status.cal_n_naver", { n: x.calendars.length, naver }) : t("status.ics_n", { n: x.calendars.length });
+          // CalDAV 캘린더 수(서비스마다). 계정을 못 찾으면 예전처럼 네이버로 센다
+          const presetOf = (id: string) => x.caldav?.find((a) => a.id === id)?.preset ?? (id.startsWith("i-") ? "icloud" : "naver");
+          const icloud = x.calendars.filter((e) => e.account && presetOf(e.account) === "icloud").length;
+          const naver = x.calendars.filter((e) => e.account).length - icloud;
+          const n = x.calendars.length;
+          const head = naver && icloud ? t("status.cal_n_naver_icloud", { n, naver, icloud }) : naver ? t("status.cal_n_naver", { n, naver }) : icloud ? t("status.cal_n_icloud", { n, icloud }) : t("status.ics_n", { n });
           return { ...base, ready: true, calendars, detail: `${head}${off ? t("status.ics_off", { n: off }) : ""}` };
         }
     }

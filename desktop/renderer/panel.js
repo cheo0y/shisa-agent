@@ -6,8 +6,8 @@ import { createMarkdown } from '../src/markdown.js';
 import { shapeDashboard, overlayHidden, priorityLabel, SECTIONS, SECTION_LABELS, normalizeSection, relativeTime, clockTime, visibleSections, connectorChipView } from '../src/dashboard.js';
 import { needsSetup, stepForCap } from '../src/setup.js';
 import { isFeature, isAgent, buildWalk, agentSteps } from '../src/setup-flow.js';
-import { renderSetup, clearApiDraft, readSlot, clearMailDraft, clearNaverCalDraft, resetCalendarEditor } from './setup-view.js';
-import { naverCalConnectedText } from '../src/naver-calendar.js';
+import { renderSetup, clearApiDraft, readSlot, clearMailDraft, clearCalDavDraft, resetCalendarEditor } from './setup-view.js';
+import { CALDAV_CARDS } from '../src/caldav-calendar.js';
 import { mailConnected, mailConnectedText, withMailAccount, withoutMailAccount } from '../src/mail-connect.js';
 import { mountModels } from './models-view.js';
 import { createFocusView } from './focus-view.js';
@@ -163,7 +163,7 @@ let setupCalendars = []; // 저장된 캘린더(main calendar-list: 별칭·가�
 const calendarScreen = () => setupPhase === 'extras' || (setupPhase === 'connect' && (setupLink === 'gcal' || setupLink === 'outlook'));
 let setupSlotError = null; // 저장하려다 막힌 칸 값({ id, value, text }, 예: 이미 연결된 캘린더)
 let setupMail = { busy: false, result: null }; // 메일(앱 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
-let setupNaverCal = { busy: false, result: null }; // 네이버 캘린더(애플리케이션 비밀번호) 카드: 확인하는 중 · 마지막 결과({ ok, text })
+let setupCalDav = { naver: { busy: false, result: null }, icloud: { busy: false, result: null } }; // 네이버·iCloud 캘린더 카드마다: 확인하는 중 · 마지막 결과({ ok, text })
 let cannedOpen = false; // 채팅: AI가 있을 때 ＋ 로 연 정해진 답 버튼 줄(renderChatLock)
 let sisa = { provider: '', hasKey: false, persona: '', canned: {}, done: {}, connected: [], chatModels: {} };
 // 예전 화면 위치(ai-offer·agent·pick·walk)는 불러오지 않는다
@@ -647,6 +647,42 @@ function keyFail(error) {
 // 캐릭터를 바꾸면 설치 화면(그림·말)도 다시
 onWho(() => { if (section === 'setup') renderSetupView(false); });
 
+// CalDAV 캘린더 카드(네이버·iCloud) 하나의 상태·손잡이: 연결(연타해도 한 번만 로그인) · 켜기·끄기 · 계정 빼기. connect·remove = 그 서비스의 preload 손잡이
+function calDavCardState(kind, redraw, connect, remove) {
+  const st = () => setupCalDav[kind];
+  const set = (v) => { setupCalDav = { ...setupCalDav, [kind]: v }; };
+  return {
+    busy: st().busy,
+    result: st().result,
+    onOpen: (url) => { try { cy.openLink(url); } catch { /* 무시 */ } },
+    onConnect: async (body, why) => {
+      if (st().busy) return; // 연타해도 한 번만 로그인
+      if (!body) { set({ busy: false, result: { ok: false, text: why } }); redraw(false); return; }
+      set({ busy: true, result: null });
+      redraw(false);
+      let r;
+      try { r = await connect(body); } catch { r = { ok: false, error: tr('panel.mail_connect_failed_later') }; }
+      if (Array.isArray(r?.items)) setupCalendars = r.items;
+      if (r?.ok) {
+        clearCalDavDraft(kind);
+        set({ busy: false, result: { ok: true, text: CALDAV_CARDS[kind].connectedText(r) } });
+        loadSoon();
+      } else set({ busy: false, result: { ok: false, text: r?.error || tr('panel.mail_connect_failed') } });
+      redraw(false);
+    },
+    onToggle: async (id, on) => { await calendarOp(() => cy.calendarToggle(id, on)); redraw(false); },
+    onRemove: async (account) => {
+      let r;
+      try { r = await remove(account); } catch { r = { ok: false, error: tr('panel.mail_remove_failed_later') }; }
+      if (Array.isArray(r?.items)) setupCalendars = r.items;
+      if (!st().busy) set({ busy: false, result: r?.ok ? { ok: true, text: tr('panel.mail_removed', { account: r.account || '' }) } : { ok: false, text: r?.error || tr('panel.mail_remove_failed') } });
+      loadSoon();
+      redraw(false);
+      return r;
+    },
+  };
+}
+
 function renderSetupView(resetScroll) {
   if (section !== 'setup') {
     clearInterval(loginTimer);
@@ -654,7 +690,7 @@ function renderSetupView(resetScroll) {
     return;
   }
   clampSetupCursor();
-  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}|${JSON.stringify(mailConnected(vm.connectors))}|${JSON.stringify(setupMail)}|${JSON.stringify(setupNaverCal)}`;
+  const key = `${whoId()}|${setupPhase}|${setupName}|${setupRepos.join(',')}|${setupReadSessions}|${JSON.stringify(detected)}|${JSON.stringify(brain)}|${(sisa.connected || []).join(',')}|${setupAgent}|${setupLink}|${setupCursor}|${keyStatus}|${keyNote}|${gskFound}|${JSON.stringify(sisa.done)}|${setupPicked.join(',')}|${JSON.stringify(setupChoices)}|${agentLoginState.loggedIn}|${agentLoginState.installed}|${JSON.stringify(setupCalendars)}|${JSON.stringify(setupSlotError)}|${JSON.stringify(mailConnected(vm.connectors))}|${JSON.stringify(setupMail)}|${JSON.stringify(setupCalDav)}`;
   if (!resetScroll && key === setupKey && $('sec-setup').childElementCount) {
     watchAgentLogin();
     return;
@@ -842,37 +878,9 @@ function renderSetupView(resetScroll) {
       onToggle: (id, on) => calendarOp(() => cy.calendarToggle(id, on)),
       onRemove: (id) => calendarOp(() => cy.calendarRemove(id), true),
     },
-    // 네이버 캘린더(CalDAV): 데몬이 로그인해 캘린더를 찾아 보고 되면 저장(전부 켬). 줄마다 체크로 켜기·끄기, 계정 [빼기]. 목록은 setupCalendars(kind naver)
-    naverCal: {
-      busy: setupNaverCal.busy,
-      result: setupNaverCal.result,
-      onOpen: (url) => { try { cy.openLink(url); } catch { /* 무시 */ } },
-      onConnect: async (body, why) => {
-        if (setupNaverCal.busy) return; // 연타해도 한 번만 로그인
-        if (!body) { setupNaverCal = { busy: false, result: { ok: false, text: why } }; redraw(false); return; }
-        setupNaverCal = { busy: true, result: null };
-        redraw(false);
-        let r;
-        try { r = await cy.naverCalConnect(body); } catch { r = { ok: false, error: tr('panel.mail_connect_failed_later') }; }
-        if (Array.isArray(r?.items)) setupCalendars = r.items;
-        if (r?.ok) {
-          clearNaverCalDraft();
-          setupNaverCal = { busy: false, result: { ok: true, text: naverCalConnectedText(r) } };
-          loadSoon();
-        } else setupNaverCal = { busy: false, result: { ok: false, text: r?.error || tr('panel.mail_connect_failed') } };
-        redraw(false);
-      },
-      onToggle: async (id, on) => { await calendarOp(() => cy.calendarToggle(id, on)); redraw(false); },
-      onRemove: async (account) => {
-        let r;
-        try { r = await cy.naverCalRemove(account); } catch { r = { ok: false, error: tr('panel.mail_remove_failed_later') }; }
-        if (Array.isArray(r?.items)) setupCalendars = r.items;
-        if (!setupNaverCal.busy) setupNaverCal = { busy: false, result: r?.ok ? { ok: true, text: tr('panel.mail_removed', { account: r.account || '' }) } : { ok: false, text: r?.error || tr('panel.mail_remove_failed') } };
-        loadSoon();
-        redraw(false);
-        return r;
-      },
-    },
+    // 네이버·iCloud 캘린더(CalDAV): 데몬이 로그인해 캘린더를 찾아 보고 되면 저장(전부 켬). 줄마다 체크로 켜기·끄기, 계정 [빼기]. 목록은 setupCalendars(kind naver · icloud)
+    naverCal: calDavCardState('naver', redraw, (body) => cy.naverCalConnect(body), (account) => cy.naverCalRemove(account)),
+    icloudCal: calDavCardState('icloud', redraw, (body) => cy.icloudCalConnect(body), (account) => cy.icloudCalRemove(account)),
     onDisconnectExtra: async (_id, cap) => {
       let r;
       try { r = await cy.connectorDisconnect(cap); } catch { r = { ok: false }; }

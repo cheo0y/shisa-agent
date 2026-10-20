@@ -14,7 +14,7 @@ import { HOME_DIR, type Config } from "./config.ts";
 import type { Store } from "./store.ts";
 import { addDays, kstDate } from "./calendar.ts";
 import { CONNECTORS, calendarId, isWriteName, mcpTool, type CalDavAccount, type Conn } from "./connectors.ts";
-import { CalDavError, caldavFailReason, fetchCalendarText } from "./caldav.ts";
+import { CalDavError, caldavFailReason, fetchCalendarText, presetDavUrlOk } from "./caldav.ts";
 import { addLogSecret } from "./log.ts";
 import { calendarName, eventsInWindow, fetchIcsText, type FetchText } from "./ics.ts";
 import { phrase } from "./phrases.ts";
@@ -231,8 +231,12 @@ export type CalendarPart = { id: string; name: string; ok: boolean; off?: boolea
 export type IcsCalendar = string | { id?: string; name?: string; url: string; enabled?: boolean; account?: string };
 // CalDAV 캘린더(account 가 붙은 것) 하나의 기간 일정 → ICS 글. 시험은 가짜를 넘긴다
 export type DavText = (url: string, account: CalDavAccount, w: { from: string; to: string }) => Promise<string>;
-// 반복 일정이 창 앞에서 시작해도 서버가 빠뜨리지 않게 앞뒤로 하루씩 넓혀 묻는다(창 밖 회차는 eventsInWindow 가 거른다)
-export const davText: DavText = (url, a, w) => fetchCalendarText(url, { login: a.user, password: a.password ?? "" }, Date.parse(w.from) - 864e5, Date.parse(w.to) + 864e5);
+// 반복 일정이 창 앞에서 시작해도 서버가 빠뜨리지 않게 앞뒤로 하루씩 넓혀 묻는다(창 밖 회차는 eventsInWindow 가 거른다).
+// 주소가 그 계정 서비스의 서버가 아니면(설정 파일을 손으로 고친 경우) 비밀번호를 보내지 않고 그 캘린더만 실패
+export const davText: DavText = (url, a, w) => {
+  if (!presetDavUrlOk(a.preset, url)) return Promise.reject(new CalDavError("url", "not a caldav host of this account"));
+  return fetchCalendarText(url, { login: a.user, password: a.password ?? "" }, Date.parse(w.from) - 864e5, Date.parse(w.to) + 864e5);
+};
 
 // api: 비공개 ICS 주소들(여러 캘린더면 여러 개, 별칭·켜짐과 함께). 하나라도 실패하면 ok=false, 이유는 처음 실패한 것(「별칭: 이유」).
 // parts: 캘린더마다 결과(성공한 캘린더의 일정은 바로 바꾸고, 실패한 캘린더는 예전 것을 둔다. CalendarSync.replaceParts). 꺼 둔 캘린더는 읽지 않는다
@@ -247,6 +251,8 @@ export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?:
     if (!a?.password) return Promise.reject(new CalDavError("noaccount", "no account"));
     return dav(c.url, a, w);
   };
+  // 오류 글은 그 계정 서비스 말로(계정이 없어졌으면 id 앞글자로: i- = iCloud, 그 밖 = 네이버)
+  const davPreset = (id: string) => opts.caldav?.find((x) => x.id === id)?.preset ?? (id.startsWith("i-") ? "icloud" : "naver");
   const on = cals.filter((c) => c.enabled);
   return async (_cfg, w) => {
     const events: CalEvent[] = [];
@@ -265,7 +271,7 @@ export function icsSource(list: IcsCalendar[], opts: { timeZone: string; email?:
       }
       catch (e: any) {
         errors++;
-        const r = c.account ? caldavFailReason(e) : icsFailReason(e, c.url);
+        const r = c.account ? caldavFailReason(e, davPreset(c.account)) : icsFailReason(e, c.url);
         const label = c.name || (cals.length > 1 ? t("status.cal_nth", { n: c.n }) : "");
         fail ??= label ? { code: r.code, reason: `${label}: ${r.reason}` } : r;
         parts.push({ id: c.id, name: fallback || t("status.cal_default"), ok: false, events: 0, reason: r.reason, code: r.code });
