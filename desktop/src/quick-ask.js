@@ -42,6 +42,13 @@ export function quickBubble(view, character, focusing = false) {
 }
 export const isFocusChip = (id) => id === 'focus_start' || id === 'focus_stop';
 
+// 캐릭터 클릭 몇 번이 무엇인가: 'panel'(패널 · 공부 중이면 세션 창) | 'talk'(말 걸기). 기본은 한 번 = 패널, 두 번 = 말 걸기.
+// swap(설정 「캐릭터 클릭 바꾸기」)이면 반대
+export function clickAction(clicks, swap = false) {
+  const single = clicks < 2;
+  return single !== !!swap ? 'panel' : 'talk';
+}
+
 // 캐릭터 더블클릭: 칩 말풍선이나 입력창이 열려 있으면 닫고(토글), 아니면 연다.
 // AI 없으면 칩, 있으면 입력창. 칩을 눌러 나온 답 말풍선은 여기 안 친다(클릭으로 닫힌다)
 // → 'close' | 'quick' | 'ask'

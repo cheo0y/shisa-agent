@@ -1,6 +1,6 @@
 // 렌더러 — 말풍선 그리기, 캐릭터 상태, 클릭 투과 토글, 드래그, 호버 채팅.
 import { BubbleQueue, normalizeBubble, assetUrl, sequence, stickerTtl, clickTarget, cleanMergeQuestion, linkLabel, looksMarkdown, bubbleMd, isListBubble, keepClasses, BUBBLE_PURIFY, isWaitingApproval, approvalButtons, tourButtons, carryButtons } from '../src/bubbles.js';
-import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
+import { quickBubble, chipsOf, chipAction, answerBubble, dblclickAction, clickAction, isFocusChip, QUICK_ID } from '../src/quick-ask.js';
 import { bubbleAfterAction } from '../src/actions.js';
 import { runningCaption } from '../src/agents.js';
 import DOMPurify from './vendor/purify.js';
@@ -874,9 +874,9 @@ function showReply(r) {
 
 cy.onChat((ev) => { catchUp(); dispatchChat({ type: 'event', ev }); });
 // 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐) · 지금 패널이 보이는지(메인이 알려 줌)
-let overlay = { panelOverlay: false, panelOpen: false };
+let overlay = { panelOverlay: false, panelOpen: false, clickSwap: false };
 cy.onOverlayPrefs?.((p) => {
-  overlay = { panelOverlay: p?.panelOverlay === true, panelOpen: p?.panelOpen === true };
+  overlay = { panelOverlay: p?.panelOverlay === true, panelOpen: p?.panelOpen === true, clickSwap: p?.clickSwap === true };
   dispatchChat({ type: 'all', on: overlay.panelOverlay }); // 켜면 패널에서 한 대화의 답도 머리 위 말풍선으로
   if (!hoverAskAllowed(hoverAskState())) hoverAsk.cancel(); // 끄거나 패널을 닫으면 재던 호버 입력창도 취소
 });
@@ -1113,7 +1113,8 @@ wrap.addEventListener('mousedown', (e) => {
   e.preventDefault();
 });
 
-// 한 번 클릭 = 패널(공부 중이면 세션 창), 더블클릭 = 말 걸기(입력창). 두 번째 클릭이 올 때까지 잠깐 기다렸다가 패널을 연다.
+// 한 번 클릭 = 패널(공부 중이면 세션 창), 더블클릭 = 말 걸기(입력창). 두 번째 클릭이 올 때까지 잠깐 기다렸다가 한 번 클릭 일을 한다.
+// 설정 「캐릭터 클릭 바꾸기」(overlay.clickSwap)면 반대(clickAction)
 // 뇌(AI)가 아직 없으면 더블클릭 = 짧은 춤 + 고르는 질문 칩(AI 없이 답하는 것 · AI 연결하기)
 const DOUBLE_CLICK_MS = 280;
 let clickTimer = null;
@@ -1197,17 +1198,21 @@ document.getElementById('ask-more')?.addEventListener('click', (e) => {
   showBubble(quickBubble(brain, charA.id, !!focus?.active));
 });
 
+function clickDo(what) {
+  if (what === 'talk') return talk();
+  hideAsk();
+  cy.togglePanel();
+}
 function onCharacterClick() {
   if (clickTimer) {
     clearTimeout(clickTimer);
     clickTimer = null;
-    talk();
+    clickDo(clickAction(2, overlay.clickSwap));
     return;
   }
   clickTimer = setTimeout(() => {
     clickTimer = null;
-    hideAsk();
-    cy.togglePanel();
+    clickDo(clickAction(1, overlay.clickSwap));
   }, DOUBLE_CLICK_MS);
 }
 
@@ -1216,7 +1221,7 @@ document.addEventListener('mousedown', (e) => press.down(e.button), true);
 window.addEventListener('mouseup', (e) => {
   const el = e.target instanceof Element ? e.target : null;
   if (!missedClick(press.up(e.button), e.button, el?.closest('.hit')) || el.closest('button:disabled')) return;
-  if (el.closest('#char-wrap')) onCharacterClick(); // 한 번 = 패널, 두 번 = 말 걸기(그대로)
+  if (el.closest('#char-wrap')) onCharacterClick(); // 한 번·두 번 클릭 일은 설정대로(그대로)
   else if (el.matches('input, textarea')) el.focus();
   else el.click();
 }, true);

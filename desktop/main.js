@@ -597,7 +597,7 @@ function send(channel, payload) {
 
 // 설정 「패널이 열려 있어도 캐릭터 위에 답 띄우기」(기본 켜짐)와 지금 패널이 보이는지. 캐릭터 창이 다른 창 답 말풍선·2초 호버 입력창을 정한다
 function sendOverlayPrefs() {
-  send('overlay-prefs', { panelOverlay: state.panelOverlay !== false, panelOpen: !!(panel && !panel.isDestroyed() && panel.isVisible()) });
+  send('overlay-prefs', { panelOverlay: state.panelOverlay !== false, panelOpen: !!(panel && !panel.isDestroyed() && panel.isVisible()), clickSwap: state.clickSwap === true });
 }
 
 function sendPanel(channel, payload) {
@@ -2174,7 +2174,7 @@ const appPrefs = {
     if (p.manage) {
       try { on = app.getLoginItemSettings(loginTarget()).openAtLogin === true; } catch { on = state.openAtLogin === true; }
     }
-    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, panelOverlay: state.panelOverlay !== false };
+    return { ok: true, version: app.getVersion(), openAtLogin: { available: p.manage, on, hint: loginItemHint(p.reason) }, updateCheck: state.updateCheck !== false, panelOverlay: state.panelOverlay !== false, clickSwap: state.clickSwap === true };
   },
   set(patch) {
     if ('openAtLogin' in patch) {
@@ -2192,6 +2192,11 @@ const appPrefs = {
     }
     if ('panelOverlay' in patch) {
       state.panelOverlay = patch.panelOverlay;
+      saveState();
+      sendOverlayPrefs();
+    }
+    if ('clickSwap' in patch) { // 캐릭터 클릭 바꾸기(한 번 = 말 걸기, 두 번 = 패널)
+      state.clickSwap = patch.clickSwap;
       saveState();
       sendOverlayPrefs();
     }

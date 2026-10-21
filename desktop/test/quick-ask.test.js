@@ -89,7 +89,7 @@ test('chatLock: AI 없으면 카드, 숨겼으면 다시 보기 링크만, AI �
 // ---- 더블클릭 토글 ----
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { dblclickAction } from '../src/quick-ask.js';
+import { dblclickAction, clickAction } from '../src/quick-ask.js';
 import { BubbleQueue } from '../src/bubbles.js';
 
 test('더블클릭: 닫혀 있으면 연다(AI 없으면 칩, 있으면 입력창), 열려 있으면 닫는다', () => {
@@ -121,7 +121,7 @@ function overlay({ ready }) {
   const queue = new BubbleQueue();
   const timers = [];
   const ctx = {
-    queue, QUICK_ID, dblclickAction, quickBubble, brain: { ready }, charA: { id: 'sisa' }, focus: null,
+    queue, QUICK_ID, dblclickAction, clickAction, quickBubble, brain: { ready }, charA: { id: 'sisa' }, focus: null, overlay: { clickSwap: false },
     ask: fakeEl(), askInput: fakeEl(),
     cy: { chatFocus: async () => true, togglePanel: () => { ctx.panelToggles++; } },
     panelToggles: 0,
@@ -134,10 +134,11 @@ function overlay({ ready }) {
   };
   vm.createContext(ctx);
   vm.runInContext(`var askOpen = false, askFocused = false, askPauseTimer = null, hoverArmed = true, leaveTimer = null, clickTimer = null, chipSeq = 0, quickGen = 0;
-${['showAsk', 'hideAsk', 'noBrain', 'talk', 'closeQuick', 'onCharacterClick'].map(fnSource).join('\n')}`, ctx);
+${['showAsk', 'hideAsk', 'noBrain', 'talk', 'closeQuick', 'clickDo', 'onCharacterClick'].map(fnSource).join('\n')}`, ctx);
   const ids = () => queue.visible().map((x) => x.id);
   const dbl = async () => { ctx.onCharacterClick(); ctx.onCharacterClick(); await new Promise((r) => setImmediate(r)); };
-  return { ctx, ids, dbl };
+  const single = () => { ctx.onCharacterClick(); for (const t of timers.splice(0)) t.fn?.(); };
+  return { ctx, ids, dbl, single };
 }
 
 test('렌더러(가짜 DOM): AI 없을 때 더블클릭 → 칩, 다시 더블클릭 → 바로 닫힘. 답 말풍선·둘러보기는 남는다', async () => {
@@ -225,4 +226,26 @@ test('렌더러(가짜 DOM): 캐릭터 위 2초로 연 입력창도 더블클릭
   fire(HOVER_ASK_MS);
   assert.equal(ctx.askOpen, false);
   assert.deepEqual(ids(), ['local-tour']);
+});
+
+test('clickAction: 기본은 한 번 = 패널·두 번 = 말 걸기, 「캐릭터 클릭 바꾸기」면 반대', async () => {
+  const { clickAction } = await import('../src/quick-ask.js');
+  assert.equal(clickAction(1), 'panel');
+  assert.equal(clickAction(2), 'talk');
+  assert.equal(clickAction(1, false), 'panel');
+  assert.equal(clickAction(1, true), 'talk');
+  assert.equal(clickAction(2, true), 'panel');
+});
+
+test('렌더러(가짜 DOM): 「캐릭터 클릭 바꾸기」면 한 번 클릭 → 입력창, 더블클릭 → 패널', async () => {
+  const { ctx, dbl, single } = overlay({ ready: true });
+  single();
+  assert.equal(ctx.panelToggles, 1); // 기본: 한 번 = 패널
+  ctx.overlay.clickSwap = true;
+  single();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ctx.ask.hidden, false); // 바꾸면 한 번 = 말 걸기
+  assert.equal(ctx.panelToggles, 1);
+  await dbl();
+  assert.equal(ctx.panelToggles, 2); // 두 번 = 패널
 });
