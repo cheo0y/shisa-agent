@@ -506,7 +506,9 @@ function initialPosition() {
 }
 
 // 오버레이를 다시 맨 위로(윈도우만, 보일 때만). moveTop 은 SWP_NOACTIVATE 라 포커스 안 받는 창이 앞 창을 뺏지 않는다.
-// 다시 보일 때·화면 구성 바뀜·절전/잠금 뒤에만 — 주기적으로는 안 한다(카톡 「항상 위」 같은 남의 항상 위 창과 싸우지 않게)
+// 다시 보일 때·화면 구성 바뀜·절전/잠금 뒤·끌기 끝·우리 창(패널·세션)을 숨기거나 닫거나 다른 앱으로 넘어갈 때,
+// 그리고 「항상 위」가 풀린 걸 알았을 때(always-on-top-changed · 2초마다 isAlwaysOnTop 확인).
+// 풀리지 않았는데 주기적으로 moveTop 하지는 않는다(카톡 「항상 위」 같은 남의 항상 위 창과 싸우지 않게)
 function keepOnTop(w) {
   if (process.platform !== 'win32' || !w || w.isDestroyed() || !w.isVisible()) return;
   w.setAlwaysOnTop(true, 'screen-saver');
@@ -558,6 +560,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.showInactive());
   win.on('show', () => keepOnTop(win)); // showInactive 마다(트레이·메뉴 보이기)
+  win.on('always-on-top-changed', (_e, on) => { if (!on) keepOnTop(win); }); // 누가 항상 위를 풀면 바로 다시
   win.webContents.on('did-finish-load', () => {
     winLoaded = true;
     send('connection', { connected });
@@ -676,7 +679,8 @@ function createPanel() {
   });
   panel.on('show', sendOverlayPrefs);
   panel.on('hide', sendOverlayPrefs);
-  panel.on('closed', () => { panel = null; panelReady = false; sendOverlayPrefs(); });
+  panel.on('closed', () => { panel = null; panelReady = false; sendOverlayPrefs(); keepOnTop(win); });
+  panel.on('hide', () => keepOnTop(win)); // 패널이 캐릭터를 덮고 있다 사라지면 캐릭터를 다시 맨 위로(윈도우)
 }
 
 // id(선택): 그 섹션에서 펼칠 항목(오버레이 새 할 일 말풍선 → 그 할 일)
@@ -759,7 +763,7 @@ function createSession() {
   };
   sessionWin.on('resize', remember);
   sessionWin.on('move', remember);
-  sessionWin.on('closed', () => { sessionWin = null; sessionReady = false; });
+  sessionWin.on('closed', () => { sessionWin = null; sessionReady = false; keepOnTop(win); });
 }
 
 // runId(선택): 이 run 을 연다. 없으면 창이 알아서 최근 것
@@ -1292,6 +1296,7 @@ function endDrag() {
   const [x, y] = win.getPosition();
   state.pos = { x, y };
   saveState();
+  keepOnTop(win); // 끌다 놓은 자리에서 다른 창 밑으로 들어가지 않게(윈도우)
 }
 
 // 우리 창에서 온 IPC 만 받는다
@@ -2264,6 +2269,10 @@ if (SQUIRREL) {
     // 화면 구성 바뀜·절전/잠금 뒤 캐릭터를 다시 맨 위로(윈도우)
     for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => keepOnTop(win));
     for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => keepOnTop(win));
+    // 우리 창(패널·세션·설정)에서 다른 앱으로 넘어갈 때 · 「항상 위」가 소리 없이 풀렸을 때(작업 표시줄·전체 화면 앱·Win+D 뒤) 다시 세운다.
+    // 2초 확인은 풀렸을 때만 moveTop — 풀리지 않았으면 아무것도 안 한다
+    app.on('browser-window-blur', () => keepOnTop(win));
+    if (process.platform === 'win32') setInterval(() => { if (win && !win.isDestroyed() && win.isVisible() && !win.isAlwaysOnTop()) keepOnTop(win); }, 2000);
     // 클릭 투과 보강(윈도우): 커서를 직접 물어 hit 검사 · 절전/잠금·화면 바뀜 뒤엔 forward 훅을 바로 다시 건다
     startHitWatch();
     for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => hitWatch?.rearmNow());
