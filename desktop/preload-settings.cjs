@@ -32,7 +32,7 @@ contextBridge.exposeInMainWorld('cy', {
   removeCalendar: (id) => ipcRenderer.invoke('settings-calendar-remove', String(id || '')),
   copyText: (text) => ipcRenderer.invoke('settings-copy', String(text || '')),
   openPanel: (section) => ipcRenderer.send('settings-open-panel', String(section)), // 'setup'(설치 안내) | 'models'(AI 고르기)
-  getAppPrefs: () => ipcRenderer.invoke('settings-app-get'), // { version, openAtLogin: { available, on, hint }, updateCheck, panelOverlay }
+  getAppPrefs: () => ipcRenderer.invoke('settings-app-get'), // { version, openAtLogin: { available, on, hint }, updateCheck, panelOverlay, clickSwap }
   setAppPrefs: (patch) => ipcRenderer.invoke('settings-app-set', patch && typeof patch === 'object' ? JSON.parse(JSON.stringify(patch)) : null),
   startTour: () => ipcRenderer.send('settings-tour'), // 사용법 다시 보기(캐릭터 말풍선)
   // 캐릭터: 목록(GET /characters) · 만들기 { name, from?, lines?, frame? } · 고치기(id, { name?, lines?, frame? }) · 기본값으로(id) · 지우기(id)

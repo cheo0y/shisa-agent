@@ -441,12 +441,13 @@ export function metaText(row, now = new Date()) {
   return [latencyText(row?.latencyMs), row?.checkedAt ? t('settings.checked_at', { ago: agoText(row.checkedAt, now) }) : ''].filter(Boolean).join(' · ');
 }
 
-// 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?: boolean, updateCheck?: boolean, panelOverlay?: boolean } — 그 밖의 키·모양이면 null
+// 설정 창 「이 앱」 칸(앱이 state.json 에 두는 값): { openAtLogin?, updateCheck?, panelOverlay?, clickSwap? } 모두 boolean — 그 밖의 키·모양이면 null
 // panelOverlay: 패널이 열려 있어도 캐릭터 위에 답 띄우기 · 2초 호버 입력창(기본 켜짐)
+// clickSwap: 캐릭터 한 번 클릭 = 말 걸기, 두 번 클릭 = 패널(기본 꺼짐 = 한 번 패널, 두 번 말 걸기)
 export function sanitizeAppPrefs(p) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const keys = Object.keys(p);
-  if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck' || k === 'panelOverlay')) return null;
+  if (!keys.length || !keys.every((k) => k === 'openAtLogin' || k === 'updateCheck' || k === 'panelOverlay' || k === 'clickSwap')) return null;
   const out = {};
   for (const k of keys) {
     if (typeof p[k] !== 'boolean') return null;

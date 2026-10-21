@@ -122,8 +122,9 @@ test('설정 창 IPC: 이 창에서 온 것만, 저장 본문은 걸러서 PUT, 
 
 test('캐릭터 한 번 클릭 → 패널, 더블클릭 → 말 걸기(뇌가 없으면 춤 + 연결 안내), 보내면 hover 스레드(chat-send 가 kind hover)', () => {
   const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
-  assert.match(r, /clickTimer = setTimeout\(\(\) => \{\s*clickTimer = null;\s*hideAsk\(\);\s*cy\.togglePanel\(\);/);
-  assert.match(r, /function onCharacterClick\(\) \{\s*if \(clickTimer\) \{\s*clearTimeout\(clickTimer\);\s*clickTimer = null;\s*talk\(\);/);
+  assert.match(r, /clickTimer = setTimeout\(\(\) => \{\s*clickTimer = null;\s*clickDo\(clickAction\(1, overlay\.clickSwap\)\);/);
+  assert.match(r, /function clickDo\(what\) \{\s*if \(what === 'talk'\) return talk\(\);\s*hideAsk\(\);\s*cy\.togglePanel\(\);/);
+  assert.match(r, /function onCharacterClick\(\) \{\s*if \(clickTimer\) \{\s*clearTimeout\(clickTimer\);\s*clickTimer = null;\s*clickDo\(clickAction\(2, overlay\.clickSwap\)\);/);
   assert.match(r, /function talk\(\) \{[\s\S]*?dblclickAction\(\{ ready: brain\.ready, askOpen, quickShown \}\);\s*if \(a === 'close'\) return closeQuick\(\);\s*if \(a === 'quick'\) return noBrain\(\);\s*showAsk\(\);/); // 열려 있으면 다시 더블클릭 = 닫기(quick-ask.test.js)
   assert.match(r, /dispatchActivity\(\{ type: 'localDance', on: true, clip, variant \}\)/); // 데몬이 꺼져 있을 때 칩 춤·응원은 고른 영상(clip)과 앱이 고른 번호(variant)
   const m = readFileSync(new URL('../main.js', import.meta.url), 'utf8');

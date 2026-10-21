@@ -193,3 +193,19 @@ test('호버 입력창: 설정을 끄거나 패널이 닫혀 있으면 안 뜬�
   assert.equal(b.opened(), 0);
   assert.equal(b.h.pending(), false);
 });
+
+test('캐릭터 클릭 바꾸기: 설정 「이 앱」 칸에 켜고 끄기, state.json 저장, 오버레이로 전달, 클릭이 clickAction 을 따른다', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { sanitizeAppPrefs } = await import('../src/settings.js');
+  assert.deepEqual(sanitizeAppPrefs({ clickSwap: true }), { clickSwap: true });
+  assert.equal(sanitizeAppPrefs({ clickSwap: 'yes' }), null);
+  const main = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
+  assert.match(main, /clickSwap: state\.clickSwap === true \}\);/); // overlay-prefs
+  assert.match(main, /if \('clickSwap' in patch\) \{[^}]*state\.clickSwap = patch\.clickSwap;\s*saveState\(\);\s*sendOverlayPrefs\(\);/);
+  const r = readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
+  assert.match(r, /clickSwap: p\?\.clickSwap === true/);
+  assert.match(r, /clickDo\(clickAction\(2, overlay\.clickSwap\)\)/);
+  assert.match(r, /clickDo\(clickAction\(1, overlay\.clickSwap\)\)/);
+  const s = readFileSync(new URL('../renderer/settings.js', import.meta.url), 'utf8');
+  assert.match(s, /\{ key: 'clickSwap', on: appPrefs\.clickSwap === true, label: t\('settings\.pref_click_swap'\) \}/);
+});
