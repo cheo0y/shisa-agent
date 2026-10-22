@@ -1123,6 +1123,9 @@ function onCharacter(id, force = false) {
   sendPanel('sisa', sisaPublic(normalizeSisa(readSisa()))); // 말투 글 기본값도 그 캐릭터 것
 }
 
+// 기본 캐릭터마다 예전 버전이 깔아 둔 그림 중 실제로 있는 것(local)을 붙인다(assets.js withLocalFiles)
+const withLocal = (data) => withLocalFiles(data, (rel) => assetCandidates(rel, assetDirs(), path.join).some((f) => fs.existsSync(f)));
+
 // 사용자 캐릭터·고친 대사(데몬 GET /characters, src/character-registry.js): 이 프로세스 기본값 위에 덮고 창마다 알린다.
 // 데몬에 붙을 때와 SSE characters 때 다시 읽는다. cy-asset 이 사용자 캐릭터 파일을 줄 때도 이 목록을 본다
 let charactersData = null;
@@ -1131,7 +1134,7 @@ const loadCharacters = rerunLatest(async () => {
   const r = await request('GET', '/characters');
   if (!r.ok || !r.data || !Array.isArray(r.data.characters)) return;
   // 기본 캐릭터마다 예전 버전이 깔아 둔 그림 중 실제로 있는 것(local) — 없으면 렌더러가 바로 기본 그림을 쓴다
-  const data = withLocalFiles(r.data, (rel) => assetCandidates(rel, assetDirs(), path.join).some((f) => fs.existsSync(f)));
+  const data = withLocal(r.data);
   charactersData = data;
   applyCharacters(data);
   send('characters', data);
@@ -1322,6 +1325,7 @@ function setupIPC() {
     copyText: (text) => { clipboard.writeText(text); return { ok: true }; },
     appPrefs,
     upload: (method, pathname, name, mime, bytes) => uploadBytes(method, pathname, name, mime, bytes),
+    decorateCharacters: (data) => withLocal(data),
     preload: path.join(__dirname, 'preload-settings.cjs'),
     html: path.join(__dirname, 'renderer', 'settings.html'),
   });
