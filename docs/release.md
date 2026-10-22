@@ -7,9 +7,9 @@
 | 위치(`시사.app/Contents/`) | 내용 |
 |---|---|
 | `MacOS/shisa` | Electron 앱. 같은 실행 파일을 `ELECTRON_RUN_AS_NODE=1`로 띄우면 Node.js(Electron에 든 Node 24)로 동작합니다 |
-| `Resources/app.asar` | 데스크톱 앱 코드(`desktop/`의 main.js, preload, renderer, src) |
+| `Resources/app.asar` | 데스크톱 앱 코드(`desktop/`의 main.js, preload, renderer, src, 기본 그림 `assets/default/`와 트레이 아이콘) |
 | `Resources/agent/` | 데몬 소스(`agent/src`, 테스트 파일 제외)와 런타임 의존성(`npm ci --omit=dev`). Claude Agent SDK의 그 아키텍처용 실행 파일 패키지도 여기 들어갑니다 |
-| `Resources/assets/` | 캐릭터 그림·영상·스티커(레포 `assets/`) |
+| `Resources/assets/` | 캐릭터 대사(`characters/lines*.json`)와 동작별 영상 목록(`characters/clips.json`). v0.4.0부터 캐릭터 그림·영상·스티커는 넣지 않습니다. 레포 `assets/`에 그림·영상 파일이 있으면 `npm run dist`가 멈춥니다 |
 
 앱이 켜지면 `Resources/agent/src/main.ts`를 자식 프로세스로 띄웁니다(`desktop/src/bundle.js`, `desktop/src/daemon-host.js`).
 
@@ -38,7 +38,7 @@ npm run dist -- --no-dmg   # dmg 없이 dist/app/시사-darwin-<arch>/시사.app
 
 - 버전은 `desktop/package.json`의 `version`입니다. 내보내기 전에 올려 둡니다.
 - 인터넷이 필요합니다. 데몬 의존성은 `npm ci --omit=dev --os=darwin --cpu=<arch>`로 그 아키텍처용을 받고, Electron은 `@electron/packager`가 그 아키텍처용을 받습니다. 그래서 애플 실리콘 맥에서 인텔용(x64)도 만들 수 있습니다.
-- 아이콘은 개인 그림(`~/.cy-agent/assets`)이 아니라 레포 `assets/`의 그림으로 만듭니다.
+- 아이콘은 기본 그림(`desktop/src/default-face.js`)으로 만듭니다. 개인 그림은 쓰지 않습니다.
 - `desktop/node_modules`가 없는 폴더(워크트리 등)에서는 다른 곳에 `npm ci`한 desktop 의존성을 `SHISA_BUILD_MODULES=<그 node_modules 경로>`로 알려 줍니다.
 - 서명은 ad-hoc(`codesign --force --deep --sign -`)입니다. 애플 실리콘은 서명이 아예 없으면 실행을 막기 때문에 넣습니다. Claude Agent SDK 실행 파일은 원래 붙어 있던 Anthropic 서명이 그대로 남습니다.
 - dmg는 macOS 기본 `hdiutil`로 「시사.app」과 「응용 프로그램」 바로가기를 담아 압축(UDZO)합니다.

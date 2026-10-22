@@ -7,9 +7,9 @@
 | 위치(`Shisa-win32-<arch>\`, 설치하면 `%LOCALAPPDATA%\Shisa\app-<버전>\`) | 내용 |
 |---|---|
 | `Shisa.exe` | Electron 앱. 파일 설명·제품 이름은 「시사」(바로 가기·작업 관리자에 보이는 이름) |
-| `resources\app.asar` | 데스크톱 앱 코드(`desktop/`의 main.js, preload, renderer, src, assets/character.png) |
+| `resources\app.asar` | 데스크톱 앱 코드(`desktop/`의 main.js, preload, renderer, src, 기본 그림 `assets/default/`, 트레이 아이콘 `assets/character.png`) |
 | `resources\agent\` | 데몬 소스(`agent/src`, 테스트 제외)와 런타임 의존성(`npm ci --omit=dev --os=win32 --cpu=<arch>`). Claude Agent SDK의 `@anthropic-ai/claude-agent-sdk-win32-<arch>`만 남깁니다 |
-| `resources\assets\` | 캐릭터 그림·영상·스티커(레포 `assets/`) |
+| `resources\assets\` | 캐릭터 대사와 동작별 영상 목록(레포 `assets/characters/*.json`). v0.4.0부터 캐릭터 그림·영상·스티커는 넣지 않습니다 |
 
 설치하면 Squirrel이 `%LOCALAPPDATA%\Shisa\Update.exe`를 두고, 앱(`main.js`)이 `--squirrel-install` 때 바로 가기를 만들고, `--squirrel-uninstall` 때 바로 가기와 로그인 항목 정리를 합니다. `--squirrel-updated`에서는 아무것도 하지 않습니다.
 
@@ -47,7 +47,7 @@ npm run dist:win -- --arch=x64 --no-installer   # 앱 폴더와 zip만
 | `app\`, `stage\` |  | 중간 산물 |
 
 - 버전은 `desktop/package.json`의 `version`입니다. 맥과 같은 버전 번호를 쓰고, 태그만 `v<버전>-windows`로 따로 냅니다(맥은 `v<버전>`).
-- 아이콘은 레포 `assets/character/eyes_open@2x.png`로 `windows/make-ico.mjs`가 만듭니다(16~256px, 외부 도구 없음).
+- 아이콘은 기본 그림(`desktop/src/default-face.js`)으로 `windows/make-ico.mjs`가 만듭니다(16~256px, 외부 도구 없음).
 - `desktop/node_modules`가 없는 폴더(워크트리 등)에서는 `$env:SHISA_BUILD_MODULES="<다른 곳에 npm ci 한 desktop\node_modules>"`.
 - 포크에서 내보낼 때는 `$env:SHISA_RELEASE_REPO="<owner>/<repo>"`(아이콘 주소) 또는 `$env:SHISA_ICON_URL`을 줍니다.
 - npm 11은 의존성의 install 스크립트를 기본으로 돌리지 않습니다. electron-winstaller가 그 스크립트로 고르는 `vendor\7z.exe`는 `dist-win.mjs`가 대신 고릅니다(`desktop/node_modules` 안에 복사만 하고, 이미 같으면 그대로 둡니다).

@@ -8,6 +8,13 @@
 | `desktop/renderer/vendor/marked.js` | marked | 18.0.14 | MIT | https://github.com/markedjs/marked |
 | `desktop/renderer/vendor/purify.js` | DOMPurify | 3.4.16 | MPL-2.0 또는 Apache-2.0 (둘 중 선택) | https://github.com/cure53/DOMPurify |
 
+## 캐릭터 그림과 이름
+
+- v0.4.0부터 이 레포와 앱(dmg·윈도우 설치 파일)에는 캐릭터 그림·영상·말풍선 스티커가 들어 있지 않습니다. 0.3.x까지 들어 있던 그림과 영상(치이카와 팬아트)은 뺐습니다.
+- 그림을 넣지 않은 캐릭터가 쓰는 기본 그림(`desktop/assets/default/`)과 앱 아이콘·트레이 아이콘은 `desktop/src/default-face.js`가 원과 곡선으로 직접 그린 것입니다. 외부 그림을 쓰지 않았고, 코드와 같은 MIT 라이선스를 따릅니다.
+- 기본 캐릭터 이름(하치와레·랏코·모몽가·우사기·카니·치이카와·쿠리만쥬와 일본어 표기)은 원작 치이카와(ちいかわ, © Nagano / chiikawa committee)의 표기를 빌려 쓴 것입니다. 원작 캐릭터의 권리는 원저작자에게 있으며, 이 레포는 원작자나 권리자와 관계가 없습니다. 대사(`assets/characters/lines*.json`)는 이 앱을 위해 새로 쓴 글이고 원작 대사를 옮긴 것이 아닙니다.
+- 사용자가 설정 창에서 넣는 그림·영상은 사용자 컴퓨터(`~/.cy-agent/characters/`)에만 저장되고 배포물에 들어가지 않습니다. 넣는 그림을 쓸 권리는 넣는 사람이 확인해야 합니다.
+
 ## uqr
 
 MIT License. Copyright (c) Anthony Fu and UnJS contributors.

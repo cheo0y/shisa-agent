@@ -43,7 +43,7 @@ type Bubble = {
 
 - `studying`: 데몬이 스스로 돌리는 세션(run)이 있을 때다(사용자 대화 `chat` 제외).
 - `dancing`: 일정 알림(기본 10분 전, 설정 `calendarAlert`), 「춤」·「춤춰 줘」·「응원해 줘」, 점심시간 알림(설정 `lunchAlert`), 퇴근 10분 전 인사(설정 `leaveAlert`, `danceClip: "plan"`) 때 8초 동안이다.
-- 앱은 캐릭터마다 다른 영상을 튼다. 기본 캐릭터의 칸별 영상 목록은 `assets/characters/clips.json`(렌더러 사본 `desktop/src/character-clips.js`, `node desktop/scripts/sync-character-lines.mjs`로 맞춘다)에 있다. 시사는 `assets/character/`, 다른 캐릭터는 `assets/characters/<id>/`의 파일이다.
+- 앱은 캐릭터마다 다른 영상을 튼다. v0.4.0부터 레포·앱에는 그림·영상이 없다. 앱은 사용자가 넣은 것(`~/.cy-agent/characters/<id>/`) > 예전 버전이 깔아 둔 것(`~/.cy-agent/assets/`, 시사는 `character/`, 다른 캐릭터는 `characters/<id>/`) > 기본 그림(`desktop/assets/default/`) 순서로 쓰고, 영상이 없으면 정지 그림 그대로다. 기본 캐릭터의 칸별 영상 목록은 `assets/characters/clips.json`(렌더러 사본 `desktop/src/character-clips.js`, `node desktop/scripts/sync-character-lines.mjs`로 맞춘다)이고, 기본 캐릭터에 사용자가 넣은 칸은 그 목록이 이긴다(`clips.ts` `withUploads`).
 - 한 칸에 영상이 여러 개면 그때마다 하나가 나온다. 춤 자리는 데몬이 춤을 시작할 때(`activity.play`) 번호를 골라 `danceVariant`로 알리고, 그 영상에 전용 한마디(`say`)가 있으면 기본 대사 대신 그 말을 말풍선·답으로 띄운다. 두 개 이상이면 같은 번호가 연달아 나오지 않는다. 앱은 그 번호의 영상을 튼다. 데몬과 끊겨 있을 때 앱이 스스로 추는 춤은 앱이 번호를 고르고 그 한마디를 앱 말풍선으로 띄운다. 집중 영상은 앱이 들어갈 때마다 고른다.
 - 칸 목록이 없으면 대신 쓴다: 응원은 춤, 춤은 응원, 일정 알림은 춤(그다음 응원), 점심시간은 일정 알림(그다음 춤, 응원)이다. 다른 칸 목록을 대신 쓸 때는 한마디를 빼고 그 칸 기본 대사를 쓴다. 일정 알림 영상의 한마디는 일정 말풍선 글(문구 `meeting_alert`)을 대신하고 같은 자리표시 `{mins}`·`{title}`·`{time}`·`{where}`를 쓴다(예: 치이카와의 우는 장면). 다른 칸 한마디는 자리표시를 쓰지 않는다.
 - 근무 시간 알림(설정 `workStart`·`lunchTime`·`workEnd`·`workDays`, 로컬 시간대, 자정을 넘기는 근무는 다루지 않는다). 근무 요일에 하루 한 번씩이고, 날짜는 `~/.cy-agent/lunch.json`(`{ last: 점심, start, leave }`)에 남겨 같은 날 다시 켜도 또 뜨지 않는다.
@@ -147,15 +147,16 @@ type Bubble = {
 
 | | |
 |---|---|
-| `GET /characters` | `{ current, language, characters, slots, types, help, schema }`. `characters`는 기본 여덟(`builtin`, `defaults` 기본 대사, `override` 고친 칸 또는 `null`, `lines` 둘을 합친 것)과 사용자 캐릭터(`custom`, `from`, `media { 칸: 첫 저장 이름 }`, `frames { 칸: 테두리 }`, `clips { 칸: [{ file, say?, frame }] }`, `lines`)다. 응원·춤·집중·일정 알림·점심시간은 파일을 여러 개 넣는 칸이라 `clips`에 전부 있고, `media`·`frames`에는 칸마다 첫 파일만 있다. `schema`는 고칠 수 있는 칸 목록 `[{ path, kind: text\|list, vars, oneLine?, label? }]`, `help`는 `lines.json`의 `_help`다 |
+| `GET /characters` | `{ current, language, characters, slots, types, help, schema }`. `characters`는 기본 여덟(`builtin`, `defaults` 기본 대사, `override` 고친 칸 또는 `null`, `lines` 둘을 합친 것, 사용자가 넣은 그림 `media`·`frames`·`clips`, 넣은 게 없으면 빈 묶음)과 사용자 캐릭터(`custom`, `from`, `media { 칸: 첫 저장 이름 }`, `frames { 칸: 테두리 }`, `clips { 칸: [{ file, say?, frame }] }`, `lines`)다. 응원·춤·집중·일정 알림·점심시간은 파일을 여러 개 넣는 칸이라 `clips`에 전부 있고, `media`·`frames`에는 칸마다 첫 파일만 있다. `schema`는 고칠 수 있는 칸 목록 `[{ path, kind: text\|list, vars, oneLine?, label? }]`, `help`는 `lines.json`의 `_help`다 |
 | `POST /characters { name, from?, lines?, frames? }` | 새 캐릭터. `from`(기본 `shisa`)의 대사를 전부 복사하고 이름이 든 줄은 새 이름으로 바꾼다. `lines`를 주면 그 위에 덮는다(시사의 정해진 답처럼 앱에만 있는 칸). 201 `{ character }` |
-| `GET /characters/:id` · `PUT /characters/:id` | 사용자 캐릭터는 `{ name?, lines?, frames?, files? }`(`lines`는 통째로, `frames`는 준 칸만이고 여러 개 넣는 칸은 그 칸 파일 전부, `files`는 `{ 저장 이름: { say?, frame? } }`로 파일마다 한마디·테두리이며 `null`이면 기본으로 돌린다. `say`에 그 칸이 모르는 자리표시가 있으면 400). 기본 캐릭터는 `{ lines }`만 받고 기본값과 다른 칸만 `overrides/<id>.json`(한국어)·`overrides/<id>.<언어>.json`(그 밖의 언어, 예: `hachi.ja.json`)에 남긴다. 기본값·고친 칸은 지금 언어 것이다 |
+| `GET /characters/:id` · `PUT /characters/:id` | 사용자 캐릭터는 `{ name?, lines?, frames?, files? }`(`lines`는 통째로, `frames`는 준 칸만이고 여러 개 넣는 칸은 그 칸 파일 전부, `files`는 `{ 저장 이름: { say?, frame? } }`로 파일마다 한마디·테두리이며 `null`이면 기본으로 돌린다. `say`에 그 칸이 모르는 자리표시가 있으면 400). 기본 캐릭터는 `{ lines?, frames?, files? }`를 받는다. `frames`·`files`는 기본 캐릭터에 넣은 그림의 테두리·한마디이고 사용자 캐릭터와 같은 모양이다. 그림 칸 말고 아무것도 주지 않으면 `lines`를 `{}`로 본다. `lines`는 기본값과 다른 칸만 `overrides/<id>.json`(한국어)·`overrides/<id>.<언어>.json`(그 밖의 언어, 예: `hachi.ja.json`)에 남긴다. 기본값·고친 칸은 지금 언어 것이다 |
 | `DELETE /characters/:id/lines` | 기본 캐릭터 대사를 기본값으로(덮어쓰기 파일을 지운다) |
 | `DELETE /characters/:id` | 사용자 캐릭터를 폴더째 지운다. 지금 쓰던 캐릭터면 시사로 돌아가고 `config.json`도 고친다. 기본 캐릭터는 400 |
-| `PUT /characters/:id/media/:slot` · `DELETE …` · `DELETE …/:file` | 그림·영상 올리기(본문 = 파일 바이트, 이름은 `x-file-name`) · 칸 비우기 · 그 파일 하나만 빼기. 칸은 `eyes_open`·`eyes_closed`·`cheer`·`dance`(꼭 넣을 넷)와 `study`·`plan`·`lunch`(골라서 넣는 것)다. 눈 그림은 바꾸고, 나머지 칸은 더한다(개수 상한 없음) |
+| `PUT /characters/:id/media/:slot` · `DELETE …` · `DELETE …/:file` | 그림·영상 올리기(본문 = 파일 바이트, 이름은 `x-file-name`) · 칸 비우기 · 그 파일 하나만 빼기. 칸은 `eyes_open`·`eyes_closed`·`cheer`·`dance`(사용자 캐릭터를 만들 때 꼭 넣을 넷)와 `study`·`plan`·`lunch`(골라서 넣는 것)다. 눈 그림은 바꾸고, 나머지 칸은 더한다(개수 상한 없음). 기본 캐릭터도 된다(모든 칸이 선택, 비면 예전 그림·기본 그림) |
+| `media.json` 모양(기본 캐릭터) | `~/.cy-agent/characters/<기본 id>/media.json` = `{ frames, media: { eyes_open, eyes_closed }, clips: { 칸: [{ file, say?, frame? }] }, updated }`. 파일은 같은 폴더에 같은 저장 이름 규칙으로 둔다. 넣은 것이 다 빠지면 파일을 지운다 |
 | `character.json` 모양 | `{ id, name, from, created, updated, frames, media: { eyes_open, eyes_closed }, clips: { 칸: [{ file, say?, frame? }] }, lines }`. 예전 모양(`media`에 칸마다 파일 하나, `frames`에 칸 테두리)도 그대로 읽고, 다음에 저장할 때 새 모양으로 쓴다 |
 
-- 저장 위치는 사용자 데이터 폴더뿐이다. 사용자 캐릭터는 `~/.cy-agent/characters/<id>/character.json`과 올린 파일, 기본 캐릭터에서 고친 칸은 `~/.cy-agent/characters/overrides/<id>.json`이다. 레포와 앱 번들은 건드리지 않는다.
+- 저장 위치는 사용자 데이터 폴더뿐이다. 사용자 캐릭터는 `~/.cy-agent/characters/<id>/character.json`과 올린 파일, 기본 캐릭터에 넣은 그림은 `~/.cy-agent/characters/<기본 id>/media.json`과 올린 파일, 기본 캐릭터에서 고친 칸은 `~/.cy-agent/characters/overrides/<id>.json`이다. 레포와 앱 번들은 건드리지 않는다.
 - id는 `u-` 뒤에 소문자·숫자를 붙여 새로 짓고, 기본 id와 겹치지 않는다.
 - 받는 파일은 png·jpg·webp·gif·webm·mp4다. 이름이 아니라 파일 첫 바이트로 종류를 보고, 그 밖은 400이다. 저장 이름은 `<칸>-<무작위 8자>.<확장자>`로 새로 짓는다. 크기와 개수 상한은 없다.
 - 테두리(둥근 네모 카드)는 칸마다 고른다. 고르지 않은 칸은 png·webm이면 끄고, 그 밖(배경이 있는 jpg·gif·mp4 등)은 켠다.
