@@ -252,6 +252,7 @@ function renderAppPrefs() {
     { key: 'updateCheck', on: appPrefs.updateCheck !== false, label: t('settings.pref_update') },
     { key: 'panelOverlay', on: appPrefs.panelOverlay !== false, label: t('settings.pref_overlay') },
     { key: 'clickSwap', on: appPrefs.clickSwap === true, label: t('settings.pref_click_swap') },
+    { key: 'appIcon', on: appPrefs.appIcon !== false, label: t('settings.pref_app_icon') },
   ];
   for (const r of rows) {
     const lab = el('label', `toggle${r.on ? '' : ' off'}`);
