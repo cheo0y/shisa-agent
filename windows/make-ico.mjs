@@ -1,22 +1,17 @@
-// 윈도우 앱 아이콘(.ico) 만들기 — 기본 그림(desktop/src/default-face.js)을 둥근 사각형 배경에 얹어
+// 윈도우 앱 아이콘(.ico) 만들기 — 기본 그림(desktop/src/default-face.js)을 둥근 사각형 배경에 얹어(합성은 desktop/src/app-icon.js)
 // 16·24·32·48·64·128·256px 를 한 .ico 에 담는다. sips·iconutil 같은 맥 도구 없이 Node 만 쓴다(줄이기도 직접).
 // 256px 은 PNG 그대로, 나머지는 옛 프로그램도 읽는 32bit BMP 로 넣는다.
 // 사용: node windows/make-ico.mjs <나올 파일.ico>   (dist-win.mjs 가 부른다)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { encodePNG } from '../desktop/scripts/png.mjs';
-import { renderFace } from '../desktop/src/default-face.js';
+import { encodePNG } from '../desktop/src/png.js';
+import { ICON_STYLE, defaultIconRGBA } from '../desktop/src/app-icon.js';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 const S = 1024; // 캔버스
-// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다: 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
-const BODY = 960;
-const RADIUS = 210;
-const CHAR = 860;
-const TOP = [250, 253, 251]; // 배경 그라데이션 위 (make-icon.mjs 와 같은 색)
-const BOTTOM = [222, 240, 234]; // 아래
+// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다(ICON_STYLE.win: 960 둥근 사각형, 캐릭터 860). 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
 
 // ---- 줄이기: 넓이 평균(박스 필터), 알파는 곱해 둔 채로 섞어 가장자리가 검게 번지지 않게 ----
 function premultiply({ w, h, rgba }) {
@@ -70,51 +65,11 @@ export function shrink(img, dw, dh) {
   return { w: dw, h: dh, rgba: unpremultiply(vy, dw, dh) };
 }
 
-// ---- 둥근 사각형 커버리지 (4x4 슈퍼샘플링) ----
-function roundRectCoverage(x, y) {
-  const o = (S - BODY) / 2;
-  let hit = 0;
-  for (let sy = 0; sy < 4; sy++) {
-    for (let sx = 0; sx < 4; sx++) {
-      const px = x + (sx + 0.5) / 4 - o, py = y + (sy + 0.5) / 4 - o;
-      if (px < 0 || py < 0 || px > BODY || py > BODY) continue;
-      const cx = Math.min(Math.max(px, RADIUS), BODY - RADIUS);
-      const cy = Math.min(Math.max(py, RADIUS), BODY - RADIUS);
-      if ((px - cx) ** 2 + (py - cy) ** 2 <= RADIUS ** 2) hit++;
-    }
-  }
-  return hit / 16;
-}
-
 // 1024 캔버스: 그라데이션 둥근 사각형 + 캐릭터(눈 뜬 기본 표정)
 function renderMaster() {
-  // 기본 그림(desktop/src/default-face.js, 눈 뜬 얼굴)을 CHAR×CHAR 로 바로 그린다 — 그림 파일을 읽지 않는다
-  const ch = renderFace(CHAR);
-
-  const out = Buffer.alloc(S * S * 4);
-  const o = (S - BODY) / 2;
-  const cx0 = Math.round((S - ch.w) / 2), cy0 = Math.round((S - ch.h) / 2) + 12;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const i = (y * S + x) * 4;
-      const cov = roundRectCoverage(x, y);
-      if (cov <= 0) continue; // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다)
-      const t = Math.min(Math.max((y - o) / BODY, 0), 1);
-      let r = TOP[0] + (BOTTOM[0] - TOP[0]) * t;
-      let g = TOP[1] + (BOTTOM[1] - TOP[1]) * t;
-      let b = TOP[2] + (BOTTOM[2] - TOP[2]) * t;
-      const lx = x - cx0, ly = y - cy0;
-      if (lx >= 0 && ly >= 0 && lx < ch.w && ly < ch.h) {
-        const j = (ly * ch.w + lx) * 4;
-        const ca = ch.rgba[j + 3] / 255;
-        r = ch.rgba[j] * ca + r * (1 - ca);
-        g = ch.rgba[j + 1] * ca + g * (1 - ca);
-        b = ch.rgba[j + 2] * ca + b * (1 - ca);
-      }
-      out[i] = Math.round(r); out[i + 1] = Math.round(g); out[i + 2] = Math.round(b); out[i + 3] = Math.round(cov * 255);
-    }
-  }
-  return { w: S, h: S, rgba: out };
+  // 기본 그림(desktop/src/default-face.js, 눈 뜬 얼굴)을 캐릭터 상자(860) 크기로 바로 그린다. 그림 파일을 읽지 않는다.
+  // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다). 앱이 그림 없는 캐릭터의 창 아이콘을 그릴 때와 같은 함수(desktop/src/app-icon.js)
+  return { w: S, h: S, rgba: defaultIconRGBA(S, ICON_STYLE.win) };
 }
 
 // ICO 안의 BMP: BITMAPINFOHEADER + 아래에서 위로 BGRA 줄 + AND 마스크(전부 0, 투명도는 알파로)

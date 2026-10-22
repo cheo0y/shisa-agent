@@ -41,6 +41,9 @@ KeepAlive라서 ⌘Q로 꺼도 launchd가 30초 뒤에 다시 띄웁니다. 완�
 
 `npm start`(개발 실행)도 Dock·Cmd+Tab에 뜨지만 이름은 "Electron"으로 나옵니다(Cmd+Tab 이름은 번들의 `CFBundleName`에서 오기 때문입니다). Dock 아이콘은 런타임에 `assets/icon.png`(기본 그림으로 만든 아이콘)로 바꿔 줍니다.
 
+앱 아이콘도 고른 캐릭터 그림으로 바꿉니다(설정 「이 앱」의 「앱 아이콘도 고른 캐릭터로」, 기본 켜짐, `src/app-icon.js`). 그림은 캐릭터 창과 같은 순서로 고릅니다. 그 캐릭터에 직접 넣은 그림이 먼저이고, 없으면 0.3.x가 `~/.cy-agent/assets`에 남긴 예전 그림, 그것도 없으면 기본 그림입니다. 맥은 `app.dock.setIcon`으로 Dock 아이콘을, Windows는 창마다 `win.setIcon`으로 작업 표시줄 단추 아이콘과 알림 영역(트레이) 그림을 바꿉니다. 켤 때와 캐릭터를 바꿀 때 바로 적용됩니다. 그림이 없거나 읽지 못할 때, 설정을 끈 때는 기본 그림 아이콘(앱 번들 아이콘과 같은 그림)을 씁니다.
+이름은 바꾸지 못합니다. Dock 툴팁, 메뉴 막대의 굵은 앱 이름, Cmd+Tab, 스테이지 매니저에 보이는 이름은 macOS가 앱 번들 `Info.plist`의 `CFBundleName`(「시사」)에서 읽기 때문입니다. `app.setName`은 앱 안의 글(「우사기 비서 정보」·「우사기 비서 종료」 같은 메뉴 항목, 창 제목, 트레이 툴팁)만 바꿉니다. 다른 프로세스가 보는 앱 아이콘(`NSRunningApplication.icon`: Finder, 활성 상태 보기 등)도 번들 아이콘 그대로입니다.
+
 ### 배포용 앱 (시사.app, dmg)
 
 ```bash
@@ -107,7 +110,7 @@ npm run demo -- --exit --shots <dir>  # 끝나면 닫기 + 장면마다 스크�
 기본 그림은 그림 파일 없이 `src/default-face.js`의 숫자(원·타원·곡선)로 그립니다. 기존 캐릭터를 본뜨지 않은 단순한 얼굴입니다.
 
 - `npm run assets -- --force`: `assets/default/*.svg`, 윈도우 트레이용 `assets/character.png`, 맥 메뉴 막대 템플릿 `assets/trayTemplate.png`·`trayTemplate@2x.png`를 다시 만듭니다. 테스트가 레포 파일과 그림이 같은지 확인합니다.
-- `npm run icon`: 기본 그림을 둥근 사각형 배경에 얹어 `assets/icon.png`(1024px)와 `assets/icon.icns`를 만듭니다(`sips`·`iconutil`). 배경색과 여백은 `scripts/make-icon.mjs` 맨 위 상수로 정합니다.
+- `npm run icon`: 기본 그림을 둥근 사각형 배경에 얹어 `assets/icon.png`(1024px)와 `assets/icon.icns`를 만듭니다(`sips`·`iconutil`). 배경색과 여백은 `src/app-icon.js`의 `ICON_STYLE`·`ICON_TOP`·`ICON_BOTTOM`으로 정합니다(앱이 Dock 아이콘을 바꿀 때와 윈도우 `make-ico.mjs`도 같은 값을 씁니다).
 - 윈도우 아이콘(.ico)은 `../windows/make-ico.mjs`가 같은 기본 그림으로 만듭니다.
 - `npm run dist`·`npm run dist:win`은 레포 `assets/`에 그림·영상 파일이 섞여 있으면 멈춥니다(캐릭터 그림을 배포하지 않기 위해서입니다).
 
