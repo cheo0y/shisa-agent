@@ -229,7 +229,7 @@ test("기본 캐릭터 고치기(덮어쓰기): 고친 칸만 사용자 폴더�
   assert.equal(withCharacter(CHAT_SYSTEM), CHAT_SYSTEM);
 });
 
-test("그림 올리기: 저장 이름은 새로 짓고, 예전 파일은 지우고, 모르는 종류·칸은 거절, 기본 캐릭터는 못 바꾼다", () => {
+test("그림 올리기: 저장 이름은 새로 짓고, 예전 파일은 지우고, 모르는 종류·칸은 거절", () => {
   const dir = tmp();
   const store = new CharacterStore(join(dir, "characters"));
   store.load();
@@ -237,7 +237,7 @@ test("그림 올리기: 저장 이름은 새로 짓고, 예전 파일은 지우�
   assert.equal(store.putMedia(id, "eyes_open", "x.svg", PNG).status, 400);
   assert.equal(store.putMedia(id, "eyes_open", "x.png", new TextEncoder().encode("<script>")).status, 400);
   assert.equal(store.putMedia(id, "../../x", "x.png", PNG).status, 400);
-  assert.equal(store.putMedia("hachi", "eyes_open", "x.png", PNG).status, 400);
+  assert.equal(store.putMedia("u-nope0000", "eyes_open", "x.png", PNG).status, 404);
   const a = store.putMedia(id, "eyes_open", "../../../etc/passwd.png", PNG);
   assert.equal(a.status, 200);
   const f1 = (a.body as any).file as string;
@@ -458,4 +458,79 @@ test("HTTP: DELETE /characters/:id/media/:slot/:file 로 하나만 빼기", asyn
     const u = await fetch(`${base}/characters/${id}`, { method: "PUT", headers: { "x-cy-agent": "1", "content-type": "application/json" }, body: JSON.stringify({ files: { [b]: { say: "응원!" } } }) });
     assert.equal((await u.json()).character.clips.cheer[0].say, "응원!");
   } finally { bus.server?.close(); }
+});
+
+test("기본 캐릭터 그림(0.4.0): 넣기·바꾸기·빼기, media.json 에 저장되고 다시 읽힌다, 대사 덮어쓰기와 따로", () => {
+  const dir = tmp();
+  const root = join(dir, "characters");
+  const store = new CharacterStore(root);
+  store.load();
+  const hachi = () => store.view().characters.find((c: any) => c.id === "hachi") as any;
+  assert.deepEqual([hachi().media, hachi().clips, hachi().frames], [{}, {}, {}], "넣은 게 없으면 빈 칸(데스크톱이 기본 그림)");
+  assert.equal(store.putMedia("hachi", "../x", "x.png", PNG).status, 400);
+  assert.equal(store.putMedia("hachi", "eyes_open", "x.svg", PNG).status, 400);
+  const a = store.putMedia("hachi", "eyes_open", "a.png", PNG);
+  assert.equal(a.status, 200);
+  const f1 = (a.body as any).file as string;
+  assert.ok(existsSync(join(root, "hachi", f1)));
+  assert.ok(existsSync(join(root, "hachi", "media.json")));
+  assert.equal(hachi().media.eyes_open, f1);
+  assert.equal(hachi().builtin, true);
+  // 바꾸면 예전 파일은 지운다
+  const f2 = (store.putMedia("hachi", "eyes_open", "b.gif", GIF).body as any).file as string;
+  assert.ok(!existsSync(join(root, "hachi", f1)));
+  // 여러 개 넣는 칸·한마디·테두리
+  const c1 = (store.putMedia("hachi", "cheer", "c.webm", WEBM).body as any).file as string;
+  const c2 = (store.putMedia("hachi", "cheer", "d.mp4", MP4).body as any).file as string;
+  assert.equal(store.update("hachi", { files: { [c1]: { say: "힘내!" } }, frames: { eyes_open: false } }).status, 200);
+  assert.deepEqual(hachi().clips.cheer.map((x: any) => [x.file, x.say ?? null]), [[c1, "힘내!"], [c2, null]]);
+  assert.equal(hachi().frames.eyes_open, false);
+  assert.equal(hachi().override, null, "그림만 고치면 대사 덮어쓰기는 그대로(없음)");
+  assert.equal(store.update("hachi", { files: { "cheer-zzzzzzzz.png": { say: "x" } } }).status, 400);
+  assert.equal(store.update("hachi", { files: { [c1]: { say: "{title}" } } }).status, 400, "응원 한마디엔 자리표시가 없다");
+  // 데몬 목록: 넣은 칸만 바뀐다(응원은 넣은 두 개, 일정 알림은 clips.json 그대로)
+  assert.deepEqual(characterClips("cheer", "hachi").map((x) => x.file), [c1, c2]);
+  assert.equal(characterClips("cheer", "hachi")[0].say, "힘내!");
+  assert.deepEqual(characterClips("plan", "hachi").map((x) => x.file), ["plan"]);
+  // 대사 고치기와 같이 써도 서로 안 지운다
+  assert.equal(store.update("hachi", { lines: { cheer: ["가자!"] } }).status, 200);
+  assert.equal(hachi().media.eyes_open, f2);
+  assert.ok(hachi().override);
+  assert.equal(store.reset("hachi").status, 200);
+  assert.equal(hachi().media.eyes_open, f2, "대사 기본값으로는 그림을 안 지운다");
+  // 다시 읽기
+  const re = new CharacterStore(root);
+  re.load();
+  const rh = re.view().characters.find((c: any) => c.id === "hachi") as any;
+  assert.equal(rh.media.eyes_open, f2);
+  assert.equal(rh.clips.cheer.length, 2);
+  assert.equal(re.mediaPath("hachi", f2), join(root, "hachi", f2));
+  assert.equal(re.mediaPath("hachi", "media.json"), undefined);
+  // 빼기: 칸 하나·파일 하나. 다 빠지면 media.json 도 지운다(기본 그림으로)
+  assert.equal(store.removeMedia("hachi", "cheer", c1).status, 200);
+  assert.deepEqual(hachi().clips.cheer.map((x: any) => x.file), [c2]);
+  assert.ok(!existsSync(join(root, "hachi", c1)));
+  assert.equal(store.removeMedia("hachi", "cheer").status, 200);
+  assert.equal(store.removeMedia("hachi", "eyes_open").status, 200);
+  assert.deepEqual(hachi().media, {});
+  assert.ok(!existsSync(join(root, "hachi", "media.json")));
+  assert.equal(store.remove("hachi").status, 400, "기본 캐릭터는 지울 수 없다");
+});
+
+test("기본 캐릭터 그림: 깨진 media.json·없는 파일·남은 파일은 건너뛰거나 치운다", () => {
+  const dir = tmp();
+  const root = join(dir, "characters");
+  mkdirSync(join(root, "kuri"), { recursive: true });
+  writeFileSync(join(root, "kuri", "eyes_open-abcd1234.png"), PNG);
+  writeFileSync(join(root, "kuri", "dance-abcd1234.webm"), WEBM); // media.json 에 없음 → 치운다
+  writeFileSync(join(root, "kuri", "media.json"), JSON.stringify({ media: { eyes_open: "eyes_open-abcd1234.png", eyes_closed: "eyes_closed-00000000.png", cheer: "../../x.png" }, clips: { cheer: [{ file: "cheer-11111111.gif" }] } }));
+  mkdirSync(join(root, "rakko"), { recursive: true });
+  writeFileSync(join(root, "rakko", "media.json"), "{ 깨짐");
+  const store = new CharacterStore(root);
+  store.load();
+  const v = (id: string) => store.view().characters.find((c: any) => c.id === id) as any;
+  assert.deepEqual(v("kuri").media, { eyes_open: "eyes_open-abcd1234.png" });
+  assert.deepEqual(v("kuri").clips, {});
+  assert.ok(!existsSync(join(root, "kuri", "dance-abcd1234.webm")));
+  assert.deepEqual(v("rakko").media, {});
 });

@@ -109,3 +109,22 @@ test('목록의 이상한 그림 값은 무시(문자열 목록이 아닌 local 
   assert.equal(characterAssets('hachi').open, DEFAULT_OPEN);
   assert.equal(characterAssets('kani').open, 'cy-asset://app/characters/kani/eyes_open.png');
 });
+
+test('설정 창: 기본 캐릭터도 그림 칸(꼭 넣을 칸 없음) · 빈 눈 칸엔 대신 보이는 그림 · 넣은 그림 모두 빼기 · ko/ja 문구', async () => {
+  const fs = await import('node:fs');
+  const { slotRows } = await import('../src/character-edit.js');
+  assert.ok(slotRows({}, {}).some((r) => r.required), '만든 캐릭터는 꼭 넣을 칸이 있다');
+  assert.ok(slotRows({}, {}, { optional: true }).every((r) => !r.required), '기본 캐릭터는 다 골라서');
+  assert.equal(slotRows({ eyes_open: 'eyes_open-aaaa1111.png' }, {}, { optional: true })[0].file, 'eyes_open-aaaa1111.png');
+  const js = fs.readFileSync(new URL('../renderer/settings.js', import.meta.url), 'utf8');
+  assert.match(js, /slotRows\(e\?\.media, e\?\.clips, \{ optional: !custom \}\)/);
+  assert.match(js, /ce_media_hint_builtin/);
+  assert.match(js, /standIn: custom \? null :/);
+  assert.match(js, /media_clear_all/);
+  const src = fs.readFileSync(new URL('../src/i18n/settings.js', import.meta.url), 'utf8');
+  for (const k of ['char_edit_builtin', 'ce_media_hint_builtin', 'slot_default', 'slot_legacy', 'media_clear_all', 'media_clear_confirm', 'media_cleared']) {
+    assert.equal(src.split(`    ${k}: '`).length - 1, 2, `${k}: ko·ja 둘 다`);
+  }
+  // 사용자에게 보이는 새 문구에 em dash 를 쓰지 않는다
+  for (const line of src.split('\n').filter((l) => /^\s+(char_edit_builtin|ce_media_hint_builtin|slot_default|slot_legacy|media_clear_all|media_clear_confirm|media_cleared):/.test(l))) assert.doesNotMatch(line, /—/);
+});

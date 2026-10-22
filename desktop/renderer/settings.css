@@ -249,6 +249,9 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin:
 .slot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .slot-req { color: var(--accent); font-size: 11px; }
 .slot-pic { width: 100%; height: 96px; object-fit: contain; border-radius: 6px; background: var(--code); }
+/* 기본 캐릭터의 빈 눈 그림 칸: 지금 대신 보이는 그림(기본 그림·예전 버전 그림)을 흐리게 */
+.slot-pic.slot-standin { opacity: 0.55; border: 1px dashed var(--line); }
+.slot-standin-label { font-size: 11px; text-align: center; }
 .slot-empty { display: flex; align-items: center; justify-content: center; height: 96px; border-radius: 6px; border: 1px dashed var(--line); color: var(--faint); font-size: 11.5px; }
 .slot p { margin: 0; }
 .slot-multi { grid-column: 1 / -1; }
