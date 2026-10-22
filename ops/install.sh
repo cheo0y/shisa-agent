@@ -59,13 +59,8 @@ CONFIG="$HOME_DIR/config.json"
 (cd "$ROOT/agent" && npm ci --silent)
 (cd "$ROOT/desktop" && npm ci --silent && node node_modules/electron/install.js >/dev/null)
 
-# 캐릭터 그림·영상: 레포 assets/ → ~/.cy-agent/assets (이미 있는 파일은 덮어쓰지 않는다 — 바꾼 그림 보존).
-# 다시 깔려면 CY_ASSETS_FORCE=1 sh ops/install.sh. 아이콘은 package 때 이 그림으로 만든다
-if [ -d "$ROOT/assets" ]; then
-  mkdir -p "$HOME_DIR/assets"
-  if [ "${CY_ASSETS_FORCE:-0}" = 1 ]; then cp -R "$ROOT/assets/." "$HOME_DIR/assets/"
-  else cp -Rn "$ROOT/assets/." "$HOME_DIR/assets/" 2>/dev/null || true; fi
-fi
+# 캐릭터 그림은 0.4.0 부터 레포에 없다(저작권). 그림은 설정 → 캐릭터 → 고치기에서 직접 넣고(~/.cy-agent/characters/<id>/),
+# 예전 버전이 ~/.cy-agent/assets 에 깔아 둔 그림은 그대로 둔다(앱이 있으면 쓴다)
 
 # 앱 번들 빌드 → ~/Applications/cy.app 교체 (돌고 있는 데스크톱 잡은 먼저 내린다)
 (cd "$ROOT/desktop" && npm run package --silent)

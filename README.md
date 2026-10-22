@@ -21,12 +21,6 @@ v0.3.0에서 바뀐 것:
 
 써 보시고 불편한 점이 있으면 [의견 보내기](#의견-보내기)로 알려 주세요.
 
-<p>
-  <img src="docs/images/character-hello.png" width="280" alt="캐릭터 시사와 인사 말풍선">
-  <img src="docs/images/briefing-bubble.png" width="280" alt="브리핑 말풍선: 급한 할 일 목록">
-  <img src="docs/images/meeting-dance.png" width="280" alt="일정 10분 전, 춤추며 알림">
-</p>
-
 ## 하는 일
 
 - 캐릭터: 한 번 누르면 패널이 열리고, 두 번 누르면 그 자리에서 말을 걸 수 있습니다. AI를 연결하지 않았다면 두 번 눌렀을 때 「지금 할 일 뭐 있어요?」, 「응원해 줘」 같은 질문 칩이 뜨고, 고르면 바로 답합니다. 오른쪽 클릭으로 메뉴를 열고, 끌어서 아무 데나 옮겨 둘 수 있습니다.
@@ -44,21 +38,7 @@ v0.3.0에서 바뀐 것:
 - 패널 채팅 입력줄 옆 드롭다운에서 그 대화에 쓸 AI와 모델을 고를 수 있습니다. 키나 로그인이 된 다른 AI(Codex, Gemini 등)로도 그 대화만 보낼 수 있고, 고른 것은 대화마다 기억합니다. 답 아래에 어떤 모델이 답했는지 작게 나옵니다. 기본 AI 설정은 그대로입니다.
 - 코드 작업: Claude Code 또는 Codex가 있으면 레포 코드를 고쳐 달라고 시킬 수 있습니다. 별도 워크트리에서 고치고 테스트를 돌린 다음, 통과하면 PR을 올리고 "머지할까요?" 하고 묻습니다. 어느 쪽으로 고칠지와 모델은 설정 창 「세부 모델」의 코드 작업 칸에서 고릅니다. Codex로 고칠 때는 그 워크트리 안에만 파일을 쓰고 네트워크는 쓰지 않습니다.
 
-| 패널: 할 일 | 패널: 개요·브리핑 | 패널: 채팅 |
-|---|---|---|
-| <img src="docs/images/panel-todos.png" alt="할 일 탭: 우선순위 묶음, (진행중), 펼치면 원문"> | <img src="docs/images/panel-overview.png" alt="개요 탭: 오늘 커밋·열린 할 일·최근 브리핑"> | <img src="docs/images/panel-chat.png" alt="채팅 탭: 표·콜아웃이 든 답"> |
-
-| 집중하기 | 오늘 집중: 월 기록 | 오늘 집중: 주 기록 |
-|---|---|---|
-| <img src="docs/images/focus-study.png" alt="공부하는 시사 머리 위에 집중 중 25:05, 일시정지·그만하기 버튼"> | <img src="docs/images/focus-stats.png" alt="월 기록: 오래 집중한 날일수록 진한 잔디, 고른 날의 총·최대 연속 집중 시간"> | <img src="docs/images/focus-week.png" alt="주 기록: 요일별 막대와 고른 날의 총·최대 연속 집중 시간"> |
-
-| 작업 세션 창(코드 고치기) | 머지 승인 | 설정 창(⚙) |
-|---|---|---|
-| <img src="docs/images/session-window.png" alt="작업 세션 창: 도구 실행 기록과 이어서 하기"> | <img src="docs/images/merge-ask.png" alt="PR 머지할까요? ✓/✗/추가질문"> | <img src="docs/images/settings.png" alt="설정 창: 모델·브리핑 출처·자동 머지"> |
-
 ## 캐릭터
-
-<img src="docs/images/characters/characters-all.png" alt="기본 캐릭터 여덟이 인사하는 모습. 윗줄 시사·하치와레·랏코·모몽가, 아랫줄 우사기·카니·치이카와·쿠리만쥬">
 
 윗줄부터 시사·하치와레·랏코·모몽가, 아랫줄 우사기·카니·치이카와·쿠리만쥬입니다. 설정 창 「캐릭터」에서 고르면 그림과 영상, 말투, 앱 이름(「하치와레 비서」처럼)이 바로 같이 바뀝니다.
 
@@ -83,19 +63,7 @@ v0.3.0에서 바뀐 것:
 
 「응원해 줘」, 「춤춰 줘」는 캐릭터를 두 번 누르거나 입력창의 ＋를 누르면 뜨는 칩으로 언제든 부를 수 있습니다.
 
-| 카니: 응원해 줘 | 쿠리만쥬: 응원해 줘 | 치이카와: 춤춰 줘 | 시사: 춤춰 줘 | 카니: 점심시간 |
-|---|---|---|---|---|
-| <img src="docs/images/characters/cheer-kani.png" alt="카니 응원 영상과 응원 대사"> | <img src="docs/images/characters/cheer-kuri.png" alt="맥주 캔을 든 쿠리만쥬: 크으으 (한 모금 쉬고 다시 가 보자!)"> | <img src="docs/images/characters/dance-chiikawa.png" alt="춤추는 치이카와: 헤헤 (이렇게 추는 거 맞지?)"> | <img src="docs/images/characters/dance-shisa.png" alt="메뉴판을 든 시사: 스잇~ 스잇~ 스이 시~사 ~"> | <img src="docs/images/characters/lunch-kani.png" alt="밥 먹는 카니: 으아아~ (밥 먹자! 맛있는 거 먹고 오자.)"> |
-
-| 하치와레: 응원해 줘 | 랏코: 응원해 줘 | 모몽가: 춤춰 줘 | 랏코: 춤춰 줘 |
-|---|---|---|---|
-| <img src="docs/images/characters/cheer-hachi.png" alt="하치와레 응원 영상과 응원 대사"> | <img src="docs/images/characters/cheer-rakko.png" alt="딸기 파르페를 먹는 랏코와 응원 대사"> | <img src="docs/images/characters/dance-momonga.png" alt="춤추는 모몽가와 시러 시러 대사"> | <img src="docs/images/characters/dance-rakko.png" alt="멜론을 베는 랏코: 춤은 못 추지만, 멋있는 걸 보여 주지. (쓩)"> |
-
-| 우사기: 대기 | 우사기: 집중 | 우사기: 춤 | 우사기: 응원·알림 |
-|---|---|---|---|
-| <img src="assets/characters/usagi/eyes_open.png" width="160" alt="정면 우사기"> | <img src="assets/characters/usagi/study.png" width="160" alt="파란 필기구로 그림을 그리는 우사기"> | <img src="assets/characters/usagi/dance.png" width="160" alt="선글라스를 쓰고 랩하는 우사기"> | <img src="assets/characters/usagi/cheer.png" width="160" alt="치타라를 들고 날개짓하며 뛰는 우사기"> |
-
-우사기 자산은 참고 자료를 바탕으로 제작한 생성 팬 아트이며 공식 영상·음원은 포함하지 않습니다. [그림·대사·출처](docs/usagi-character.md), [원본과 재생성 방법](artwork/usagi/README.md)을 참고하세요.
+우사기 말투를 만든 과정은 [우사기 대사와 출처](docs/usagi-character.md)에 적었습니다.
 
 ### 캐릭터 직접 만들기
 
@@ -108,10 +76,6 @@ v0.3.0에서 바뀐 것:
 
 캐릭터 카드의 ✎를 누르면 그 캐릭터가 하는 말을 전부(말투, 고정 문구, 정해진 답, 설치 화면, 둘러보기 등) 고칠 수 있습니다. 기본 캐릭터도 고칠 수 있고, 고친 칸만 따로 저장되니 「기본값으로」를 누르면 처음으로 돌아갑니다. 만든 캐릭터는 이름과 그림도 바꾸거나 지울 수 있고, 쓰던 캐릭터를 지우면 시사로 돌아갑니다. 만든 캐릭터는 `~/.cy-agent/characters/`에 저장됩니다.
 
-| 캐릭터 고르기 | 만든 캐릭터 고치기: 응원·춤에 파일 여러 개 |
-|---|---|
-| <img src="docs/images/characters/settings-character.png" alt="설정 창 캐릭터: 기본 여덟과 직접 만든 캐릭터, 새 캐릭터 버튼"> | <img src="docs/images/characters/character-editor.png" alt="캐릭터 고치기: 응원 칸에 파일 둘, 춤 칸에 파일 셋, 파일마다 테두리와 한마디"> |
-
 ## 프로젝트
 
 패널의 프로젝트 탭에서 할 일을 프로젝트로 묶어 봅니다.
@@ -120,10 +84,6 @@ v0.3.0에서 바뀐 것:
 - 카드에는 기한(D-n)과 남은 할 일 수가 보입니다. 카드에서 할 일을 바로 추가하거나, 「기존 할 일 넣기」로 이미 있는 할 일을 묶습니다.
 - 채팅으로 「출시 준비 프로젝트 만들고 할 일 넣어 줘」처럼 말해도 됩니다.
 - 코딩 작업에서 저절로 모은 프로젝트는 그 아래 「코드 작업에서 모은 것」에 따로 보입니다.
-
-| 프로젝트 카드 | 일정에서 가져오기 |
-|---|---|
-| <img src="docs/images/panel-projects.png" alt="프로젝트 탭: 일정에서 가져온 출시 점검 회의, 3분기 실적 보고서, 팀 위키 정리 카드와 묶인 할 일"> | <img src="docs/images/panel-project-from-calendar.png" alt="프로젝트 만들기: 다가오는 일정 목록에서 고르기"> |
 
 ## 근무 시간
 
@@ -134,8 +94,6 @@ v0.3.0에서 바뀐 것:
 - 퇴근 인사: 퇴근 10분 전에 일정 알림 영상과 함께 「곧 퇴근이야! 오늘도 고생했어, 안녕~」 같은 인사를 합니다.
 
 셋 다 근무 요일에 하루 한 번씩이고, 하나씩 끌 수 있습니다. 채팅에서 「퇴근까지 얼마나 남았어?」처럼 물어도 답합니다.
-
-<img src="docs/images/settings-workhours.png" width="600" alt="설정 창 근무 시간: 출근·점심·퇴근 시각, 요일, 출근 인사·점심시간 알림·퇴근 인사">
 
 ## 날씨
 
@@ -250,10 +208,6 @@ AI 없이 쓰는 중에 캐릭터를 두 번 누르면 「오늘 할 일 얼마�
 2. 뇌 고르기(선택): 이 맥에 로그인된 Claude Code나 Codex가 있으면 「찾았어요 ✓」로 떠서 바로 고를 수 있습니다. Gemini·OpenAI·Claude API 키를 붙여 넣어도 됩니다. AI 없이 쓰려면 「AI 없이 쓰기」를 고르세요. 할 일, 오늘 할 일 표, 캘린더(ICS) 회의 알림, 인사와 응원은 그대로 되고, 마법사도 다음 단계로 그대로 이어집니다. AI는 나중에 설정에서 언제든 연결할 수 있습니다.
 3. 더 연결하기: 구글·Outlook 캘린더 ICS 주소, 네이버 캘린더(아이디 + 애플리케이션 비밀번호, 읽기만), iCloud 캘린더(Apple ID 이메일 + 앱 암호, 읽기만), Slack, 레포 폴더를 연결합니다. 캘린더는 「＋ 캘린더 추가」로 별칭(회사·개인 등)과 주소를 짝지어 여러 개 넣을 수 있고, 줄마다 켜고 끄거나 별칭을 고치거나 뺄 수 있습니다.
 4. 끝: 「사용법 둘러보기」를 누르면 캐릭터가 다섯 장면으로 하나씩 보여 줍니다.
-
-| 뇌 고르기 | 더 연결하기 | 사용법 둘러보기 |
-|---|---|---|
-| <img src="docs/images/setup-brain.png" alt="설치 마법사: 뇌 고르기"> | <img src="docs/images/setup-extras.png" alt="설치 마법사: 캘린더·Slack·레포 폴더"> | <img src="docs/images/tour.png" alt="사용법 둘러보기 말풍선"> |
 
 마법사는 설정(⚙)의 「설치 다시 하기」로 다시 열 수 있습니다. 사용법 둘러보기는 메뉴바 아이콘, 캐릭터 메뉴, 설정의 「사용법 다시 보기」에서 다시 볼 수 있습니다.
 

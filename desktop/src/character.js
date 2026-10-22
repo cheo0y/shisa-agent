@@ -9,12 +9,12 @@ import { CHARACTER_CLIPS } from './character-clips.js';
 import { ui } from './lang.js';
 
 export const CHAR_DIR = 'cy-asset://app/character';
-// 정지 그림 대체 순서: 눈 뜬 그림 → 예전 개인 그림 → 번들 그림 → 번들 svg
-export const STILL_SRCS = [`${CHAR_DIR}/eyes_open.png`, 'cy-asset://app/character.png', '../assets/character.png', '../assets/character.svg'];
-export const VIDEOS = {
-  studying: { src: `${CHAR_DIR}/studying.webm`, poster: `${CHAR_DIR}/studying.png`, kind: 'video' },
-  dancing: { src: `${CHAR_DIR}/dance.webm`, poster: `${CHAR_DIR}/dance.png`, kind: 'video' },
-};
+// 기본 그림(desktop/assets/default — src/default-face.js 의 숫자로 그린 단순한 얼굴). 그림이 없는 캐릭터는 이걸 쓴다.
+// 0.4.0 부터 레포·앱에는 캐릭터 그림이 없다. 사용자가 넣은 그림(설정 → 캐릭터 → 고치기)이나 예전 버전이 깔아 둔 그림(~/.cy-agent/assets)이 있으면 그걸 쓴다
+export const DEFAULT_OPEN = '../assets/default/eyes_open.svg';
+export const DEFAULT_CLOSED = '../assets/default/eyes_closed.svg';
+// 정지 그림을 못 읽을 때 마지막에 쓰는 것
+export const STILL_SRCS = [DEFAULT_OPEN];
 
 // ---- 고를 수 있는 캐릭터(데몬 characters.ts 와 같은 id). 시사는 예전 자리(character/), 나머지는 characters/<id>/ ----
 // 칸마다 영상 목록은 assets/characters/clips.json(사본 character-clips.js): plan 일정 알림 · dance 춤 · cheer 응원 · study 집중 · lunch 점심시간.
@@ -90,7 +90,7 @@ const VIDEO_EXT = /\.(webm|mp4)$/i;
 export const clipKind = (file) => (VIDEO_EXT.test(String(file ?? '')) ? 'video' : 'img');
 // 빈 칸 대신 쓰는 규칙(꼭 넣을 넷이 비어도 깨지지 않게):
 //   응원 → 춤 · 춤 → 응원 · 일정 알림 → 춤 → 응원 · 점심시간 → 일정 알림 → 춤 → 응원 · 집중 → 없으면 정지 그림(눈 뜬 모습, 깜빡임 그대로)
-//   눈 감은 모습이 없으면 깜빡이지 않는다 · 눈 뜬 모습이 없으면 시사 그림
+//   눈 감은 모습이 없으면 깜빡이지 않는다 · 눈 뜬 모습이 없으면 기본 그림(눈 감은 기본 그림과 함께 깜빡인다)
 // 테두리(둥근 네모 카드): 여러 개 넣는 칸은 파일마다(clips[칸][i].frame), 눈 그림은 칸마다(frames). 없으면 파일 종류로
 // (투명 배경이 흔한 png·webm 은 끔, 그 밖은 켬 — 데몬 defaultFrame 과 같다). 정사각형이 아니어도 비율대로 상자 안에 맞춘다(fit)
 export const defaultFrame = (file) => !/\.(png|webm)$/i.test(String(file ?? ''));
@@ -105,46 +105,68 @@ export function userClipTable(media = {}, frames = {}, clips = {}) {
   }
   return t;
 }
-export function customAssets(id, media = {}, frames = {}, clips = {}) {
+// 그림·영상 주소 짓기(사용자 캐릭터·기본 캐릭터 같이).
+//   user: 사용자가 넣은 것 { media, frames, clips } → cy-asset://app/user-characters/<id>/<저장 이름>(~/.cy-agent/characters/<id>/)
+//         기본 캐릭터도 설정 창에서 넣을 수 있다(칸마다 넣은 것이 이긴다)
+//   legacy: 기본 캐릭터만. 예전 버전(0.3.x)이 ~/.cy-agent/assets 에 깔아 둔 그림·영상 중 실제로 있는 것(has)과 clips.json 칸(table)
+// 아무것도 없으면 기본 그림(눈 뜬·감은 얼굴, 깜빡임). 영상이 없는 칸은 null·[](정지 그림 그대로)
+function buildAssets(id, user, legacy) {
   const dir = `${USER_CHAR_DIR}/${id}`;
-  const url = (slot) => (typeof media?.[slot] === 'string' && media[slot] ? `${dir}/${media[slot]}` : null);
-  const framed = (slot) => (typeof frames?.[slot] === 'boolean' ? frames[slot] : defaultFrame(media?.[slot]));
-  const table = userClipTable(media, frames, clips);
-  const one = (x, slot) => { const src = `${dir}/${x.file}`; return { src, poster: '', scene: typeof x.frame === 'boolean' ? x.frame : defaultFrame(x.file), kind: clipKind(src), fit: true, slot, ...(x.say ? { say: x.say } : {}) }; };
-  const variants = Object.fromEntries(CLIP_KINDS.map((k) => [k, clipList(table, k).map((x) => one(x, k))]));
+  const media = isObj(user?.media) ? user.media : {}, frames = isObj(user?.frames) ? user.frames : {}, clips = isObj(user?.clips) ? user.clips : {};
+  const url = (slot) => (typeof media[slot] === 'string' && media[slot] ? `${dir}/${media[slot]}` : null);
+  const framed = (slot) => (typeof frames[slot] === 'boolean' ? frames[slot] : defaultFrame(media[slot]));
+  const userOne = (x, slot) => { const src = `${dir}/${x.file}`; return { src, poster: '', scene: typeof x.frame === 'boolean' ? x.frame : defaultFrame(x.file), kind: clipKind(src), fit: true, slot, ...(x.say ? { say: x.say } : {}) }; };
+  const has = (rel) => !!legacy?.has(rel);
+  const legacyOne = (x) => ({ src: `${legacy.dir}/${x.file}.webm`, poster: has(`${legacy.rel}/${x.file}.png`) ? `${legacy.dir}/${x.file}.png` : '', scene: !!x.scene, kind: 'video', ...(x.say ? { say: x.say } : {}) });
+  // 칸 목록: 사용자가 넣은 칸 > 예전 그림(파일이 있는 영상만). 둘 다 없으면 빈 칸 대신 쓰는 순서(clipList)
+  const own = userClipTable(media, frames, clips);
+  const lt = isObj(legacy?.table) ? legacy.table : {};
+  const table = {};
+  for (const k of CLIP_KINDS) {
+    if (own[k]) table[k] = own[k].map((x) => ({ ...x, user: true }));
+    else if (typeof lt[k] === 'string') table[k] = lt[k];
+    else if (Array.isArray(lt[k])) { const l = lt[k].filter((x) => isObj(x) && typeof x.file === 'string' && has(`${legacy.rel}/${x.file}.webm`)); if (l.length) table[k] = l; }
+  }
+  const variants = Object.fromEntries(CLIP_KINDS.map((k) => [k, clipList(table, k).map((x) => (x.user ? userOne(x, k) : legacyOne(x)))]));
   const first = (k) => variants[k][0] ?? null;
-  const open = url('eyes_open');
+  // 정지 그림: 넣은 눈 뜬 모습 > 예전 그림 > 기본 그림. 눈 감은 모습은 같은 쪽 것만(섞으면 깜빡일 때 다른 얼굴이 된다)
+  let open, closed = null, fit = false, retina = false, openFrame = false, closedFrame = false;
+  const up = url('eyes_open');
+  if (up) {
+    open = up; closed = url('eyes_closed'); fit = true;
+    openFrame = framed('eyes_open'); closedFrame = !!closed && framed('eyes_closed');
+  } else if (has(`${legacy?.rel}/eyes_open.png`)) {
+    open = `${legacy.dir}/eyes_open.png`;
+    closed = legacy.blink && has(`${legacy.rel}/eyes_closed.png`) ? `${legacy.dir}/eyes_closed.png` : null;
+    retina = !!legacy.retina && has(`${legacy.rel}/eyes_open@2x.png`) && (!closed || has(`${legacy.rel}/eyes_closed@2x.png`));
+  } else if (legacy?.id === 'shisa' && has('character.png')) {
+    open = 'cy-asset://app/character.png'; // 더 예전의 개인 그림 하나
+  } else {
+    open = DEFAULT_OPEN; closed = DEFAULT_CLOSED;
+  }
   return {
-    id, dir, retina: false, custom: true,
-    open: open ?? STILL_SRCS[0], closed: open ? url('eyes_closed') : null,
-    openFrame: !!open && framed('eyes_open'), closedFrame: !!open && !!url('eyes_closed') && framed('eyes_closed'),
-    stills: open ? [open, ...STILL_SRCS] : STILL_SRCS,
+    id, dir: legacy?.dir ?? dir, retina, fit, ...(legacy ? {} : { custom: true }), isDefault: open === DEFAULT_OPEN,
+    open, closed, openFrame, closedFrame,
+    stills: open === DEFAULT_OPEN ? [DEFAULT_OPEN] : [open, DEFAULT_OPEN],
     videos: { studying: first('study'), dancing: first('plan') },
     clips: Object.fromEntries(DANCE_CLIPS.map((k) => [k, first(k)])),
     variants,
   };
 }
+export const customAssets = (id, media = {}, frames = {}, clips = {}) => buildAssets(id, { media, frames, clips }, null);
+// 기본 캐릭터의 예전 그림 폴더(~/.cy-agent/assets 아래): 시사는 character/, 나머지는 characters/<id>/
+export const legacyDirRel = (id) => (id === 'shisa' ? 'character' : `characters/${id}`);
 
 // 캐릭터 하나의 그림·영상 주소. { dir, open, closed(없으면 null), stills(대체 순서), videos: { studying, dancing }, clips: { plan, dance, cheer, lunch }, variants }
 // clips 는 칸마다 첫 영상, variants 는 칸마다 전부(그중 하나를 고른다 — clipFor). videos.dancing 은 일정 알림(plan) 첫 영상.
-// 사용자 캐릭터는 빈 칸이 null·[] 일 수 있다(정지 그림으로)
+// 빈 칸은 null·[] 일 수 있다(정지 그림으로). 기본 캐릭터의 local(예전 그림 중 있는 것)은 메인이 목록에 붙여 준다(assets.js withLocalFiles)
 export function characterAssets(id) {
   const cid = okCharacter(id);
   const c = CHARACTERS[cid];
   if (c.custom) return customAssets(cid, c.media, c.frames, c.clips);
-  const shisa = cid === 'shisa';
-  const dir = shisa ? CHAR_DIR : `cy-asset://app/characters/${cid}`;
-  const one = (x) => ({ src: `${dir}/${x.file}.webm`, poster: `${dir}/${x.file}.png`, scene: !!x.scene, kind: 'video', ...(x.say ? { say: x.say } : {}) });
-  const variants = Object.fromEntries(CLIP_KINDS.map((k) => [k, clipList(CHARACTER_CLIPS[cid], k).map(one)]));
-  const first = (k) => variants[k][0] ?? null;
-  const clips = Object.fromEntries(DANCE_CLIPS.map((k) => [k, first(k)]));
-  if (shisa) return { id: cid, dir, retina: true, open: `${CHAR_DIR}/eyes_open.png`, closed: `${CHAR_DIR}/eyes_closed.png`, stills: STILL_SRCS, videos: VIDEOS, clips, variants };
-  return {
-    id: cid, dir, retina: false, open: `${dir}/eyes_open.png`, closed: c.blink ? `${dir}/eyes_closed.png` : null,
-    stills: [`${dir}/eyes_open.png`, ...STILL_SRCS],
-    videos: { studying: first('study'), dancing: clips.plan },
-    clips, variants,
-  };
+  const rel = legacyDirRel(cid);
+  const local = new Set(Array.isArray(c.local) ? c.local : []);
+  return buildAssets(cid, c, { id: cid, rel, dir: `cy-asset://app/${rel}`, table: CHARACTER_CLIPS[cid] ?? {}, has: (r) => local.has(r), blink: cid === 'shisa' || !!c.blink, retina: cid === 'shisa' });
 }
 // 오버레이가 캐릭터를 다시 그릴까: 다른 캐릭터면 늘. force(캐릭터 목록을 새로 받음)면 주소가 바뀌었거나,
 // 같아도 그림을 못 읽어 시사 그림으로 물러나 있으면(fellBack) — 켤 때 메인은 데몬 목록을 받기 전엔 사용자 캐릭터 그림을 주지 않는다(404)

@@ -5,15 +5,18 @@ import fs from 'node:fs';
 import { characterAssets, appName, CHARACTER_IDS } from '../src/character.js';
 import { CHARACTER_LINES } from '../src/character-lines.js';
 import { resolveAsset } from '../src/assets.js';
+import { known, useLegacy } from './legacy-helper.js';
 
-const fileOf = (u) => new URL(`../../assets/${resolveAsset(u).rel}`, import.meta.url);
+// 0.3.x 에서 올라와 예전 그림이 다 깔려 있는 경우(0.4.0 레포엔 그림이 없다)
+useLegacy();
+
 
 test('카니: 고를 수 있고, 눈 뜬·감은 그림으로 깜빡이고, 춤·응원·일정 알림·점심·집중은 각자 장면 영상', () => {
   assert.ok(CHARACTER_IDS.includes('kani'));
   assert.equal(appName('kani'), '카니 비서');
   const a = characterAssets('kani');
   assert.ok(a.closed, '깜빡임');
-  for (const u of [a.open, a.closed]) assert.ok(fs.existsSync(fileOf(u)), u);
+  for (const u of [a.open, a.closed]) assert.ok(known(u), u);
   const want = { dance: 'dance', cheer: 'cheer', plan: 'plan', lunch: 'lunch', study: 'study' };
   for (const [k, f] of Object.entries(want)) {
     const v = a.variants[k];
@@ -21,16 +24,9 @@ test('카니: 고를 수 있고, 눈 뜬·감은 그림으로 깜빡이고, 춤�
     assert.match(v[0].src, new RegExp(`characters/kani/${f}\\.webm$`), k);
     // 집중(study)은 원본 회색 배경을 빼서 투명(테두리 카드 없이), 나머지는 배경 있는 장면이라 테두리
     assert.equal(v[0].scene, k !== 'study', `${k}: ${k === 'study' ? '투명 영상' : '배경 있는 장면이라 테두리'}`);
-    assert.ok(fs.existsSync(fileOf(v[0].src)) && fs.existsSync(fileOf(v[0].poster)), k);
+    assert.ok(known(v[0].src) && known(v[0].poster), k);
   }
   assert.match(a.videos.studying.src, /kani\/study\.webm$/, '집중 영상(kani-study.mp4)');
-  const meta = JSON.parse(fs.readFileSync(new URL('../../assets/characters/kani/video.json', import.meta.url), 'utf8'));
-  assert.deepEqual(Object.keys(meta).sort(), ['cheer', 'dance', 'lunch', 'plan', 'study']);
-  assert.equal(meta.study.source.file, 'kani-study.mp4');
-  assert.equal(meta.dance.source.file, 'kani-cheer.gif');
-  assert.equal(meta.cheer.source.file, 'kani-cheer2.gif');
-  assert.equal(meta.lunch.source.file, 'kani-eat.gif');
-  assert.equal(meta.plan.source.file, 'kani-plan.gif');
 });
 
 test('카니 말투: 칸은 우사기와 같고, 소리 뒤 괄호 안에 반말', () => {

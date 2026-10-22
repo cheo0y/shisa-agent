@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
+import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile, withLocalFiles } from './src/assets.js';
 import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
 import { createSSEParser, backoffDelay, isEventStream, createSSEGate, rerunLatest } from './src/sse.js';
 import { isSafeLink } from './src/bubbles.js';
@@ -1130,13 +1130,15 @@ let charactersData = null;
 const loadCharacters = rerunLatest(async () => {
   const r = await request('GET', '/characters');
   if (!r.ok || !r.data || !Array.isArray(r.data.characters)) return;
-  charactersData = r.data;
-  applyCharacters(r.data);
-  send('characters', r.data);
-  sendPanel('characters', r.data);
-  sendSession('characters', r.data);
+  // 기본 캐릭터마다 예전 버전이 깔아 둔 그림 중 실제로 있는 것(local) — 없으면 렌더러가 바로 기본 그림을 쓴다
+  const data = withLocalFiles(r.data, (rel) => assetCandidates(rel, assetDirs(), path.join).some((f) => fs.existsSync(f)));
+  charactersData = data;
+  applyCharacters(data);
+  send('characters', data);
+  sendPanel('characters', data);
+  sendSession('characters', data);
   const sw = settingsUi?.window;
-  if (sw && !sw.isDestroyed()) sw.webContents.send('characters', r.data);
+  if (sw && !sw.isDestroyed()) sw.webContents.send('characters', data);
   onCharacter(wantChar ?? charId, true);
 });
 
@@ -1996,7 +1998,7 @@ function setupIPC() {
   });
 }
 
-// ---- cy-asset:// — ~/.cy-agent/assets 의 허용된 그림만. 캐릭터는 없으면 번들 플레이스홀더 ----
+// ---- cy-asset:// — 사용자 그림만(~/.cy-agent/assets 의 허용된 예전 그림 · ~/.cy-agent/characters 의 넣은 그림). 없으면 404 → 렌더러가 기본 그림 ----
 // stream: <video>(공부 중·춤 webm)가 Range 로 끊어 읽고 되감게
 protocol.registerSchemesAsPrivileged([
   { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, stream: true } },
@@ -2017,13 +2019,15 @@ function registerAttachProtocol() {
   });
 }
 
+// 예전 그림을 찾는 자리(assets.js assetCandidates). 0.4.0 부터 레포·번들엔 그림이 없어 보통은 홈만 본다
+const assetDirs = () => ({ user: USER_ASSETS, repo: app.isPackaged ? null : REPO_ASSETS, bundle: app.isPackaged ? BUNDLE.assetsDir : null });
+
 function registerAssetProtocol() {
   protocol.handle(ASSET_SCHEME, async (req) => {
     const a = req.method === 'GET' ? resolveAsset(req.url) : null;
     if (!a) return new Response('not found', { status: 404 });
     // 사용자가 만든 캐릭터: ~/.cy-agent/characters/<id>/ 의 데몬 목록에 있는 파일만(링크로 폴더 밖에 나가면 안 줌)
-    // 홈에 없으면(install.sh 를 안 거친 새 사용자) 레포 assets/ 를 그대로 쓴다
-    const file = a.user ? userCharacterFile(a, path.join(AGENT_HOME, 'characters'), charactersData?.characters, { realpath: fs.realpathSync, lstat: fs.lstatSync }, path) : assetCandidates(a.rel, { user: USER_ASSETS, repo: app.isPackaged ? null : REPO_ASSETS, bundle: app.isPackaged ? BUNDLE.assetsDir : null, bundled: path.join(__dirname, 'assets') }, path.join).find((f) => fs.existsSync(f));
+    const file = a.user ? userCharacterFile(a, path.join(AGENT_HOME, 'characters'), charactersData?.characters, { realpath: fs.realpathSync, lstat: fs.lstatSync }, path) : assetCandidates(a.rel, assetDirs(), path.join).find((f) => fs.existsSync(f));
     if (!file) return new Response('not found', { status: 404 });
     // Range(영상): 206 + Content-Range. 그림은 예전처럼 통째로
     const size = (await fs.promises.stat(file)).size;

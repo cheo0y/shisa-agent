@@ -5,9 +5,12 @@ import fs from 'node:fs';
 import { characterAssets, clipFor, clipList, pickVariant, variantsOf, activityReducer, initialActivity, danceVariantOf, danceClipOf, viewOf, CHARACTER_IDS, customAssets, userClipTable } from '../src/character.js';
 import { CHARACTER_CLIPS } from '../src/character-clips.js';
 import { resolveAsset } from '../src/assets.js';
+import { known, useLegacy } from './legacy-helper.js';
+
+// 0.3.x 에서 올라와 예전 그림이 다 깔려 있는 경우(0.4.0 레포엔 그림이 없다)
+useLegacy();
 
 const SUIT = '스잇~ 스잇~ 스이 시~사 ~ 🎵';
-const fileOf = (u) => new URL(`../../assets/${u.replace('cy-asset://app/', '')}`, import.meta.url);
 
 test('시사 춤: 기존 투명 춤과 새 장면(dance2) 두 개, 새 것만 전용 한마디·테두리', () => {
   const a = characterAssets('shisa');
@@ -33,7 +36,7 @@ test('기본 캐릭터 영상 목록: 주소는 다 허용 목록 안·파일이
     const a = characterAssets(id);
     for (const [k, list] of Object.entries(a.variants)) for (const v of list) {
       assert.ok(resolveAsset(v.src) && resolveAsset(v.poster), `${id}/${k} ${v.src}`);
-      assert.ok(fs.existsSync(fileOf(v.src)) && fs.existsSync(fileOf(v.poster)), `${id}/${k} 파일`);
+      assert.ok(known(v.src) && known(v.poster), `${id}/${k} 파일`);
     }
     if (id === 'momonga') assert.deepEqual(a.variants.lunch.map((x) => x.src), a.variants.plan.map((x) => x.src), '모몽가는 점심 영상이 없어 일정 알림 영상');
     else assert.match(a.variants.lunch[0].src, /\/lunch\.webm$/, `${id}: 먹는 영상`);

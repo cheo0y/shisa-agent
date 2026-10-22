@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
-import { CHARACTERS, characterAssets, customAssets, redrawCharacter, clipFor, clipKind, fitBox, okCharacter, okCharacterId, characterName, appName, localSay, characterIds, CHARACTER_IDS } from '../src/character.js';
+import { CHARACTERS, characterAssets, customAssets, redrawCharacter, clipFor, clipKind, fitBox, okCharacter, okCharacterId, characterName, appName, localSay, characterIds, CHARACTER_IDS, DEFAULT_OPEN, DEFAULT_CLOSED } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf, shisaDesktopLines, mergeLines } from '../src/character-registry.js';
 import { editorSections, fieldText, fieldValue, fieldProblem, linesFromTexts, diffLines, flattenLines, unflattenLines, slotRows, okMediaName, missingRequired, changedCount, SECTIONS, editorSig, editorRefresh } from '../src/character-edit.js';
 import { rerunLatest } from '../src/sse.js';
@@ -70,12 +70,14 @@ test('사용자 캐릭터 그림: 빈 칸 대신 쓰는 규칙, gif·png 는 img
   const none = customAssets(U, {});
   assert.equal(clipFor(none, 'cheer'), null);
   assert.equal(clipFor(none, 'plan'), null);
-  assert.equal(none.closed, null);
-  assert.equal(none.open, 'cy-asset://app/character/eyes_open.png', '눈 뜬 게 없으면 시사 그림');
+  assert.equal(none.open, DEFAULT_OPEN, '눈 뜬 게 없으면 기본 그림');
+  assert.equal(none.closed, DEFAULT_CLOSED, '기본 그림은 눈 감은 기본 그림과 깜빡인다');
+  assert.equal(none.isDefault, true);
+  assert.equal(none.fit, false);
   assert.equal(customAssets(U, { study: 'study-1.mp4' }).videos.studying.kind, 'video');
   for (const [f, k] of [['a.gif', 'img'], ['a.PNG', 'img'], ['a.webp', 'img'], ['a.jpg', 'img'], ['a.webm', 'video'], ['a.MP4', 'video']]) assert.equal(clipKind(f), k, f);
-  // 기본 캐릭터는 그대로 영상
-  assert.equal(clipFor(characterAssets('hachi'), 'cheer').kind, 'video');
+  // 기본 캐릭터: 넣은 영상도 예전 그림도 없으면(0.4.0 새로 깐 경우) 영상 없이 정지 그림
+  assert.equal(clipFor(characterAssets('hachi'), 'cheer'), null);
 });
 
 test('비율 맞추기(contain): 정사각형이 아니어도 상자 안에 꽉, 모르는 크기면 상자 그대로', () => {
@@ -199,11 +201,15 @@ test('cy-asset 사용자 캐릭터 주소: 저장 이름 모양만, 경로 조�
     `cy-asset://app/user-characters/${U}/character.json`,
     `cy-asset://app/user-characters/${U}/cheer-0a1b2c3d.svg`,
     `cy-asset://app/user-characters/${U}/cheer-0a1b2c3d.gif?x=1`,
-    `cy-asset://app/user-characters/hachi/cheer-0a1b2c3d.gif`,
+    `cy-asset://app/user-characters/hachi/cheer-0a1b2c3d.svg`,
+    `cy-asset://app/user-characters/nope/cheer-0a1b2c3d.gif`,
     `cy-asset://app/user-characters/overrides/hachi.json`,
     `cy-asset://app/user-characters/${U}/sub/cheer-0a1b2c3d.gif`,
     `cy-asset://app/user-characters/u-..%2F..%2Fx/cheer-0a1b2c3d.gif`,
   ]) assert.equal(resolveAsset(bad), null, bad);
+  // 기본 캐릭터에 넣은 그림(0.4.0): ~/.cy-agent/characters/<기본 id>/ 의 저장 이름
+  assert.deepEqual(resolveAsset('cy-asset://app/user-characters/hachi/cheer-0a1b2c3d.gif').user, { id: 'hachi', file: 'cheer-0a1b2c3d.gif' });
+  assert.equal(resolveAsset('cy-asset://app/user-characters/shisa/eyes_open-0a1b2c3d.png').type, 'image/png');
 });
 
 test('cy-asset 사용자 캐릭터 파일: 목록에 있는 그 캐릭터 파일만, 링크로 폴더 밖에 나가면 안 준다', () => {
@@ -221,7 +227,13 @@ test('cy-asset 사용자 캐릭터 파일: 목록에 있는 그 캐릭터 파일
   assert.equal(at('dance-0a1b2c3d.png'), null, '파일이 링크');
   assert.equal(at('plan-0a1b2c3d.png'), null, '목록에 없는 파일');
   assert.equal(at('cheer-0a1b2c3d.gif', []), null, '목록을 아직 못 받음');
-  assert.equal(at('cheer-0a1b2c3d.gif', [{ id: U, builtin: true, media: list[0].media }]), null, '사용자 캐릭터가 아님');
+  assert.equal(at('cheer-0a1b2c3d.gif', [{ id: U, media: list[0].media }]), null, '사용자 캐릭터·기본 캐릭터 표시가 없음');
+  // 기본 캐릭터에 넣은 그림도 같은 규칙(목록의 그 캐릭터 파일만)
+  fs.mkdirSync(path.join(root, 'hachi'));
+  fs.writeFileSync(path.join(root, 'hachi', 'eyes_open-0a1b2c3d.png'), 'x');
+  const bl = [{ id: 'hachi', builtin: true, media: { eyes_open: 'eyes_open-0a1b2c3d.png' } }];
+  assert.equal(at('eyes_open-0a1b2c3d.png', bl, 'hachi'), fs.realpathSync(path.join(root, 'hachi', 'eyes_open-0a1b2c3d.png')));
+  assert.equal(at('eyes_open-0a1b2c3d.png', [{ id: 'hachi', builtin: true, media: {} }], 'hachi'), null, '목록에 없는 파일');
   // 캐릭터 폴더 자체가 밖을 가리키는 링크
   const U2 = 'u-link0000';
   const outside = path.join(root0, 'outside');

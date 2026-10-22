@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { resolveAsset, ALLOWED, parseRange, assetCandidates, CHARACTER_FILES, PICKABLE_FILES } from '../src/assets.js';
+import path from 'node:path';
+import { resolveAsset, ALLOWED, parseRange, assetCandidates, CHARACTER_FILES, PICKABLE_FILES, legacyFilesOf, withLocalFiles } from '../src/assets.js';
 import { IMAGES } from '../src/bubbles.js';
-import { knockOutWhite } from '../scripts/prepare-assets.mjs';
 import { decodePNG, encodePNG } from '../scripts/png.mjs';
+import { faceSvg, faceShade, trayShade, renderShade } from '../src/default-face.js';
+
+const REPO = new URL('../../', import.meta.url);
+const MEDIA_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|icns|psd|webm|mp4|mov|m4v|avif)$/i;
+const walk = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map(String) : []);
 
 test('cy-asset: 허용 목록만, 경로 조작·다른 호스트·쿼리 거절', () => {
   assert.deepEqual(resolveAsset('cy-asset://app/character.png'), { rel: 'character.png', type: 'image/png' });
@@ -18,7 +23,49 @@ test('cy-asset: 허용 목록만, 경로 조작·다른 호스트·쿼리 거절
   assert.equal(CHARACTER_FILES.length, 12);
   assert.equal(PICKABLE_FILES.length, 75);
   assert.equal(ALLOWED.size, 1 + CHARACTER_FILES.length + PICKABLE_FILES.length + IMAGES.length);
-  for (const [rel] of [...CHARACTER_FILES, ...PICKABLE_FILES]) assert.ok(fs.existsSync(new URL(`../../assets/${rel}`, import.meta.url)), `${rel}: 허용 목록에 있는데 파일이 없음`);
+});
+
+// 0.4.0: 캐릭터 그림·영상은 배포하지 않는다(저작권). 허용 목록은 예전 버전이 ~/.cy-agent/assets 에 깔아 둔 그림을 읽으려고 남겨 둔다
+test('레포에 캐릭터 그림·영상이 없다: assets/·artwork/·docs/ 에 그림·영상 파일 없음, desktop/assets 는 코드로 그린 기본 그림만', () => {
+  for (const d of ['assets', 'artwork', 'docs']) {
+    const media = walk(new URL(`${d}/`, REPO)).filter((f) => MEDIA_RE.test(f));
+    assert.deepEqual(media, [], `${d}/ 에 그림·영상이 있음`);
+  }
+  const mine = walk(new URL('desktop/assets/', REPO)).filter((f) => MEDIA_RE.test(f) && !/^icon\./.test(f)).map((f) => f.split(path.sep).join('/')).sort();
+  assert.deepEqual(mine, ['character.png', 'default/eyes_closed.svg', 'default/eyes_open.svg', 'trayTemplate.png', 'trayTemplate@2x.png']);
+  for (const f of ['eyes_open', 'eyes_closed', 'eyes_open@2x']) assert.equal(fs.existsSync(new URL(`assets/character/${f}.png`, REPO)), false);
+});
+
+test('기본 그림: 레포 파일이 src/default-face.js 로 그린 것과 같다(node scripts/make-assets.mjs --force)', () => {
+  const read = (f) => fs.readFileSync(new URL(`../assets/${f}`, import.meta.url));
+  assert.equal(read('default/eyes_open.svg').toString('utf8'), faceSvg());
+  assert.equal(read('default/eyes_closed.svg').toString('utf8'), faceSvg({ closed: true }));
+  assert.notEqual(faceSvg(), faceSvg({ closed: true }));
+  for (const [f, w, shade] of [['character.png', 280, faceShade(false)], ['trayTemplate.png', 16, trayShade], ['trayTemplate@2x.png', 32, trayShade]]) {
+    const png = decodePNG(read(f));
+    assert.deepEqual([png.w, png.h], [w, w], f);
+    assert.ok(Buffer.from(renderShade(w, w, shade)).equals(png.rgba), `${f}: 그림이 다름`);
+  }
+  // 그림 파일·외부 주소를 읽지 않는다(숫자만으로 그린다)
+  const src = fs.readFileSync(new URL('../src/default-face.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /^import |readFile|fetch\(/m);
+});
+
+test('예전 그림(0.3.x): 캐릭터마다 이름 목록 · 목록에 있는 것만 local 로 붙인다(원본은 그대로)', () => {
+  assert.ok(legacyFilesOf('shisa').includes('character/eyes_open@2x.png'));
+  assert.ok(legacyFilesOf('shisa').includes('character.png'));
+  assert.ok(legacyFilesOf('kuri').every((r) => r.startsWith('characters/kuri/')));
+  assert.ok(legacyFilesOf('kuri').includes('characters/kuri/eyes_open.png'));
+  assert.deepEqual(legacyFilesOf('u-abcd1234'), []);
+  const data = { current: 'kuri', characters: [{ id: 'shisa', builtin: true }, { id: 'kuri', builtin: true }, { id: 'u-abcd1234', custom: true }] };
+  const have = new Set(['characters/kuri/eyes_open.png', 'characters/kuri/cheer.webm', 'character/../x']);
+  const out = withLocalFiles(data, (r) => have.has(r));
+  assert.deepEqual(out.characters[0].local, []);
+  assert.deepEqual(out.characters[1].local, ['characters/kuri/eyes_open.png', 'characters/kuri/cheer.webm']);
+  assert.equal(out.characters[2].local, undefined);
+  assert.equal(data.characters[1].local, undefined, '원본은 그대로');
+  assert.deepEqual(withLocalFiles(data, () => { throw new Error('x'); }).characters[1].local, []);
+  assert.equal(withLocalFiles(null, () => true), null);
 });
 
 test('cy-asset: 캐릭터 상태 그림·영상(character/) — 정확한 이름만, MIME 맞게', () => {
@@ -55,36 +102,19 @@ test('Range: <video> 가 끊어 읽는 bytes=a-b · a- · -n, 이상하면 inval
   assert.equal(parseRange('items=0-1', 100), null);
 });
 
-test('배경 투명화: 가장자리에서 이어진 흰색만 지우고, 외곽선 안 흰색은 남긴다', () => {
-  // 9×9: 흰 배경 / 갈색 테두리 링(2..6) / 안쪽 흰 점(4,4)
-  const w = 9, h = 9, rgba = Buffer.alloc(w * h * 4, 255);
-  const set = (x, y, c) => { const i = (y * w + x) * 4; rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = 255; };
-  for (let y = 2; y <= 6; y++) for (let x = 2; x <= 6; x++) set(x, y, [240, 225, 205]); // 크림색 털(흰색 아님)
-  for (let i = 2; i <= 6; i++) { set(i, 2, [70, 40, 20]); set(i, 6, [70, 40, 20]); set(2, i, [70, 40, 20]); set(6, i, [70, 40, 20]); }
-  set(4, 4, [255, 255, 255]); // 옷깃
-  const out = knockOutWhite({ w, h, rgba });
-  const a = (x, y) => out.rgba[(y * w + x) * 4 + 3];
-  assert.equal(a(0, 0), 0);
-  assert.equal(a(8, 8), 0);
-  assert.equal(a(1, 4), 0);
-  assert.equal(a(2, 4), 255); // 진한 외곽선
-  assert.equal(a(4, 4), 255); // 안쪽 흰색 유지
-  assert.equal(a(3, 3), 255); // 크림색 유지
-  // PNG 왕복
-  const back = decodePNG(encodePNG(w, h, out.rgba));
-  assert.deepEqual([back.w, back.h, back.rgba[3]], [9, 9, 0]);
+test('PNG 왕복(아이콘 만들기가 쓴다)', () => {
+  const w = 3, h = 2, rgba = Buffer.alloc(w * h * 4, 200);
+  rgba[3] = 0;
+  const back = decodePNG(encodePNG(w, h, rgba));
+  assert.deepEqual([back.w, back.h, back.rgba[3], back.rgba[4]], [3, 2, 0, 200]);
 });
 
-test('cy-asset: 홈에 없으면 레포 assets/ 로, character.png 만 번들 플레이스홀더까지', () => {
-  const dirs = { user: '/h/.cy-agent/assets', repo: '/r/assets', bundled: '/app/assets' };
+test('cy-asset: 홈(예전 그림) → 레포 assets/ → 앱 번들 순서. 번들 플레이스홀더로 대신하지 않는다(기본 그림은 렌더러가)', () => {
+  const dirs = { user: '/h/.cy-agent/assets', repo: '/r/assets' };
   assert.deepEqual(assetCandidates('character/dance.webm', dirs), ['/h/.cy-agent/assets/character/dance.webm', '/r/assets/character/dance.webm']);
-  assert.deepEqual(assetCandidates('character.png', dirs), ['/h/.cy-agent/assets/character.png', '/r/assets/character.png', '/app/assets/character.png']);
+  assert.deepEqual(assetCandidates('character.png', dirs), ['/h/.cy-agent/assets/character.png', '/r/assets/character.png']);
   assert.deepEqual(assetCandidates('reactions/merge.jpg', { user: '/h/a/' }), ['/h/a/reactions/merge.jpg']);
-});
-
-test('assetCandidates: 앱 번들(dmg) 그림은 홈 다음, 플레이스홀더 앞', () => {
-  const dirs = { user: '/h/.cy-agent/assets', bundle: '/A/시사.app/Contents/Resources/assets', bundled: '/A/app.asar/assets' };
-  assert.deepEqual(assetCandidates('character/eyes_open.png', dirs), ['/h/.cy-agent/assets/character/eyes_open.png', '/A/시사.app/Contents/Resources/assets/character/eyes_open.png']);
-  assert.deepEqual(assetCandidates('character.png', dirs), ['/h/.cy-agent/assets/character.png', '/A/시사.app/Contents/Resources/assets/character.png', '/A/app.asar/assets/character.png']);
+  const app = { user: '/h/.cy-agent/assets', bundle: '/A/시사.app/Contents/Resources/assets', bundled: '/A/app.asar/assets' };
+  assert.deepEqual(assetCandidates('character.png', app), ['/h/.cy-agent/assets/character.png', '/A/시사.app/Contents/Resources/assets/character.png']);
   assert.deepEqual(assetCandidates('reactions/merge.jpg', { user: null, repo: null, bundle: '/R/assets' }), ['/R/assets/reactions/merge.jpg']);
 });

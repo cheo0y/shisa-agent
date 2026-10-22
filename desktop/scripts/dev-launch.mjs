@@ -17,8 +17,8 @@ function mtime(p) {
 function ensureIcon() {
   const icns = path.join(ROOT, 'assets', 'icon.icns');
   const png = path.join(ROOT, 'assets', 'icon.png');
-  const repoOpen = path.join(ROOT, '..', 'assets', 'character', 'eyes_open@2x.png');
-  const src = fs.existsSync(repoOpen) ? repoOpen : path.join(ROOT, 'assets', 'character.png');
+  // 아이콘은 기본 그림(src/default-face.js)에서 만든다 — 그 숫자가 바뀌면 다시
+  const src = path.join(ROOT, 'src', 'default-face.js');
   if (!fs.existsSync(icns) || !fs.existsSync(png) || mtime(icns) < mtime(src)) {
     execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'make-icon.mjs')], { stdio: 'inherit' });
   }

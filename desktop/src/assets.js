@@ -1,5 +1,8 @@
-// cy-asset:// — 개인 캐릭터 그림·영상(~/.cy-agent/assets)을 샌드박스 렌더러에 내주는 주소. 순수 로직.
-// 원본은 레포의 assets/ (설치 때 ~/.cy-agent/assets 로 복사). 허용 목록에 있는 파일만, 경로 조작 없이 이름 그대로.
+// cy-asset:// — 개인 캐릭터 그림·영상을 샌드박스 렌더러에 내주는 주소. 순수 로직.
+// 0.4.0 부터 레포·앱에는 캐릭터 그림이 없다(저작권). 그림은 사용자 것만 준다:
+//   ~/.cy-agent/assets/…              예전 버전(0.3.x)이 깔아 둔 그림·영상(허용 목록에 있는 이름만, 경로 조작 없이 이름 그대로)
+//   ~/.cy-agent/characters/<id>/…     설정 창에서 넣은 그림(사용자 캐릭터·기본 캐릭터 모두 — user-characters/<id>/<저장 이름>)
+// 아무것도 없으면 렌더러가 기본 그림(desktop/assets/default, src/default-face.js)을 쓴다
 import { IMAGES } from './bubbles.js';
 import { CHARACTER_CLIPS } from './character-clips.js';
 
@@ -18,7 +21,7 @@ export const CHARACTER_FILES = [
   ['character/dance2.webm', 'video/webm'],
   ['character/dance2.png', 'image/png'],
 ];
-// 고를 수 있는 캐릭터(characters/<id>/): 정지 그림(눈 감은 그림은 깜빡이는 캐릭터만) + assets/characters/clips.json 에 적힌 영상과 첫 장면(webm·png)
+// 예전 그림 이름들(0.3.x 가 ~/.cy-agent/assets 에 깔았다). 고를 수 있는 캐릭터(characters/<id>/): 정지 그림(눈 감은 그림은 깜빡이는 캐릭터만) + assets/characters/clips.json 에 적힌 영상과 첫 장면(webm·png)
 export const PICKABLE = ['hachi', 'rakko', 'momonga', 'usagi', 'kani', 'chiikawa', 'kuri'];
 const NO_BLINK = ['usagi'];
 const clipFiles = (id) => [...new Set(Object.values(CHARACTER_CLIPS[id] ?? {}).flatMap((v) => (Array.isArray(v) ? v.map((x) => x?.file).filter((f) => typeof f === 'string' && /^[a-z0-9_-]+$/.test(f)) : [])))];
@@ -38,10 +41,10 @@ export const ALLOWED = new Map([
   ...IMAGES.map((n) => [`reactions/${n}.jpg`, 'image/jpeg']),
 ]);
 
-// 사용자가 만든 캐릭터(~/.cy-agent/characters/<id>/): 데몬이 지은 저장 이름(<칸>-<무작위 8자>.<확장자>)만, 확장자로 종류를 정한다.
+// 사용자가 넣은 그림(~/.cy-agent/characters/<id>/ — 만든 캐릭터는 u-…, 기본 캐릭터는 그 id): 데몬이 지은 저장 이름(<칸>-<무작위 8자>.<확장자>)만, 확장자로 종류를 정한다.
 // 이 목록은 파일마다 고정이 아니라 모양으로 본다. 실제로 그 캐릭터의 파일인지(데몬 목록)와 폴더 밖으로 안 나가는지는 main 이 다시 본다(userCharacterFile)
 export const USER_MEDIA_TYPES = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', webm: 'video/webm', mp4: 'video/mp4' };
-const USER_REL = /^user-characters\/(u-[a-z0-9]{4,32})\/((?:eyes_open|eyes_closed|cheer|dance|study|plan|lunch)-[a-z0-9]{8}\.(png|jpg|webp|gif|webm|mp4))$/;
+const USER_REL = new RegExp(`^user-characters/(u-[a-z0-9]{4,32}|${['shisa', ...PICKABLE].join('|')})/((?:eyes_open|eyes_closed|cheer|dance|study|plan|lunch)-[a-z0-9]{8}\\.(png|jpg|webp|gif|webm|mp4))$`);
 
 // 'cy-asset://app/reactions/merge.jpg' → { rel: 'reactions/merge.jpg', type: 'image/jpeg' } | null
 // 사용자 캐릭터 파일이면 { rel, type, user: { id, file } }
@@ -62,7 +65,7 @@ export function resolveAsset(url) {
 // fsx: { realpath(p), lstat(p) → { isFile(), isSymbolicLink() } } · path: { join, sep } (시험은 가짜로)
 export function userCharacterFile(a, root, list, fsx, path) {
   if (!a?.user || !root) return null;
-  const c = (Array.isArray(list) ? list : []).find((x) => x && x.id === a.user.id && x.custom);
+  const c = (Array.isArray(list) ? list : []).find((x) => x && x.id === a.user.id && (x.custom || x.builtin));
   // 그 캐릭터의 파일인가: 칸마다 하나(media) 또는 여러 개 넣는 칸의 목록(clips)
   const files = [...Object.values(c?.media ?? {}), ...Object.values(c?.clips ?? {}).flatMap((l) => (Array.isArray(l) ? l.map((x) => x?.file) : []))];
   if (!c || !files.includes(a.user.file)) return null;
@@ -80,16 +83,27 @@ export function userCharacterFile(a, root, list, fsx, path) {
   }
 }
 
-// 실제로 읽을 파일 후보(앞에서부터): 홈(CY_AGENT_HOME/assets, 사용자가 바꾼 그림) → 레포 assets/(설치 스크립트를 안 거친 새 사용자·테스트 홈)
-// → 앱 번들 assets/(dmg 로 깐 앱: Contents/Resources/assets) → character.png 만 앱 번들 플레이스홀더.
-// dirs: { user, repo, bundle, bundled } — 없는 것은 건너뛴다
+// 실제로 읽을 파일 후보(앞에서부터): 홈(CY_AGENT_HOME/assets — 예전 버전이 깔아 둔 그림, 사용자가 바꾼 그림) → 레포 assets/ → 앱 번들 assets/.
+// 0.4.0 부터 레포·번들에는 그림이 없지만, 직접 넣어 둔 사람(개발 체크아웃 등)을 위해 자리는 그대로 본다. dirs: { user, repo, bundle } — 없는 것은 건너뛴다
 export function assetCandidates(rel, dirs, join = (a, b) => `${a.replace(/\/$/, '')}/${b}`) {
   const out = [];
   if (dirs?.user) out.push(join(dirs.user, rel));
   if (dirs?.repo) out.push(join(dirs.repo, rel));
   if (dirs?.bundle) out.push(join(dirs.bundle, rel));
-  if (rel === 'character.png' && dirs?.bundled) out.push(join(dirs.bundled, 'character.png'));
   return out;
+}
+
+// 기본 캐릭터 하나의 예전 그림 이름들(허용 목록 중 그 캐릭터 것). 시사는 character/ 와 더 예전의 character.png
+export function legacyFilesOf(id) {
+  const all = [...ALLOWED.keys()];
+  if (id === 'shisa') return all.filter((r) => r.startsWith('character/') || r === 'character.png');
+  return PICKABLE.includes(id) ? all.filter((r) => r.startsWith(`characters/${id}/`)) : [];
+}
+// 데몬 GET /characters 에 기본 캐릭터마다 local(예전 그림 중 실제로 있는 것)을 붙인다 — 렌더러가 없는 그림을 부르지 않고 바로 기본 그림을 쓰게.
+// exists(rel) → 있나(메인이 assetCandidates 로 본다). 원본은 바꾸지 않는다
+export function withLocalFiles(data, exists) {
+  if (!data || !Array.isArray(data.characters)) return data;
+  return { ...data, characters: data.characters.map((c) => (c && c.builtin && typeof c.id === 'string' ? { ...c, local: legacyFilesOf(c.id).filter((r) => { try { return !!exists(r); } catch { return false; } }) } : c)) };
 }
 
 // HTTP Range 헤더 → { start, end }(포함) | null(없음·여러 구간 → 전체) | 'invalid'(416).

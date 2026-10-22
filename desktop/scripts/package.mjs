@@ -1,7 +1,6 @@
-// 맥 앱 번들 만들기 — dist/cy-darwin-<arch>/cy.app. Cmd+Tab·Dock 에 "cy" + 캐릭터 아이콘으로 보인다.
-// 사용: npm run package   (아이콘이 없거나 캐릭터보다 오래됐으면 먼저 다시 만든다)
+// 맥 앱 번들 만들기 — dist/cy-darwin-<arch>/cy.app. Cmd+Tab·Dock 에 "cy" + 기본 그림 아이콘으로 보인다.
+// 사용: npm run package   (아이콘이 없거나 기본 그림보다 오래됐으면 먼저 다시 만든다)
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -10,10 +9,8 @@ import { packager } from '@electron/packager';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const icns = path.join(ROOT, 'assets', 'icon.icns');
 const mtime = (p) => (fs.existsSync(p) ? fs.statSync(p).mtimeMs : 0);
-// 아이콘은 캐릭터 그림에서 만든다(생성물이라 git 에 없음). ~/.cy-agent/assets/character.png 가 있으면 그게 기준
-const userChar = path.join(process.env.CY_AGENT_HOME ?? path.join(os.homedir(), '.cy-agent'), 'assets', 'character.png');
-const src = fs.existsSync(userChar) ? userChar
-  : path.join(ROOT, 'assets', fs.existsSync(path.join(ROOT, 'assets', 'character.png')) ? 'character.png' : 'character.svg');
+// 아이콘은 기본 그림(src/default-face.js)에서 만든다(생성물이라 git 에 없음)
+const src = path.join(ROOT, 'src', 'default-face.js');
 if (mtime(icns) < mtime(src)) {
   execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'make-icon.mjs')], { stdio: 'inherit' });
 }

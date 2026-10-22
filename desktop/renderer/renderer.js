@@ -26,7 +26,7 @@ const img = document.getElementById('char');
 
 const closedImg = document.getElementById('char-closed');
 
-// ---- 캐릭터 그림: 눈 뜬 그림(cy-asset://app/character/, ~/.cy-agent/assets) → 예전 character.png → 번들 png → svg ----
+// ---- 캐릭터 그림: 사용자가 넣은 그림 → 예전 버전이 깔아 둔 그림(~/.cy-agent/assets) → 기본 그림(desktop/assets/default) ----
 // 눈 감은 그림까지 있으면 깜빡임을 켠다. 두 장 다 미리 디코드해 두고 보이기만 바꿔서 깜빡임(로딩) 없음.
 // 고른 캐릭터(데몬 state.character — 설정 창에서 바꾼다)마다 그림·영상 자리가 다르다(src/character.js characterAssets)
 // 켤 때 데몬 state 가 오기 전에도 지난번 캐릭터로 그린다(시사가 잠깐 보였다 바뀌지 않게)
@@ -46,6 +46,8 @@ const probe = (url) => new Promise((ok) => {
 });
 let stillIdx = 0;
 img.addEventListener('error', () => { if (++stillIdx < charA.stills.length) img.src = charA.stills[stillIdx]; });
+// 지금 그림이 어디서 왔나: default(기본 그림) · user(설정 창에서 넣은 그림) · legacy(예전 버전이 깔아 둔 그림 — 캐릭터마다 맞춘 CSS 는 이때만)
+const artOf = (a) => (a.isDefault ? 'default' : a.fit ? 'user' : 'legacy');
 let haveEyes = false;
 async function loadStill() {
   const a = charA;
@@ -91,8 +93,8 @@ async function doBlink() {
 }
 scheduleBlink();
 
-// ---- 사용자 캐릭터: 정사각형이 아닌 그림·영상도 비율대로 상자 안에(둥근 테두리가 그림 크기에 맞게) ----
-// 기본 캐릭터는 CSS 그대로(object-fit: contain)
+// ---- 사용자가 넣은 그림: 정사각형이 아닌 그림·영상도 비율대로 상자 안에(둥근 테두리가 그림 크기에 맞게) ----
+// 예전 그림·기본 그림은 CSS 그대로(object-fit: contain)
 function fitEl(el, w, h, on) {
   if (!on) { el.classList.remove('fit'); el.style.width = el.style.height = el.style.left = el.style.top = ''; return; }
   const bw = el.parentElement.clientWidth, bh = el.parentElement.clientHeight;
@@ -101,14 +103,14 @@ function fitEl(el, w, h, on) {
   Object.assign(el.style, { width: `${f.w}px`, height: `${f.h}px`, left: `${Math.round((bw - f.w) / 2)}px`, top: `${bh - f.h}px` }); // 아래 가운데(기본 캐릭터와 같은 기준점)
 }
 function fitStill() {
-  const on = !!charA.custom;
+  const on = !!charA.fit;
   for (const el of [img, closedImg]) {
     el.classList.toggle('scene', on && (el === img ? charA.openFrame : charA.closedFrame)); // 칸마다 테두리
     if (!on) fitEl(el, 0, 0, false);
     else if (el.complete && el.naturalWidth) fitEl(el, el.naturalWidth, el.naturalHeight, true);
   }
 }
-for (const el of [img, closedImg]) el.addEventListener('load', () => { if (charA.custom) fitEl(el, el.naturalWidth, el.naturalHeight, true); });
+for (const el of [img, closedImg]) el.addEventListener('load', () => { if (charA.fit) fitEl(el, el.naturalWidth, el.naturalHeight, true); });
 
 // ---- 활동: 데몬이 스스로 세션을 돌리면 공부 영상, 일정 알림(기본 10분 전) 땐 춤 영상(우선순위 춤 > 공부 > 정지) ----
 // 사용자 캐릭터의 gif·png 클립은 <img id="clip-img"> 로(<video> 는 gif 를 못 튼다). 그 칸이 비면(집중 등) 정지 그림 그대로
@@ -205,6 +207,7 @@ function setCharacter(id, force = false) {
   if (!redrawCharacter({ cur: charA, next, force, fellBack: stillIdx > 0 })) return;
   charA = next;
   wrap.dataset.character = cid;
+  wrap.dataset.art = artOf(charA);
   wrap.classList.remove('blink', 'blink-ready');
   closedImg.removeAttribute('src');
   stillIdx = 0;
@@ -225,6 +228,7 @@ function setCharacter(id, force = false) {
   if (shownView !== 'idle') { showVideo(null); startVideo(shownView); }
 }
 wrap.dataset.character = charA.id;
+wrap.dataset.art = artOf(charA);
 
 function dispatchActivity(a) {
   act = activityReducer(act, a);
