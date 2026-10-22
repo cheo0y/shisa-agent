@@ -1,6 +1,6 @@
 # 윈도우 배포본 만들기와 내보내기
 
-윈도우용 설치 파일(`Shisa-<버전>-Setup.exe`, Squirrel.Windows)과 휴대용 zip을 만들어, 맥 dmg와 **따로** 윈도우 전용 GitHub 릴리스(태그 `v<버전>-windows`)로 내는 방법입니다. 코드 서명은 하지 않습니다. 맥 쪽은 [../docs/release.md](../docs/release.md)를 봐 주세요.
+윈도우용 설치 파일(`Shisa-<버전>-Setup.exe`, Squirrel.Windows)과 휴대용 zip을 만들어, 맥 dmg와 **따로** 윈도우 전용 GitHub 릴리스(태그 `shisa-<버전>-windows`)로 내는 방법입니다. 코드 서명은 하지 않습니다. 맥 쪽은 [../docs/release.md](../docs/release.md)를 봐 주세요.
 
 ## 앱 안에 든 것
 
@@ -41,12 +41,12 @@ npm run dist:win -- --arch=x64 --no-installer   # 앱 폴더와 zip만
 |---|:-:|---|
 | `Shisa-<버전>-Setup.exe` | ✓ | 설치 파일(x64). arm64는 `Shisa-<버전>-arm64-Setup.exe` |
 | `Shisa-<버전>-win-x64.zip` | ✓ | 휴대용. 압축을 풀고 `Shisa.exe` |
-| `Shisa.ico` | ✓ | 제어판 「앱」 목록 아이콘. 설치할 때 `https://github.com/cheo0y/shisa-agent/releases/download/v<버전>-windows/Shisa.ico`에서 받습니다(다른 태그로 낼 땐 빌드할 때 `$env:SHISA_RELEASE_TAG`) |
+| `Shisa.ico` | ✓ | 제어판 「앱」 목록 아이콘. 설치할 때 `https://github.com/cheo0y/shisa-agent/releases/download/shisa-<버전>-windows/Shisa.ico`에서 받습니다(다른 태그로 낼 땐 빌드할 때 `$env:SHISA_RELEASE_TAG`) |
 | `SHA256SUMS-<버전>-win-x64.txt` | ✓ | 이번에 만든 exe·zip의 SHA-256(아키텍처마다 따로. `--no-installer`면 zip만) |
 | `squirrel-<arch>\` (RELEASES, `Shisa-<버전>-full.nupkg`) |  | Squirrel 업데이트 서버용. 자동 업데이트를 안 쓰니 올리지 않습니다 |
 | `app\`, `stage\` |  | 중간 산물 |
 
-- 버전은 `desktop/package.json`의 `version`입니다. 맥과 같은 버전 번호를 쓰고, 태그만 `v<버전>-windows`로 따로 냅니다(맥은 `v<버전>`).
+- 버전은 `desktop/package.json`의 `version`입니다. 맥과 같은 버전 번호를 쓰고, 태그만 `shisa-<버전>-windows`로 따로 냅니다(맥은 `shisa-<버전>`). 0.3.x까지는 `v<버전>-windows`였는데, 0.3.x 앱이 0.4.0 이후 릴리스를 알리지 않도록 0.4.0부터 앞에 `shisa-`를 붙입니다(자세한 이유는 [../docs/release.md](../docs/release.md)). `v`로 다시 내지 않습니다.
 - 아이콘은 기본 그림(`desktop/src/default-face.js`)으로 `windows/make-ico.mjs`가 만듭니다(16~256px, 외부 도구 없음).
 - `desktop/node_modules`가 없는 폴더(워크트리 등)에서는 `$env:SHISA_BUILD_MODULES="<다른 곳에 npm ci 한 desktop\node_modules>"`.
 - 포크에서 내보낼 때는 `$env:SHISA_RELEASE_REPO="<owner>/<repo>"`(아이콘 주소) 또는 `$env:SHISA_ICON_URL`을 줍니다.
@@ -67,18 +67,18 @@ curl.exe -s http://127.0.0.1:48300/status   # 다른 창에서
 
 ## GitHub Releases에 올리기
 
-윈도우는 맥 dmg 릴리스(`v<버전>`, 맥에서 `sh ops/release.sh --publish`)와 **따로**, 태그 `v<버전>-windows` · 제목 `시사 v<버전> (Windows)`로 냅니다. 아이콘 주소(`Shisa.ico`)가 이 태그를 가리키니 태그 이름을 바꾸면 빌드할 때 `$env:SHISA_RELEASE_TAG`도 같이 줍니다.
+윈도우는 맥 dmg 릴리스(`shisa-<버전>`, 맥에서 `sh ops/release.sh --publish`)와 **따로**, 태그 `shisa-<버전>-windows` · 제목 `시사 v<버전> (Windows)`로 냅니다. 아이콘 주소(`Shisa.ico`)가 이 태그를 가리키니 태그 이름을 바꾸면 빌드할 때 `$env:SHISA_RELEASE_TAG`도 같이 줍니다.
 
 ```powershell
 $v = (Get-Content desktop\package.json -Raw | ConvertFrom-Json).version
 $d = "desktop\dist\win"
-gh release create "v$v-windows" "$d\Shisa-$v-Setup.exe" "$d\Shisa-$v-win-x64.zip" "$d\Shisa.ico" "$d\SHA256SUMS-$v-win-x64.txt" `
+gh release create "shisa-$v-windows" "$d\Shisa-$v-Setup.exe" "$d\Shisa-$v-win-x64.zip" "$d\Shisa.ico" "$d\SHA256SUMS-$v-win-x64.txt" `
   --repo cheo0y/shisa-agent --target main --title "시사 v$v (Windows)" --notes-file <릴리스 노트> --latest=false
 ```
 
 - `--latest=false`: 맥 README의 「최신 릴리스에서 dmg 받기」가 깨지지 않게 「Latest」는 맥 릴리스에 둡니다.
-- 같은 이름의 파일을 바꿔 올리려면 `gh release upload "v$v-windows" <파일> --clobber`.
-- 새 버전 알림(`desktop/src/update-check.js`)은 `releases` 목록에서 이 PC용 파일(`-Setup.exe`·`-win-x64.zip`·`-<arch>.dmg`)이 든 가장 높은 정식 버전을 찾습니다. 윈도우 릴리스를 Latest 로 두지 않아도(`--latest=false`) 윈도우 사용자에게 알림이 갑니다. `-windows` 태그는 미리보기판이 아니라 윈도우용 표시로 보고, 버전 비교에서는 뗍니다.
+- 같은 이름의 파일을 바꿔 올리려면 `gh release upload "shisa-$v-windows" <파일> --clobber`.
+- 새 버전 알림(`desktop/src/update-check.js`)은 `releases` 목록에서 이 PC용 파일(`-Setup.exe`·`-win-x64.zip`·`-<arch>.dmg`)이 든 가장 높은 정식 버전을 찾습니다. 윈도우 릴리스를 Latest 로 두지 않아도(`--latest=false`) 윈도우 사용자에게 알림이 갑니다. `shisa-` 접두와 `-windows` 꼬리는 미리보기판이 아니라 태그 표시로 보고, 버전 비교에서는 뗍니다.
 - 받은 사람이 확인하려면 PowerShell에서 `Get-FileHash .\Shisa-<버전>-Setup.exe -Algorithm SHA256`을 SHA256SUMS 파일과 비교합니다.
 
 ## 남은 것

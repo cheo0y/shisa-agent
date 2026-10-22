@@ -1,7 +1,11 @@
 // 새 버전 알림: 하루 한 번 GitHub Releases 의 최신 릴리스를 보고(인증 없이), 지금보다 새로우면 캐릭터 말풍선. 순수 로직.
 import { t } from './i18n.js';
 export const REPO_SLUG = 'cheo0y/shisa-agent';
-// 목록으로 본다: 윈도우는 맥과 따로 v<버전>-windows 릴리스(--latest=false)라 /releases/latest 로는 윈도우 PC 가 늘 맥 릴리스만 봤다
+// 목록으로 본다: 윈도우는 맥과 따로 shisa-<버전>-windows 릴리스(--latest=false)라 /releases/latest 로는 윈도우 PC 가 늘 맥 릴리스만 봤다
+// 릴리스 태그: 0.4.0 부터 shisa-<버전>(맥) · shisa-<버전>-windows(윈도우). 0.3.x 까지는 v<버전> · v<버전>-windows.
+// 0.3.x 앱의 parseVersion 은 숫자(또는 v)로 시작하지 않는 태그를 못 읽어 건너뛴다. 그래서 그림을 뺀 0.4.0 이후 릴리스는
+// 이미 깔린 0.3.x 앱에 알림이 가지 않는다(test/update-check.test.js 가 0.3.3 판 로직으로 고정). 태그를 다시 v 로 내지 말 것
+export const TAG_PREFIX = 'shisa-';
 export const RELEASES_API = `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=100`;
 export const RELEASES_PAGE = `https://github.com/${REPO_SLUG}/releases`;
 export const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -63,12 +67,14 @@ export function pickAsset(assets, target) {
 export function latestRelease(json, target) {
   if (!json || typeof json !== 'object' || json.draft || json.prerelease) return null;
   const tag = typeof json.tag_name === 'string' ? json.tag_name.trim() : '';
-  const p = parseVersion(tag);
+  // shisa-<버전> 을 읽는다. 예전 v<버전> 태그(0.3.x)도 그대로 읽는다(어차피 지금보다 낮다)
+  const bare = tag.startsWith(TAG_PREFIX) ? tag.slice(TAG_PREFIX.length) : tag;
+  const p = parseVersion(bare);
   if (!p) return null;
-  // v<버전>-windows 는 미리보기판이 아니라 윈도우용 릴리스 — 윈도우 PC 만 본다
+  // <버전>-windows 는 미리보기판이 아니라 윈도우용 릴리스 — 윈도우 PC 만 본다
   const win = p.pre === 'windows';
   if (win && target?.platform !== 'win32') return null;
-  const version = tag.replace(/^v/, '').replace(/-windows$/, '');
+  const version = bare.replace(/^v/, '').replace(/-windows$/, '');
   const url = okLink(json.html_url, `${RELEASES_PAGE}/`) ? json.html_url : RELEASES_PAGE;
   if (!target || target.checkout) return { version, tag, url, asset: null };
   const asset = pickAsset(json.assets, target);

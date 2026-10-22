@@ -9,7 +9,7 @@
 
 ### 1. 설치 파일 받기
 
-[Releases 페이지](https://github.com/cheo0y/shisa-agent/releases)에서 이름 끝에 **(Windows)** 가 붙은 가장 새 릴리스(태그 `v<버전>-windows`)를 열고 `Shisa-<버전>-Setup.exe`를 받습니다. 맥용 dmg는 따로 나오는 릴리스에 있습니다.
+[Releases 페이지](https://github.com/cheo0y/shisa-agent/releases)에서 이름 끝에 **(Windows)** 가 붙은 가장 새 릴리스(태그 `shisa-<버전>-windows`, 0.3.x까지는 `v<버전>-windows`)를 열고 `Shisa-<버전>-Setup.exe`를 받습니다. 맥용 dmg는 따로 나오는 릴리스에 있습니다.
 
 - 대부분의 PC(인텔·AMD)는 이 파일이면 됩니다. ARM PC(스냅드래곤 등)도 이 파일로 동작합니다.
 - 설치 없이 써 보고 싶다면 `Shisa-<버전>-win-x64.zip`을 받아 압축을 풀고 `Shisa.exe`를 실행해도 됩니다. 이때는 시작 메뉴 바로 가기와 로그인할 때 자동 실행이 없습니다.

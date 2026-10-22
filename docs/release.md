@@ -24,7 +24,9 @@
 
 로그인할 때 자동 실행(`app.setLoginItemSettings`)은 dmg로 깐 앱에서만 다룹니다. 설치 마법사를 마치면 켜지고, 설정의 「이 앱」에서 끌 수 있습니다. 터미널 설치(launchd), 개발 실행, `CY_AGENT_HOME`이나 기본이 아닌 `CY_AGENT_PORT`를 준 시험 실행, `CY_NO_LOGIN_ITEM=1`에서는 건드리지 않습니다.
 
-새 버전 알림은 하루 한 번 `https://api.github.com/repos/cheo0y/shisa-agent/releases?per_page=100`을 인증 없이 읽어서, 이 PC용 파일이 든 가장 높은 정식 버전이 `desktop/package.json`의 version보다 새로우면 캐릭터 말풍선으로 한 번 알립니다(`desktop/src/update-check.js`). 윈도우용 `v<버전>-windows` 릴리스는 윈도우 PC만 봅니다.
+새 버전 알림은 하루 한 번 `https://api.github.com/repos/cheo0y/shisa-agent/releases?per_page=100`을 인증 없이 읽어서, 이 PC용 파일이 든 가장 높은 정식 버전이 `desktop/package.json`의 version보다 새로우면 캐릭터 말풍선으로 한 번 알립니다(`desktop/src/update-check.js`). 윈도우용 `shisa-<버전>-windows` 릴리스는 윈도우 PC만 봅니다.
+
+릴리스 태그는 0.4.0부터 `shisa-<버전>`(맥)과 `shisa-<버전>-windows`(윈도우)입니다. 0.3.x까지는 `v<버전>`·`v<버전>-windows`였습니다. 0.3.x 앱은 숫자(또는 `v`)로 시작하지 않는 태그를 읽지 못해 그 릴리스를 건너뜁니다. 그래서 캐릭터 그림을 뺀 0.4.0 이후 버전은 이미 깔린 0.3.x 앱(맥·윈도우 설치본·휴대용·터미널 설치)에 알림이 가지 않고, 0.4.x 앱끼리는 알림이 그대로 갑니다. 태그를 다시 `v<버전>`으로 내면 0.3.x 앱에 알림이 가니 그렇게 내지 않습니다(`desktop/test/update-check.test.js`가 0.3.3 판 로직으로 확인합니다).
 
 ## 만들기
 
@@ -59,18 +61,18 @@ curl -s http://127.0.0.1:48300/status   # 다른 터미널에서
 
 ```bash
 sh ops/release.sh             # arm64·x64 dmg와 SHA256SUMS를 만들고, 올릴 명령만 보여 줍니다
-sh ops/release.sh --publish   # gh release create v<버전> 까지 실행합니다
+sh ops/release.sh --publish   # gh release create shisa-<버전> 까지 실행합니다
 SHISA_ARCHS=arm64 sh ops/release.sh   # 한 아키텍처만
 ```
 
 `--publish`가 실행하는 명령은 아래와 같습니다. `gh`에 로그인한 계정이 `cheo0y/shisa-agent`에 쓸 수 있어야 합니다.
 
 ```bash
-gh release create v<버전> desktop/dist/Shisa-<버전>-arm64.dmg desktop/dist/Shisa-<버전>-x64.dmg desktop/dist/SHA256SUMS-<버전>.txt \
-  --repo cheo0y/shisa-agent --title "시사 v<버전>" --notes-file desktop/dist/release-notes-<버전>.md
+gh release create shisa-<버전> desktop/dist/Shisa-<버전>-arm64.dmg desktop/dist/Shisa-<버전>-x64.dmg desktop/dist/SHA256SUMS-<버전>.txt \
+  --repo cheo0y/shisa-agent --title "시사 v<버전>" --notes-file desktop/dist/release-notes-<버전>.md --latest
 ```
 
-같은 태그가 이미 있으면 멈춥니다. 파일만 바꾸려면 `gh release upload v<버전> <파일> --clobber --repo cheo0y/shisa-agent`를 씁니다.
+정식 릴리스로 내고 `--latest`로 「Latest」를 맥 릴리스에 둡니다. README의 `releases/latest` 링크가 이 릴리스를 엽니다. 같은 태그가 이미 있으면 멈춥니다. 파일만 바꾸려면 `gh release upload shisa-<버전> <파일> --clobber --repo cheo0y/shisa-agent`를 씁니다.
 
 ## 남은 것
 

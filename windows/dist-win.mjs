@@ -229,9 +229,9 @@ if (MAKE_INSTALLER) {
     copyright: 'MIT License',
     setupExe,
     setupIcon: ICO,
-    // 제어판 「앱」 목록 아이콘. 설치할 때 이 주소에서 받는다 — 윈도우 릴리스(태그 v<버전>-windows, 맥 dmg 릴리스와 따로)에
+    // 제어판 「앱」 목록 아이콘. 설치할 때 이 주소에서 받는다 — 윈도우 릴리스(태그 shisa-<버전>-windows, 맥 dmg 릴리스와 따로)에
     // Shisa.ico 를 같이 올려야 한다(release.md). 다른 태그로 낼 땐 SHISA_RELEASE_TAG
-    iconUrl: process.env.SHISA_ICON_URL || `https://github.com/${RELEASE_REPO}/releases/download/${process.env.SHISA_RELEASE_TAG || `v${VERSION}-windows`}/${EXE_NAME}.ico`,
+    iconUrl: process.env.SHISA_ICON_URL || `https://github.com/${RELEASE_REPO}/releases/download/${process.env.SHISA_RELEASE_TAG || `shisa-${VERSION}-windows`}/${EXE_NAME}.ico`,
     noMsi: true,
     noDelta: true, // 자동 업데이트(Squirrel 업데이트 서버)는 안 쓴다. 새 Setup.exe 를 다시 실행하는 방식
   });
