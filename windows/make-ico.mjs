@@ -6,16 +6,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { decodePNG, encodePNG } from '../desktop/scripts/png.mjs';
+import { ICON_STYLE, composeIcon } from '../desktop/src/app-icon.js';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 const S = 1024; // 캔버스
-// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다: 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
-const BODY = 960;
-const RADIUS = 210;
-const CHAR = 860;
-const TOP = [250, 247, 255]; // 배경 그라데이션 위 (make-icon.mjs 와 같은 색)
-const BOTTOM = [226, 220, 255]; // 아래
+// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다(960 둥근 사각형, 캐릭터 860): 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
+const CHAR = ICON_STYLE.win.char;
 
 // ---- 줄이기: 넓이 평균(박스 필터), 알파는 곱해 둔 채로 섞어 가장자리가 검게 번지지 않게 ----
 function premultiply({ w, h, rgba }) {
@@ -69,22 +66,6 @@ export function shrink(img, dw, dh) {
   return { w: dw, h: dh, rgba: unpremultiply(vy, dw, dh) };
 }
 
-// ---- 둥근 사각형 커버리지 (4x4 슈퍼샘플링) ----
-function roundRectCoverage(x, y) {
-  const o = (S - BODY) / 2;
-  let hit = 0;
-  for (let sy = 0; sy < 4; sy++) {
-    for (let sx = 0; sx < 4; sx++) {
-      const px = x + (sx + 0.5) / 4 - o, py = y + (sy + 0.5) / 4 - o;
-      if (px < 0 || py < 0 || px > BODY || py > BODY) continue;
-      const cx = Math.min(Math.max(px, RADIUS), BODY - RADIUS);
-      const cy = Math.min(Math.max(py, RADIUS), BODY - RADIUS);
-      if ((px - cx) ** 2 + (py - cy) ** 2 <= RADIUS ** 2) hit++;
-    }
-  }
-  return hit / 16;
-}
-
 // 1024 캔버스: 그라데이션 둥근 사각형 + 캐릭터(눈 뜬 기본 표정)
 function renderMaster() {
   const picks = [
@@ -99,29 +80,9 @@ function renderMaster() {
   const side = Math.min(CHAR, raw.w, raw.h);
   const ch = raw.w === side && raw.h === side ? raw : shrink(raw, side, side);
 
-  const out = Buffer.alloc(S * S * 4);
-  const o = (S - BODY) / 2;
-  const cx0 = Math.round((S - ch.w) / 2), cy0 = Math.round((S - ch.h) / 2) + 12;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const i = (y * S + x) * 4;
-      const cov = roundRectCoverage(x, y);
-      if (cov <= 0) continue; // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다)
-      const t = Math.min(Math.max((y - o) / BODY, 0), 1);
-      let r = TOP[0] + (BOTTOM[0] - TOP[0]) * t;
-      let g = TOP[1] + (BOTTOM[1] - TOP[1]) * t;
-      let b = TOP[2] + (BOTTOM[2] - TOP[2]) * t;
-      const lx = x - cx0, ly = y - cy0;
-      if (lx >= 0 && ly >= 0 && lx < ch.w && ly < ch.h) {
-        const j = (ly * ch.w + lx) * 4;
-        const ca = ch.rgba[j + 3] / 255;
-        r = ch.rgba[j] * ca + r * (1 - ca);
-        g = ch.rgba[j + 1] * ca + g * (1 - ca);
-        b = ch.rgba[j + 2] * ca + b * (1 - ca);
-      }
-      out[i] = Math.round(r); out[i + 1] = Math.round(g); out[i + 2] = Math.round(b); out[i + 3] = Math.round(cov * 255);
-    }
-  }
+  // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다). 앱이 고른 캐릭터로 창 아이콘을 바꿀 때와 같은 그림(desktop/src/app-icon.js)
+  const at = { x: Math.round((S - ch.w) / 2), y: Math.round((S - ch.h) / 2) + ICON_STYLE.win.dy };
+  const out = composeIcon(S, ICON_STYLE.win, ch, at);
   return { w: S, h: S, rgba: out };
 }
 

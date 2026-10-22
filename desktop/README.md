@@ -39,6 +39,9 @@ KeepAlive라서 ⌘Q로 꺼도 launchd가 30초 뒤에 다시 띄웁니다. 완�
 
 `npm start`(개발 실행)도 Dock·Cmd+Tab에 뜨지만 이름은 "Electron"으로 나옵니다(Cmd+Tab 이름은 번들의 `CFBundleName`에서 오기 때문입니다). Dock 아이콘은 런타임에 `assets/icon.png`로 바꿔 줍니다.
 
+고른 캐릭터가 시사가 아니면 앱 아이콘도 그 캐릭터 그림으로 바꿉니다(설정 「이 앱」의 「앱 아이콘도 고른 캐릭터로」, 기본 켜짐, `src/app-icon.js`). 맥은 `app.dock.setIcon`으로 Dock 아이콘을, Windows는 창마다 `win.setIcon`으로 작업 표시줄 단추 아이콘과 알림 영역(트레이) 그림을 바꿉니다. 켤 때와 캐릭터를 바꿀 때 바로 적용되고, 그림이 없거나 읽지 못하면 시사 아이콘을 씁니다.
+이름은 바꾸지 못합니다. Dock 툴팁, 메뉴 막대의 굵은 앱 이름, Cmd+Tab, 스테이지 매니저에 보이는 이름은 macOS가 앱 번들 `Info.plist`의 `CFBundleName`(「시사」)에서 읽기 때문입니다. `app.setName`은 앱 안의 글(「우사기 비서 정보」·「우사기 비서 종료」 같은 메뉴 항목, 창 제목, 트레이 툴팁)만 바꿉니다. 다른 프로세스가 보는 앱 아이콘(`NSRunningApplication.icon`: Finder, 활성 상태 보기 등)도 번들 아이콘 그대로입니다.
+
 ### 배포용 앱 (시사.app, dmg)
 
 ```bash
