@@ -12,7 +12,7 @@ import { execBin } from './win-exec.js';
 // 목록을 못 받으면 아래 값을 쓴다.
 const MODELS = {
   gemini: 'gemini-3.8-flash',
-  claude: 'claude-3-5-haiku-latest',
+  claude: 'claude-haiku-5-5',
   openai: 'gpt-4.1-mini', // 데몬 기본(agent/src/providers.ts OPENAI_DEFAULT_MODEL)과 같게
 };
 
@@ -153,7 +153,7 @@ export async function checkLlm(provider, apiKey, rawFetch = globalThis.fetch) {
         }),
       });
       const body = await readBody(res, key);
-      return body.ok ? { ok: true } : { ok: false, error: body.error };
+      return body.ok ? { ok: true } : { ok: false, status: body.status, error: body.error };
     }
   } catch (e) {
     return { ok: false, error: clip(e?.message, key) || t('setup.llm_checkllm_error_2') };
