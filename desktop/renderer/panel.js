@@ -627,8 +627,15 @@ function watchAgentLogin() {
   loginTimer = setInterval(tick, 2000);
 }
 
-function keyFail(error) {
+function keyFail(error, status) {
   const e = String(error || '');
+  // Claude API는 HTTP 상태를 전달한다. invalid_request_error를 잘못된 키로 오인하지 않는다.
+  if (status) {
+    if (status === 401) return tr('panel.key_bad');
+    if (status === 429) return tr('panel.key_rate');
+    if (status === 402 || (status === 400 && /credit|balance|billing|quota/i.test(e))) return tr('panel.key_no_credit');
+    return tr('panel.check_failed');
+  }
   if (/^(Genspark|그 모델은 Genspark|そのモデルは Genspark|gsk login)/.test(e)) return e; // Genspark 는 llm-check.js 의 말 그대로(무엇을 할지 들어 있다)
   if (/credit|balance|billing|quota|크레딧|クレジット/i.test(e) && !/RESOURCE_EXHAUSTED/.test(e)) {
     return tr('panel.key_no_credit');
@@ -796,7 +803,7 @@ function renderSetupView(resetScroll) {
       if (r.ok) {
         keyStatus = 'ok';
         try { sisa = { ...sisa, ...(await cy.sisaGet()) }; } catch { sisa = { ...sisa, provider: setupLink, hasKey: true }; }
-      } else keyStatus = keyFail(r.error);
+      } else keyStatus = keyFail(r.error, r.status);
       redraw(false);
     },
     onKeyNext: () => {

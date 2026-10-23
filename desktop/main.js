@@ -1443,7 +1443,7 @@ function setupIPC() {
     const key = apiKey.trim();
     // net.fetch: OS 인증서 저장소·프록시 설정을 따른다(회사 프록시·백신이 TLS 를 가로채도 키 확인이 된다)
     const result = await checkLlm(provider, key, keyNetFetch);
-    if (!result.ok) return { ok: false, error: result.error || t('main.err_check_failed') };
+    if (!result.ok) return { ok: false, error: result.error || t('main.err_check_failed'), ...(result.status ? { status: result.status } : {}) };
     const next = withKey(readSisa(), provider, key);
     writeSisa(next);
     // warn: 키는 맞지만 쓸 수 없는 상태(Genspark 무료 플랜 → 크레딧 필요). 연결은 해 두고 그 말을 보여 준다
