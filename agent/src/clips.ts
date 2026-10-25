@@ -54,4 +54,12 @@ export function pickVariant(n: number, last?: number, rand: () => number = Math.
   return i >= last! ? i + 1 : i;
 }
 
+// 기본 캐릭터에 사용자가 넣은 영상(character-store.ts media.json): 넣은 칸은 그 목록이 이기고, 나머지 칸(다른 칸 이름 포함)은 clips.json 그대로.
+// 데스크톱 character.js buildAssets 와 같은 규칙(데스크톱은 예전 그림 파일이 없는 칸을 더 뺀다 — 번호는 나머지로 맞춘다)
+export function withUploads(base: ClipTable | undefined, up: ClipTable | undefined): ClipTable {
+  const t: ClipTable = { ...(base ?? {}) };
+  for (const k of CLIP_KINDS) { const l = own(up, k); if (l) t[k] = l.map((x) => ({ ...x })); }
+  return t;
+}
+
 export const builtinClips = (id: string): ClipTable | undefined => (Object.hasOwn(CLIPS_JSON, id) && id !== "_help" ? CLIPS_JSON[id] : undefined);

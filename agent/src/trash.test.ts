@@ -118,16 +118,20 @@ test("휴지통은 대시보드 집계·캔버스·브리핑 맥락에서 빠지
   s.upsertTodo({ id: "jira:3", title: "버린 끝난 일", source: "jira", priority: 3 });
   s.editTodo("jira:3", { status: "done" });
   recentDoneTodos(s); // 캔버스가 '완료'로 본 기록을 먼저 남겨 둔다
-  s.trashTodo("jira:3", "2026-10-11T00:00:00.000Z");
-  s.trashTodo("mail:1", "2026-10-12T00:00:00.000Z");
+  // 날짜는 오늘 기준(할 일 일지는 최근 MEMORY_DAYS일만 보므로 고정 날짜는 시간이 지나면 깨진다)
+  const day = 86400_000;
+  const tJira = new Date(Date.now() - 2 * day).toISOString();
+  const tMail = new Date(Date.now() - day).toISOString();
+  s.trashTodo("jira:3", tJira);
+  s.trashTodo("mail:1", tMail);
 
   const d = await buildDashboard(loadConfig(), s, { git: async () => [] });
   assert.deepEqual(d.todos.map((t) => t.id), ["mail:2"]);
   assert.deepEqual(d.recentDone, []);
   assert.equal(d.trashCount, 2);
   assert.deepEqual(d.trash, [
-    { id: "mail:1", title: "버린 답장", priority: 1, source: "mail", trashedAt: "2026-10-12T00:00:00.000Z" },
-    { id: "jira:3", title: "버린 끝난 일", priority: 3, source: "jira", trashedAt: "2026-10-11T00:00:00.000Z" },
+    { id: "mail:1", title: "버린 답장", priority: 1, source: "mail", trashedAt: tMail },
+    { id: "jira:3", title: "버린 끝난 일", priority: 3, source: "jira", trashedAt: tJira },
   ]);
 
   const md = todoCanvasMarkdown(s.openTodos(), new Date(), { done: recentDoneTodos(s) });

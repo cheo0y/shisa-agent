@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { builtinClips, clipList, type ClipKind, type ClipTable } from "./clips.ts";
+import { builtinClips, clipList, withUploads, type ClipKind, type ClipTable } from "./clips.ts";
 import { LANGUAGES, language, langRule, onLanguage, type Lang } from "./lang.ts";
 
 // 고를 수 있는 캐릭터: 시사(기본)·하치와레·랏코·모몽가·우사기·카니·치이카와·쿠리만쥬 + 사용자가 만든 캐릭터(character-store.ts, ~/.cy-agent/characters/).
@@ -163,7 +163,8 @@ let order: string[] = [...CHARACTER_IDS];
 export const isCharacterId = (v: unknown): v is CharacterId => typeof v === "string" && Object.hasOwn(table, v);
 
 // overrides: 지금 언어의 덮어쓰기 · langOverrides: 언어마다(character-store.ts — 있으면 이쪽, 언어가 바뀌어도 알맞은 것을 쓴다)
-export type InstallInput = { overrides?: Record<string, LinesPatch>; langOverrides?: Partial<Record<Lang, Record<string, LinesPatch>>>; users?: { id: string; lines: Partial<LinesEntry>; clips?: ClipTable }[] };
+// builtinMedia: 기본 캐릭터에 사용자가 넣은 영상 목록(그 칸은 clips.json 대신)
+export type InstallInput = { overrides?: Record<string, LinesPatch>; langOverrides?: Partial<Record<Lang, Record<string, LinesPatch>>>; users?: { id: string; lines: Partial<LinesEntry>; clips?: ClipTable }[]; builtinMedia?: Partial<Record<string, ClipTable>> };
 let lastInstall: InstallInput = {};
 // character-store.ts 가 시작할 때·바뀔 때 부른다. 지금 캐릭터가 사라졌으면 시사로(돌려준 값이 true). 언어가 바뀌면 마지막 것으로 다시 만든다
 export function installCharacters(o: InstallInput): boolean {
@@ -175,6 +176,8 @@ export function installCharacters(o: InstallInput): boolean {
   for (const id of CHARACTER_IDS) {
     const ov = overrides?.[id];
     next[id] = !ov ? base[id] : id === "shisa" && lang === "ko" ? shisaWith(ov) : fromLines(id, mergeLines(LINES_BY_LANG[lang][id] as LinesEntry, ov), { clips: builtinClips(id) });
+    const up = o.builtinMedia?.[id];
+    if (up && Object.keys(up).length) next[id] = { ...next[id], clips: withUploads(next[id].clips ?? builtinClips(id), up) };
   }
   const users = (o.users ?? []).filter((u) => !isBuiltinId(u.id) && !Object.hasOwn(next, u.id));
   for (const u of users) next[u.id] = fromLines(u.id, u.lines, { custom: true, clips: u.clips ?? {} });

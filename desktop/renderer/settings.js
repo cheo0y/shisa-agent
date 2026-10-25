@@ -12,7 +12,7 @@ import {
 } from '../src/settings.js';
 import { createPlaceSearch } from '../src/weather-search.js';
 import { mountGuidelines } from '../src/guidelines.js';
-import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS } from '../src/character.js';
+import { CHARACTERS, CHARACTER_IDS, characterAssets, characterName, okCharacterId, USER_CHAR_DIR, defaultFrame, MULTI_SLOTS, MEDIA_SLOTS } from '../src/character.js';
 import { applyCharacters, effectiveLines, defaultsOf, staticCharacters } from '../src/character-registry.js';
 import { editorSections, flattenLines, unflattenLines, fieldText, fieldProblem, linesFromTexts, diffLines, slotRows, okMediaName, previewKind, missingRequired, sourceOptions, ACCEPT, MULTI_HINT, sayPlaceholder, sayTitle, editorSig, editorRefresh } from '../src/character-edit.js';
 import { who, whoId, setWho, onWho } from './who.js';
@@ -413,7 +413,7 @@ function renderCharacter() {
     else if (c.override) lab.append(el('span', 'char-tag', t('settings.char_overridden')));
     const edit = el('button', 'char-edit', '✎');
     edit.type = 'button';
-    edit.title = t(c.custom ? 'settings.char_edit_custom' : 'settings.char_edit_lines', { name: nm });
+    edit.title = t(c.custom ? 'settings.char_edit_custom' : 'settings.char_edit_builtin', { name: nm });
     edit.setAttribute('aria-label', edit.title);
     edit.addEventListener('click', () => openCharEditor({ mode: 'edit', id: c.id }));
     card.append(lab, edit);
@@ -491,7 +491,10 @@ function slotList(rows, srcOf, nameOf, frames, h) {
     row.append(head);
     if (!r.multi) {
       const src = r.file ? srcOf(r.file) : null;
-      const pic = mediaPreview(src, r.file ? nameOf(r.file) : null);
+      // 비어 있는 눈 그림 칸: 지금 대신 보이는 그림(기본 캐릭터 — 기본 그림·예전 버전 그림)을 흐리게 보여 준다
+      const stand = !src ? h.standIn?.(r.slot) : null;
+      const pic = stand ? Object.assign(mediaPreview(stand.src, stand.src), { title: stand.label }) : mediaPreview(src, r.file ? nameOf(r.file) : null);
+      if (stand) pic.classList.add('slot-standin');
       const framed = src ? (typeof frames[r.slot] === 'boolean' ? frames[r.slot] : defaultFrame(nameOf(r.file))) : false;
       if (src) pic.classList.toggle('framed', framed); // 오버레이와 같은 둥근 네모 카드로 미리 보기
       const input = fileInput(false, async (fs) => { if (check(fs)) await h.pick(r.slot, fs, err); });
@@ -507,7 +510,7 @@ function slotList(rows, srcOf, nameOf, frames, h) {
         rm.addEventListener('click', () => h.remove(r.slot, null, err));
         btns.append(rm);
       }
-      row.append(pic, el('p', 'faint', r.hint), btns, err, input);
+      row.append(pic, ...(stand ? [el('span', 'faint slot-standin-label', stand.label)] : []), el('p', 'faint', r.hint), btns, err, input);
       box.append(row);
       continue;
     }
@@ -631,6 +634,10 @@ function sourceSelect(selected) {
   return sel;
 }
 
+// 넣은 그림이 있나(칸 하나 · 전부)
+const slotHas = (e, slot) => (typeof e?.media?.[slot] === 'string' && !!e.media[slot]) || (Array.isArray(e?.clips?.[slot]) && e.clips[slot].length > 0);
+const hasMedia = (e) => MEDIA_SLOTS.some((slot) => slotHas(e, slot));
+
 function renderCharEditor() {
   const box = $('char-editor');
   box.replaceChildren();
@@ -739,14 +746,18 @@ function renderCharEditor() {
   const base = custom ? null : defaultsOf(entry);
   const values = effectiveLines(entry);
   let nameIn = null;
+  let nameRow = null;
   if (custom) {
     nameIn = el('input', 'ce-name');
     nameIn.type = 'text';
     nameIn.value = entry.name ?? '';
     nameIn.addEventListener('input', () => { editDirty = true; });
-    const nameRow = el('label', 'ce-row');
+    nameRow = el('label', 'ce-row');
     nameRow.append(el('span', null, t('settings.ce_name')), nameIn);
-    // 그림은 고르면 바로 올리고, 테두리·한마디도 바꾸면 바로 저장. 새 목록이 오면 refreshCharEditor 가 그림 칸을 맞춘다
+  }
+  // 그림 칸(만든 캐릭터·기본 캐릭터 모두). 고르면 바로 올리고, 테두리·한마디도 바꾸면 바로 저장. 새 목록이 오면 refreshCharEditor 가 그림 칸을 맞춘다
+  // 기본 캐릭터는 그림이 앱에 없다(0.4.0): 넣은 그림은 ~/.cy-agent/characters/<id>/ 에, 넣지 않은 칸은 예전 그림·기본 그림
+  {
     const done = async (r, ok, err) => {
       if (!r?.ok) { if (err) err.textContent = r?.data?.error ?? t('settings.save_fail_short'); else flash(r?.data?.error ?? t('settings.save_fail'), true); return false; }
       flash(ok);
@@ -771,17 +782,48 @@ function renderCharEditor() {
         const r = await cy.updateCharacter(entry.id, { files: { [file]: { say: text.trim() || null } } }).catch(() => null);
         if (r?.ok) flash(text.trim() ? t('settings.say_saved') : t('settings.say_reset')); else flash(r?.data?.error ?? t('settings.save_fail'), true);
       },
+      // 기본 캐릭터의 빈 눈 그림 칸: 지금 대신 보이는 그림
+      standIn: custom ? null : (slot) => {
+        const a = characterAssets(entry.id);
+        if (a.fit) return null; // 넣은 눈 뜬 그림이 있으면 그 칸에 보인다
+        const src = slot === 'eyes_open' ? a.open : slot === 'eyes_closed' ? a.closed : null;
+        return src ? { src, label: t(a.isDefault ? 'settings.slot_default' : 'settings.slot_legacy') } : null;
+      },
     };
-    const drawSlots = (e) => slotList(slotRows(e?.media, e?.clips), (f) => `${USER_CHAR_DIR}/${entry.id}/${f}`, (f) => f, e?.frames ?? {}, handlers);
+    const drawSlots = (e) => slotList(slotRows(e?.media, e?.clips, { optional: !custom }), (f) => `${USER_CHAR_DIR}/${entry.id}/${f}`, (f) => f, e?.frames ?? {}, handlers);
     let slots = drawSlots(entry);
+    let syncClear = () => {};
     charView.redrawSlots = () => {
       const e = charEntry(entry.id);
       const n = drawSlots(e);
       slots.replaceWith(n);
       slots = n;
       charView.sig = { ...charView.sig, files: editorSig(e).files };
+      syncClear();
     };
-    box.append(nameRow, el('h3', null, t('settings.ce_media')), el('p', 'hint', t('settings.ce_media_hint_edit', { multi: MULTI_HINT })), slots);
+    box.append(...(nameRow ? [nameRow] : []), el('h3', null, t('settings.ce_media')), el('p', 'hint', t(custom ? 'settings.ce_media_hint_edit' : 'settings.ce_media_hint_builtin', { multi: MULTI_HINT })), slots);
+    if (!custom) {
+      // 넣은 그림 모두 빼기(기본 그림·예전 그림으로)
+      const clear = el('button', 'small ghost', t('settings.media_clear_all'));
+      clear.type = 'button';
+      clear.disabled = !hasMedia(entry);
+      clear.addEventListener('click', async () => {
+        const e = charEntry(entry.id);
+        if (!hasMedia(e) || !window.confirm(t('settings.media_clear_confirm', { name }))) return;
+        clear.disabled = true;
+        let last = { ok: true };
+        for (const slot of MEDIA_SLOTS) {
+          if (!slotHas(e, slot)) continue;
+          last = await cy.deleteCharacterMedia(entry.id, slot, null).catch(() => null);
+          if (!last?.ok) break;
+        }
+        await done(last, t('settings.media_cleared'));
+      });
+      syncClear = () => { clear.disabled = !hasMedia(charEntry(entry.id)); };
+      const row = el('div', 'slot-btns');
+      row.append(clear);
+      box.append(row);
+    }
   }
   // 다른 캐릭터 대사로 채우기(저장 전까지는 화면만)
   const fill = el('div', 'ce-row');

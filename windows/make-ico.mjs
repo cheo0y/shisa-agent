@@ -1,18 +1,17 @@
-// 윈도우 앱 아이콘(.ico) 만들기 — 레포 assets/character/eyes_open@2x.png 를 둥근 사각형 배경에 얹어
+// 윈도우 앱 아이콘(.ico) 만들기 — 기본 그림(desktop/src/default-face.js)을 둥근 사각형 배경에 얹어(합성은 desktop/src/app-icon.js)
 // 16·24·32·48·64·128·256px 를 한 .ico 에 담는다. sips·iconutil 같은 맥 도구 없이 Node 만 쓴다(줄이기도 직접).
 // 256px 은 PNG 그대로, 나머지는 옛 프로그램도 읽는 32bit BMP 로 넣는다.
 // 사용: node windows/make-ico.mjs <나올 파일.ico>   (dist-win.mjs 가 부른다)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { decodePNG, encodePNG } from '../desktop/scripts/png.mjs';
-import { ICON_STYLE, composeIcon } from '../desktop/src/app-icon.js';
+import { encodePNG } from '../desktop/src/png.js';
+import { ICON_STYLE, defaultIconRGBA } from '../desktop/src/app-icon.js';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 const S = 1024; // 캔버스
-// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다(960 둥근 사각형, 캐릭터 860): 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
-const CHAR = ICON_STYLE.win.char;
+// 맥 아이콘(make-icon.mjs)보다 여백을 줄인다(ICON_STYLE.win: 960 둥근 사각형, 캐릭터 860). 작업 표시줄·시작 메뉴 아이콘은 여백 없이 꽉 찬 모양이 보통이라
 
 // ---- 줄이기: 넓이 평균(박스 필터), 알파는 곱해 둔 채로 섞어 가장자리가 검게 번지지 않게 ----
 function premultiply({ w, h, rgba }) {
@@ -68,22 +67,9 @@ export function shrink(img, dw, dh) {
 
 // 1024 캔버스: 그라데이션 둥근 사각형 + 캐릭터(눈 뜬 기본 표정)
 function renderMaster() {
-  const picks = [
-    path.join(REPO, 'assets', 'character', 'eyes_open@2x.png'),
-    path.join(REPO, 'assets', 'character', 'eyes_open.png'),
-    path.join(REPO, 'assets', 'character.png'),
-    path.join(REPO, 'desktop', 'assets', 'character.png'),
-  ];
-  const src = picks.find((p) => fs.existsSync(p));
-  if (!src) throw new Error(`캐릭터 그림이 없어요: ${picks.join(', ')}`);
-  const raw = decodePNG(fs.readFileSync(src));
-  const side = Math.min(CHAR, raw.w, raw.h);
-  const ch = raw.w === side && raw.h === side ? raw : shrink(raw, side, side);
-
-  // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다). 앱이 고른 캐릭터로 창 아이콘을 바꿀 때와 같은 그림(desktop/src/app-icon.js)
-  const at = { x: Math.round((S - ch.w) / 2), y: Math.round((S - ch.h) / 2) + ICON_STYLE.win.dy };
-  const out = composeIcon(S, ICON_STYLE.win, ch, at);
-  return { w: S, h: S, rgba: out };
+  // 기본 그림(desktop/src/default-face.js, 눈 뜬 얼굴)을 캐릭터 상자(860) 크기로 바로 그린다. 그림 파일을 읽지 않는다.
+  // 바깥은 투명(윈도우 아이콘엔 드롭 섀도를 안 넣는다). 앱이 그림 없는 캐릭터의 창 아이콘을 그릴 때와 같은 함수(desktop/src/app-icon.js)
+  return { w: S, h: S, rgba: defaultIconRGBA(S, ICON_STYLE.win) };
 }
 
 // ICO 안의 BMP: BITMAPINFOHEADER + 아래에서 위로 BGRA 줄 + AND 마스크(전부 0, 투명도는 알파로)

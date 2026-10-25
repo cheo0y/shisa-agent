@@ -2,7 +2,8 @@
 # 새 버전 내보내기: 앱(dmg)을 만들고 GitHub Releases 에 올린다. 자세한 순서는 docs/release.md.
 #   sh ops/release.sh             dmg 를 만들고, 올릴 명령을 보여 주기만 한다(아무것도 올리지 않음)
 #   sh ops/release.sh --publish   gh release create 까지 실행한다(gh 로그인 계정이 cheo0y/shisa-agent 에 쓸 수 있어야 함)
-# 버전은 desktop/package.json 의 version(태그는 v<버전>). 만들 아키텍처는 SHISA_ARCHS="arm64 x64"(기본)로 고른다.
+# 버전은 desktop/package.json 의 version(태그는 shisa-<버전>. 0.3.x 앱이 새 버전 알림을 받지 않게 v<버전> 으로 내지 않는다).
+# 만들 아키텍처는 SHISA_ARCHS="arm64 x64"(기본)로 고른다.
 # desktop/node_modules 가 없으면 SHISA_BUILD_MODULES=<다른 곳에 npm ci 한 desktop node_modules> 를 앞에 붙인다.
 set -eu
 PUBLISH=0
@@ -10,7 +11,7 @@ PUBLISH=0
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 REPO_SLUG="${SHISA_RELEASE_REPO:-cheo0y/shisa-agent}"
 VER=$(node -p "JSON.parse(require('fs').readFileSync('$ROOT/desktop/package.json','utf8')).version")
-TAG="v$VER"
+TAG="shisa-$VER"
 ARCHS="${SHISA_ARCHS:-arm64 x64}"
 DIST="$ROOT/desktop/dist"
 
@@ -40,7 +41,7 @@ dmg 를 열어 시사를 응용 프로그램 폴더로 끌어다 놓으면 됩�
 터미널로 설치해 쓰고 있다면 레포 폴더에서 \`./ops/update.sh\` 를 실행하면 됩니다.
 EOF
 
-set -- gh release create "$TAG" $FILES --repo "$REPO_SLUG" --title "시사 $TAG" --notes-file "$NOTES"
+set -- gh release create "$TAG" $FILES --repo "$REPO_SLUG" --title "시사 v$VER" --notes-file "$NOTES" --latest
 if [ "$PUBLISH" = 1 ]; then
   if gh release view "$TAG" --repo "$REPO_SLUG" >/dev/null 2>&1; then
     echo "✗ $TAG 릴리스가 이미 있습니다. desktop/package.json 의 version 을 올리거나, 파일만 바꾸려면 gh release upload $TAG <파일> --clobber --repo $REPO_SLUG"

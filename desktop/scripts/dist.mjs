@@ -77,13 +77,17 @@ for (const name of fs.readdirSync(path.join(AGENT, 'node_modules', '@anthropic-a
   }
 }
 
-// 2) 캐릭터 그림·영상(레포 assets/) — 앱 Resources/assets 로. 대사(lines.json)는 렌더러용 사본도 맞춘다
-step('캐릭터 그림 준비');
+// 2) 캐릭터 대사·영상 목록(레포 assets/characters 의 json) — 앱 Resources/assets 로. 대사(lines.json)는 렌더러용 사본도 맞춘다.
+//    0.4.0 부터 캐릭터 그림·영상은 배포하지 않는다(저작권). 레포 assets/ 에 그림·영상이 섞여 있으면 멈춘다
+step('캐릭터 대사 준비');
 execFileSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'sync-character-lines.mjs')], { stdio: 'inherit' });
 const ASSETS = path.join(STAGE, 'assets');
 fs.cpSync(path.join(REPO, 'assets'), ASSETS, { recursive: true, filter: (src) => path.basename(src) !== '.DS_Store' });
+const MEDIA_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|icns|psd|webm|mp4|mov|m4v)$/i;
+const media = fs.readdirSync(ASSETS, { recursive: true }).map(String).filter((f) => MEDIA_RE.test(f));
+if (media.length) throw new Error(`레포 assets/ 에 그림·영상이 있어요(0.4.0 부터 배포하지 않아요):\n${media.join('\n')}`);
 
-// 3) 아이콘: 개인 그림(~/.cy-agent/assets)이 아니라 레포 그림으로
+// 3) 아이콘: 기본 그림(desktop/src/default-face.js)으로
 step('아이콘 만들기');
 const ICON_DIR = path.join(STAGE, 'icon');
 fs.mkdirSync(ICON_DIR, { recursive: true });
@@ -92,7 +96,7 @@ run(process.execPath, [path.join(ROOT, 'scripts', 'make-icon.mjs')], { env: { ..
 // 4) 앱 번들. 앱 코드(asar)에는 실행에 필요한 것만 넣는다(허용 목록) — 생성 아이콘·개발용 파일이 섞이지 않게
 step('앱 번들 만들기');
 const KEEP = [/^\/package\.json$/, /^\/main\.js$/, /^\/preload[\w-]*\.cjs$/, /^\/renderer(\/|$)/, /^\/src(\/|$)/,
-  /^\/assets$/, /^\/assets\/(character\.(png|svg)|trayTemplate(@2x)?\.png)$/];
+  /^\/assets$/, /^\/assets\/(character\.png|trayTemplate(@2x)?\.png)$/, /^\/assets\/default(\/[\w-]+\.svg)?$/];
 const OUT = path.join(DIST, 'app');
 const paths = await packager({
   dir: ROOT,
@@ -122,7 +126,7 @@ const paths = await packager({
   quiet: true,
 });
 const APP = path.join(paths[0], `${APP_NAME}.app`);
-for (const need of ['Contents/Resources/agent/src/main.ts', 'Contents/Resources/assets/character/eyes_open.png']) {
+for (const need of ['Contents/Resources/agent/src/main.ts', 'Contents/Resources/assets/characters/lines.json', 'Contents/Resources/assets/characters/clips.json']) {
   if (!fs.existsSync(path.join(APP, need))) throw new Error(`앱 번들에 ${need} 가 없어요`);
 }
 

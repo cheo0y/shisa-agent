@@ -122,21 +122,25 @@ for (const name of fs.readdirSync(SDK_DIR)) {
   if (/^claude-agent-sdk-/.test(name) && name !== SDK_BIN) fs.rmSync(path.join(SDK_DIR, name), { recursive: true, force: true });
 }
 
-// 2) 캐릭터 그림·영상(레포 assets/) — 앱 resources/assets 로
-step('캐릭터 그림 준비');
+// 2) 캐릭터 대사·영상 목록(레포 assets/characters 의 json) — 앱 resources/assets 로.
+//    0.4.0 부터 캐릭터 그림·영상은 배포하지 않는다(저작권). 레포 assets/ 에 그림·영상이 섞여 있으면 멈춘다
+step('캐릭터 대사 준비');
 // 대사(assets/characters/lines.json)의 렌더러용 사본(desktop/src/character-lines.js)도 맞춘다 — 맥 dist.mjs 와 같게
 execFileSync(process.execPath, [path.join(DESKTOP, 'scripts', 'sync-character-lines.mjs')], { stdio: 'inherit' });
 const ASSETS = path.join(STAGE, 'assets');
 fs.cpSync(path.join(REPO, 'assets'), ASSETS, { recursive: true, filter: (src) => !['.DS_Store', 'Thumbs.db'].includes(path.basename(src)) });
+const MEDIA_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|icns|psd|webm|mp4|mov|m4v)$/i;
+const media = fs.readdirSync(ASSETS, { recursive: true }).map(String).filter((f) => MEDIA_RE.test(f));
+if (media.length) throw new Error(`레포 assets/ 에 그림·영상이 있어요(0.4.0 부터 배포하지 않아요):\n${media.join('\n')}`);
 
-// 3) 아이콘(.ico): 개인 그림(~/.cy-agent/assets)이 아니라 레포 그림으로
+// 3) 아이콘(.ico): 기본 그림(desktop/src/default-face.js)으로
 step('아이콘 만들기');
 const ICO = makeIco(path.join(STAGE, 'icon', `${EXE_NAME}.ico`));
 
 // 4) 앱 폴더. 앱 코드(asar)에는 실행에 필요한 것만 넣는다(허용 목록, dist.mjs 와 같다) — 트레이는 assets/character.png 를 쓴다
 step('앱 폴더 만들기');
 const KEEP = [/^\/package\.json$/, /^\/main\.js$/, /^\/preload[\w-]*\.cjs$/, /^\/renderer(\/|$)/, /^\/src(\/|$)/,
-  /^\/assets$/, /^\/assets\/(character\.(png|svg)|trayTemplate(@2x)?\.png)$/];
+  /^\/assets$/, /^\/assets\/(character\.png|trayTemplate(@2x)?\.png)$/, /^\/assets\/default(\/[\w-]+\.svg)?$/];
 const OUT = path.join(DIST, 'app');
 const paths = await packager({
   dir: DESKTOP,
@@ -170,7 +174,7 @@ const paths = await packager({
 const APP = paths[0];
 // 데몬 런타임 의존성(agent/package.json dependencies — 메일 imapflow 등)과 데몬이 읽는 캐릭터 파일(clips.json·lines.json)도 들었나
 const AGENT_DEPS = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO, 'agent', 'package.json'), 'utf8')).dependencies ?? {});
-for (const need of [`${EXE_NAME}.exe`, 'resources/app.asar', 'resources/agent/src/main.ts', 'resources/assets/character/eyes_open.png',
+for (const need of [`${EXE_NAME}.exe`, 'resources/app.asar', 'resources/agent/src/main.ts',
   'resources/assets/characters/clips.json', 'resources/assets/characters/lines.json',
   `resources/agent/node_modules/@anthropic-ai/${SDK_BIN}`, ...AGENT_DEPS.map((d) => `resources/agent/node_modules/${d}/package.json`)]) {
   if (!fs.existsSync(path.join(APP, need))) throw new Error(`앱 폴더에 ${need} 가 없어요 (${APP})`);
@@ -225,9 +229,9 @@ if (MAKE_INSTALLER) {
     copyright: 'MIT License',
     setupExe,
     setupIcon: ICO,
-    // 제어판 「앱」 목록 아이콘. 설치할 때 이 주소에서 받는다 — 윈도우 릴리스(태그 v<버전>-windows, 맥 dmg 릴리스와 따로)에
+    // 제어판 「앱」 목록 아이콘. 설치할 때 이 주소에서 받는다 — 윈도우 릴리스(태그 shisa-<버전>-windows, 맥 dmg 릴리스와 따로)에
     // Shisa.ico 를 같이 올려야 한다(release.md). 다른 태그로 낼 땐 SHISA_RELEASE_TAG
-    iconUrl: process.env.SHISA_ICON_URL || `https://github.com/${RELEASE_REPO}/releases/download/${process.env.SHISA_RELEASE_TAG || `v${VERSION}-windows`}/${EXE_NAME}.ico`,
+    iconUrl: process.env.SHISA_ICON_URL || `https://github.com/${RELEASE_REPO}/releases/download/${process.env.SHISA_RELEASE_TAG || `shisa-${VERSION}-windows`}/${EXE_NAME}.ico`,
     noMsi: true,
     noDelta: true, // 자동 업데이트(Squirrel 업데이트 서버)는 안 쓴다. 새 Setup.exe 를 다시 실행하는 방식
   });

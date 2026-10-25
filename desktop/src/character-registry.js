@@ -1,6 +1,6 @@
 // 사용자 캐릭터·고친 대사를 앱에 넣는다 — 순수 로직(창마다 같은 걸 돌린다).
 // 데몬 GET /characters(메인이 받아 창마다 'characters' 로 알린다)를 받아, 정적 사본(character-lines.js)으로 만든 기본값 위에 덮는다:
-//   character.js CHARACTERS(이름·그림)·LOCAL_SAY, character-say.js SETUP_SAY·TOUR_SAY, character-canned.js CHARACTER_CANNED, persona.js CHARACTER_BASES
+//   character.js CHARACTERS(이름·그림 — 기본 캐릭터도 사용자가 넣은 그림)·LOCAL_SAY, character-say.js SETUP_SAY·TOUR_SAY, character-canned.js CHARACTER_CANNED, persona.js CHARACTER_BASES
 // 시사의 canned·setup·overlay·tour·persona 는 데스크톱 코드 기본값이라 여기서 같은 칸 모양으로 꺼낸다(shisaDesktopLines).
 import { CHARACTERS, CHARACTER_IDS, LOCAL_SAY, SHISA_SAY_LOCAL } from './character.js';
 import { SETUP_SAY, TOUR_SAY, tourOf } from './character-say.js';
@@ -108,9 +108,11 @@ function applyCharactersNow(data) {
     if (!builtin && !/^u-[a-z0-9]{4,32}$/.test(e.id)) continue;
     const l = effectiveLines(e);
     const name = typeof l.name === 'string' && l.name.trim() ? l.name.trim() : (builtin ? BASE.characters[e.id].name : t('overlay.new_character'));
+    // 그림: 사용자가 넣은 것(media·frames·clips — 기본 캐릭터도 넣을 수 있다). 기본 캐릭터는 예전 버전이 깔아 둔 그림 중 있는 것(local, 메인이 붙인다)도
+    const pics = { media: isObj(e.media) ? { ...e.media } : {}, frames: isObj(e.frames) ? { ...e.frames } : {}, clips: isObj(e.clips) ? structuredClone(e.clips) : {} };
     CHARACTERS[e.id] = builtin
-      ? { ...BASE.characters[e.id], name }
-      : { name, custom: true, media: isObj(e.media) ? { ...e.media } : {}, frames: isObj(e.frames) ? { ...e.frames } : {}, clips: isObj(e.clips) ? structuredClone(e.clips) : {} };
+      ? { ...BASE.characters[e.id], name, ...pics, local: Array.isArray(e.local) ? e.local.filter((x) => typeof x === 'string') : [] }
+      : { name, custom: true, ...pics };
     // 빈 칸은 시사 말(기본값)이 받는다
     LOCAL_SAY[e.id] = { ...fbOverlay, ...(isObj(l.overlay) ? l.overlay : {}) };
     SETUP_SAY[e.id] = isObj(l.setup) ? { ...l.setup } : {};

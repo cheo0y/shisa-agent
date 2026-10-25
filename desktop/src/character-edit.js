@@ -113,13 +113,14 @@ export const sayPlaceholder = (slot) => (SAY_VARS[slot]?.length ? t('settings.sa
 export const sayTitle = (slot) => (slot === 'plan' ? t('settings.say_title_plan') : SAY_TITLE);
 export const ACCEPT = MEDIA_EXTS.map((x) => `.${x}`).join(',');
 // media: 칸마다 첫 파일(예전 모양) · clips: 여러 개 넣는 칸의 목록 [{ file, say?, frame }] (데몬 GET /characters)
-export function slotRows(media = {}, clips = {}) {
+// opts.optional: 꼭 넣을 칸이 없다(기본 캐릭터 — 넣지 않은 칸은 예전 그림·기본 그림)
+export function slotRows(media = {}, clips = {}, opts = {}) {
   return MEDIA_SLOTS.map((slot) => {
     const multi = MULTI_SLOTS.includes(slot);
     const one = typeof media?.[slot] === 'string' ? media[slot] : null;
     const files = !multi ? [] : Array.isArray(clips?.[slot]) ? clips[slot].filter((x) => x && typeof x.file === 'string').map((x) => ({ file: x.file, say: typeof x.say === 'string' ? x.say : '', ...(typeof x.frame === 'boolean' ? { frame: x.frame } : {}) }))
       : one ? [{ file: one, say: '' }] : [];
-    return { slot, label: slotLabel(slot), hint: slotHint(slot), required: REQUIRED_SLOTS.includes(slot), multi, say: SAY_SLOTS.includes(slot), file: multi ? (files[0]?.file ?? null) : one, files };
+    return { slot, label: slotLabel(slot), hint: slotHint(slot), required: !opts?.optional && REQUIRED_SLOTS.includes(slot), multi, say: SAY_SLOTS.includes(slot), file: multi ? (files[0]?.file ?? null) : one, files };
   });
 }
 // 고른 파일 이름이 받는 종류인가(내용은 데몬이 다시 본다)

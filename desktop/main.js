@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile } from './src/assets.js';
-import { ICON_STYLE, composeIcon, iconPlacement, isOpaque, iconStillUrls, iconCharacter } from './src/app-icon.js';
+import { ASSET_SCHEME, resolveAsset, parseRange, assetCandidates, userCharacterFile, withLocalFiles } from './src/assets.js';
+import { ICON_STYLE, composeIcon, defaultIconRGBA, iconPlacement, isOpaque, iconStillUrls, iconCharacter } from './src/app-icon.js';
 import { decodePNG, encodePNG } from './src/png.js';
 import { cleanMergeQuestion, normalizeOpen, isCarryDecision } from './src/bubbles.js';
 import { createSSEParser, backoffDelay, isEventStream, createSSEGate, rerunLatest } from './src/sse.js';
@@ -1022,7 +1022,7 @@ function rebuildTrayMenu() {
 }
 
 // 맥: 검정 템플릿(메뉴 막대 색을 따른다). 윈도우: 작업 표시줄 알림 영역엔 템플릿이 없어 캐릭터 그림을 16·32px 로
-// (설정 「앱 아이콘도 캐릭터로」가 켜져 있으면 고른 캐릭터 그림, 아니면 시사)
+// (설정 「앱 아이콘도 캐릭터로」가 켜져 있고 고른 캐릭터에 그림이 있으면 그 그림, 아니면 기본 그림 assets/character.png)
 function trayImage() {
   if (process.platform === 'win32') {
     const pick = iconCharacter(charId, state.appIcon !== false);
@@ -1128,6 +1128,9 @@ function onCharacter(id, force = false) {
   sendPanel('sisa', sisaPublic(normalizeSisa(readSisa()))); // 말투 글 기본값도 그 캐릭터 것
 }
 
+// 기본 캐릭터마다 예전 버전이 깔아 둔 그림 중 실제로 있는 것(local)을 붙인다(assets.js withLocalFiles)
+const withLocal = (data) => withLocalFiles(data, (rel) => assetCandidates(rel, assetDirs(), path.join).some((f) => fs.existsSync(f)));
+
 // 사용자 캐릭터·고친 대사(데몬 GET /characters, src/character-registry.js): 이 프로세스 기본값 위에 덮고 창마다 알린다.
 // 데몬에 붙을 때와 SSE characters 때 다시 읽는다. cy-asset 이 사용자 캐릭터 파일을 줄 때도 이 목록을 본다
 let charactersData = null;
@@ -1135,26 +1138,32 @@ let charactersData = null;
 const loadCharacters = rerunLatest(async () => {
   const r = await request('GET', '/characters');
   if (!r.ok || !r.data || !Array.isArray(r.data.characters)) return;
-  charactersData = r.data;
-  applyCharacters(r.data);
-  send('characters', r.data);
-  sendPanel('characters', r.data);
-  sendSession('characters', r.data);
+  // 기본 캐릭터마다 예전 버전이 깔아 둔 그림 중 실제로 있는 것(local) — 없으면 렌더러가 바로 기본 그림을 쓴다
+  const data = withLocal(r.data);
+  charactersData = data;
+  applyCharacters(data);
+  send('characters', data);
+  sendPanel('characters', data);
+  sendSession('characters', data);
   const sw = settingsUi?.window;
-  if (sw && !sw.isDestroyed()) sw.webContents.send('characters', r.data);
+  if (sw && !sw.isDestroyed()) sw.webContents.send('characters', data);
   onCharacter(wantChar ?? charId, true);
 });
 
 // ---- 앱 아이콘을 고른 캐릭터로(설정 「앱 아이콘도 캐릭터로」, 기본 켜짐 · src/app-icon.js) ----
-// 맥: Dock 아이콘(app.dock.setIcon). Cmd+Tab·스테이지 매니저도 이 그림을 따른다. 끄면 다시 시사 그림.
+// 그림 고르는 순서는 오버레이와 같다: 이 캐릭터에 사용자가 넣은 그림 > 0.3.x 가 남긴 예전 그림(local) > 기본 그림.
+// 그림이 없거나 못 읽으면, 또 설정을 끄면 기본 그림 아이콘(앱 번들 icns·ico 와 같은 그림, defaultIconRGBA).
+// 맥: Dock 아이콘(app.dock.setIcon). Cmd+Tab·스테이지 매니저도 이 그림을 따른다.
 // 윈도우: 창마다 작업 표시줄 단추 아이콘(win.setIcon) + 알림 영역(트레이) 그림. 작업 표시줄에 고정한 아이콘·시작 메뉴·바로 가기는 exe(Shisa.ico) 그대로.
 // 이름은 못 바꾼다: Dock 툴팁·메뉴 막대 굵은 이름·Cmd+Tab·스테이지 매니저 이름은 앱 번들 Info.plist(CFBundleName 「시사」)를 macOS 가 읽는다.
 // app.setName(appTitle) 은 앱 안 글(메뉴 항목 「○○ 비서 정보·종료」·창 제목·트레이 툴팁)만 바꾼다
 const ICON_SIZE = { mac: 512, win: 256 };
-let appIconKey = null; // 지금 넣은 아이콘(캐릭터|파일|고친 시각). null = 앱 번들(exe) 아이콘 그대로
-let winIcon = null; // 윈도우: 새 창에도 넣을 그림(null = exe 아이콘)
+const DEFAULT_ICON_KEY = 'default';
+let appIconKey = null; // 지금 넣은 아이콘(캐릭터|파일|고친 시각 또는 DEFAULT_ICON_KEY). null = 아직 안 넣음
+let winIcon = null; // 윈도우: 새 창에도 넣을 그림(null = exe 아이콘 = 기본 그림)
+let defaultIconImg = null; // 기본 그림 아이콘(한 번만 그린다)
 
-// 캐릭터 정지 그림(눈 뜬 모습) → { img, file } | null(그림이 없거나 못 읽음 — webp·gif 처럼 nativeImage 가 못 여는 것)
+// 캐릭터 정지 그림(눈 뜬 모습) → { img, file } | null(기본 그림이거나 못 읽음 — webp·gif 처럼 nativeImage 가 못 여는 것)
 function characterStill(id) {
   for (const url of iconStillUrls(id)) {
     const a = resolveAsset(url);
@@ -1176,6 +1185,12 @@ function iconFromStill(still, style, size) {
   return nativeImage.createFromBuffer(encodePNG(size, size, composeIcon(size, style, ch, pos)));
 }
 
+// 기본 그림 아이콘(nativeImage). 그림 파일 없이 src/default-face.js 로 그린다
+function defaultIcon(style, size) {
+  defaultIconImg ??= nativeImage.createFromBuffer(encodePNG(size, size, defaultIconRGBA(size, style)));
+  return defaultIconImg;
+}
+
 function applyAppIcon() {
   const mac = process.platform === 'darwin';
   if (!mac && process.platform !== 'win32') return;
@@ -1184,17 +1199,16 @@ function applyAppIcon() {
     const still = pick ? characterStill(pick) : null;
     let mtime = 0;
     try { if (still) mtime = fs.statSync(still.file).mtimeMs; } catch {}
-    const key = still ? `${pick}|${still.file}|${mtime}` : null;
+    const key = still ? `${pick}|${still.file}|${mtime}` : DEFAULT_ICON_KEY;
     if (key === appIconKey) return;
-    // 기본으로 돌아갈 때(끔·시사·그림 없음)는 시사 그림을 같은 방식으로 다시 그린다(앱 번들 아이콘과 같은 그림)
-    const src = still ?? characterStill('shisa');
-    if (!src) return;
     const style = mac ? ICON_STYLE.mac : ICON_STYLE.win;
-    const img = iconFromStill(src, style, mac ? ICON_SIZE.mac : ICON_SIZE.win);
+    const size = mac ? ICON_SIZE.mac : ICON_SIZE.win;
+    // 끔·그림 없음: 기본 그림 아이콘(앱 번들 아이콘과 같은 그림)
+    const img = still ? iconFromStill(still, style, size) : defaultIcon(style, size);
     appIconKey = key;
     if (mac) app.dock?.setIcon(img);
     else {
-      winIcon = key ? img : null;
+      winIcon = still ? img : null;
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.setIcon(img);
       tray?.setImage(trayImage());
     }
@@ -1209,7 +1223,7 @@ function setupAppActivation() {
   if (process.platform === 'darwin') {
     app.setName(appTitle());
     const icon = path.join(__dirname, 'assets', 'icon.png');
-    // 번들(cy.app)은 icns 를 쓰고, 개발 실행은 Dock 아이콘을 바꿔 준다. 고른 캐릭터가 시사가 아니면 그 그림으로(applyAppIcon)
+    // 번들(cy.app)은 icns 를 쓰고, 개발 실행은 Dock 아이콘을 바꿔 준다. 고른 캐릭터에 그림이 있으면 그 그림으로(applyAppIcon)
     if (!app.isPackaged && fs.existsSync(icon)) app.dock?.setIcon(nativeImage.createFromPath(icon));
     app.dock?.show();
     setDockMenu();
@@ -1386,6 +1400,7 @@ function setupIPC() {
     copyText: (text) => { clipboard.writeText(text); return { ok: true }; },
     appPrefs,
     upload: (method, pathname, name, mime, bytes) => uploadBytes(method, pathname, name, mime, bytes),
+    decorateCharacters: (data) => withLocal(data),
     preload: path.join(__dirname, 'preload-settings.cjs'),
     html: path.join(__dirname, 'renderer', 'settings.html'),
   });
@@ -2062,7 +2077,7 @@ function setupIPC() {
   });
 }
 
-// ---- cy-asset:// — ~/.cy-agent/assets 의 허용된 그림만. 캐릭터는 없으면 번들 플레이스홀더 ----
+// ---- cy-asset:// — 사용자 그림만(~/.cy-agent/assets 의 허용된 예전 그림 · ~/.cy-agent/characters 의 넣은 그림). 없으면 404 → 렌더러가 기본 그림 ----
 // stream: <video>(공부 중·춤 webm)가 Range 로 끊어 읽고 되감게
 protocol.registerSchemesAsPrivileged([
   { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, stream: true } },
@@ -2083,9 +2098,11 @@ function registerAttachProtocol() {
   });
 }
 
+// 예전 그림을 찾는 자리(assets.js assetCandidates). 0.4.0 부터 레포·번들엔 그림이 없어 보통은 홈만 본다
+const assetDirs = () => ({ user: USER_ASSETS, repo: app.isPackaged ? null : REPO_ASSETS, bundle: app.isPackaged ? BUNDLE.assetsDir : null });
 // cy-asset 주소(resolveAsset 결과) → 실제 파일 경로 | undefined·null. 앱 아이콘(applyAppIcon)도 같은 자리에서 그림을 읽는다
 function assetFile(a) {
-  return a.user ? userCharacterFile(a, path.join(AGENT_HOME, 'characters'), charactersData?.characters, { realpath: fs.realpathSync, lstat: fs.lstatSync }, path) : assetCandidates(a.rel, { user: USER_ASSETS, repo: app.isPackaged ? null : REPO_ASSETS, bundle: app.isPackaged ? BUNDLE.assetsDir : null, bundled: path.join(__dirname, 'assets') }, path.join).find((f) => fs.existsSync(f));
+  return a.user ? userCharacterFile(a, path.join(AGENT_HOME, 'characters'), charactersData?.characters, { realpath: fs.realpathSync, lstat: fs.lstatSync }, path) : assetCandidates(a.rel, assetDirs(), path.join).find((f) => fs.existsSync(f));
 }
 
 function registerAssetProtocol() {
@@ -2093,7 +2110,6 @@ function registerAssetProtocol() {
     const a = req.method === 'GET' ? resolveAsset(req.url) : null;
     if (!a) return new Response('not found', { status: 404 });
     // 사용자가 만든 캐릭터: ~/.cy-agent/characters/<id>/ 의 데몬 목록에 있는 파일만(링크로 폴더 밖에 나가면 안 줌)
-    // 홈에 없으면(install.sh 를 안 거친 새 사용자) 레포 assets/ 를 그대로 쓴다
     const file = assetFile(a);
     if (!file) return new Response('not found', { status: 404 });
     // Range(영상): 206 + Content-Range. 그림은 예전처럼 통째로

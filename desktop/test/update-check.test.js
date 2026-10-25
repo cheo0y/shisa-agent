@@ -184,3 +184,70 @@ test('새 버전 알림은 ✕ 로 닫을 수 있다(closable), 2분 뒤 사라�
   const src = (await import('node:fs')).readFileSync(new URL('../renderer/renderer.js', import.meta.url), 'utf8');
   assert.match(src, /b\.closable[\s\S]{0,200}button\('✕', 'close', \(\) => dismiss\(b\.id\)\)/);
 });
+
+// ---- 0.4.0 부터 릴리스 태그는 shisa-<버전> · shisa-<버전>-windows: 이미 깔린 0.3.x 앱은 이 릴리스를 못 읽어 알림이 안 간다 ----
+const oldLogic = () => import('./fixtures/update-check-0.3.3.js'); // v0.3.3 의 desktop/src/update-check.js 그대로(i18n 경로만 바꿈)
+const relOf = (tag, names, extra = {}) => ({ tag_name: tag, html_url: `${RELEASES_PAGE}/tag/${tag}`, assets: names.map((name) => ({ name, browser_download_url: `${RELEASES_PAGE}/download/${tag}/${name}` })), ...extra });
+const mac = (v) => relOf(`shisa-${v}`, [`Shisa-${v}-arm64.dmg`, `Shisa-${v}-x64.dmg`, `SHA256SUMS-${v}.txt`]);
+const win = (v) => relOf(`shisa-${v}-windows`, [`Shisa-${v}-Setup.exe`, `Shisa-${v}-win-x64.zip`, 'Shisa.ico', `SHA256SUMS-${v}-win-x64.txt`]);
+const TARGETS = [
+  { platform: 'darwin', arch: 'arm64' }, { platform: 'darwin', arch: 'x64' }, { platform: 'darwin', checkout: true },
+  { platform: 'win32', arch: 'x64' }, { platform: 'win32', arch: 'arm64' }, { platform: 'win32', arch: 'x64', portable: true }, { platform: 'win32', checkout: true },
+];
+
+test('0.3.x 판 로직 사본은 v0.3.3 태그의 update-check.js 와 같다(git 이 있을 때만)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  let orig;
+  try { orig = execFileSync('git', ['show', 'v0.3.3:desktop/src/update-check.js'], { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return t.skip('git 또는 v0.3.3 태그 없음'); }
+  const copy = readFileSync(new URL('./fixtures/update-check-0.3.3.js', import.meta.url), 'utf8');
+  assert.equal(copy, orig.replace("from './i18n.js'", "from '../../src/i18n.js'"));
+});
+
+test('이미 깔린 0.3.x 앱(맥·윈도우 설치본·휴대용·터미널)은 shisa- 태그 릴리스를 무시한다', async () => {
+  const old = await oldLogic();
+  const fresh = [mac('0.4.0'), win('0.4.0'), mac('0.4.1'), win('0.4.1'), mac('1.0.0'), win('1.0.0')];
+  for (const target of TARGETS) {
+    assert.equal(old.newestRelease(fresh, target), null, JSON.stringify(target));
+    for (const r of fresh) assert.equal(old.latestRelease(r, target), null);
+  }
+  assert.equal(old.parseVersion('shisa-0.4.0'), null);
+  assert.equal(old.parseVersion('shisa-0.4.0-windows'), null);
+  // 옛 v 태그와 섞여 있어도 0.3.x 는 옛 것 중 가장 높은 것만 보고, 이미 그 버전이면 알리지 않는다
+  const mixed = [...fresh, relOf('v0.3.3', ['Shisa-0.3.3-arm64.dmg', 'Shisa-0.3.3-x64.dmg']), relOf('v0.3.3-windows', ['Shisa-0.3.3-Setup.exe', 'Shisa-0.3.3-win-x64.zip'])];
+  for (const target of TARGETS) {
+    const r = old.newestRelease(mixed, target);
+    assert.equal(r.version, '0.3.3', JSON.stringify(target));
+    assert.equal(old.shouldNotify({ latest: r.version, current: '0.3.3' }), false);
+  }
+});
+
+test('0.4.x 앱은 shisa- 태그를 읽어 0.4.1 을 알린다(옛 v 태그는 섞여도 더 낮다)', () => {
+  const list = [mac('0.4.0'), win('0.4.0'), mac('0.4.1'), win('0.4.1'), relOf('shisa-0.5.0', ['Shisa-0.5.0-arm64.dmg'], { prerelease: true }),
+    relOf('v0.3.3', ['Shisa-0.3.3-arm64.dmg', 'Shisa-0.3.3-x64.dmg']), relOf('v0.3.3-windows', ['Shisa-0.3.3-Setup.exe', 'Shisa-0.3.3-win-x64.zip'])];
+  const m = newestRelease(list, { platform: 'darwin', arch: 'arm64' });
+  assert.deepEqual([m.version, m.tag, m.asset.name, m.url], ['0.4.1', 'shisa-0.4.1', 'Shisa-0.4.1-arm64.dmg', `${RELEASES_PAGE}/tag/shisa-0.4.1`]);
+  assert.equal(newestRelease(list, { platform: 'darwin', arch: 'x64' }).asset.name, 'Shisa-0.4.1-x64.dmg');
+  assert.equal(newestRelease(list, { platform: 'darwin', checkout: true }).tag, 'shisa-0.4.1'); // 맥 터미널 설치는 윈도우 릴리스를 안 본다
+  const w = newestRelease(list, { platform: 'win32', arch: 'x64' });
+  assert.deepEqual([w.version, w.tag, w.asset.name], ['0.4.1', 'shisa-0.4.1-windows', 'Shisa-0.4.1-Setup.exe']);
+  assert.equal(newestRelease(list, { platform: 'win32', arch: 'x64', portable: true }).asset.name, 'Shisa-0.4.1-win-x64.zip');
+  assert.equal(newestRelease(list, { platform: 'win32', arch: 'arm64' }).asset.name, 'Shisa-0.4.1-Setup.exe');
+  for (const target of TARGETS) {
+    const r = newestRelease(list, target);
+    assert.equal(r.version, '0.4.1', JSON.stringify(target));
+    assert.equal(shouldNotify({ latest: r.version, current: '0.4.0' }), true);
+    assert.equal(shouldNotify({ latest: r.version, current: '0.4.1' }), false);
+  }
+  assert.equal(latestRelease({ tag_name: 'shisa-' }), null);
+  assert.equal(latestRelease({ tag_name: 'shisa-abc' }), null);
+});
+
+test('릴리스를 내는 곳은 모두 shisa- 태그를 쓴다(다시 v 로 내면 0.3.x 에 알림이 간다)', () => {
+  const sh = readFileSync(new URL('../../ops/release.sh', import.meta.url), 'utf8');
+  assert.match(sh, /^TAG="shisa-\$VER"$/m);
+  const win = readFileSync(new URL('../../windows/dist-win.mjs', import.meta.url), 'utf8');
+  assert.match(win, /process\.env\.SHISA_RELEASE_TAG \|\| `shisa-\$\{VERSION\}-windows`/);
+  const winDoc = readFileSync(new URL('../../windows/release.md', import.meta.url), 'utf8');
+  assert.match(winDoc, /gh release create "shisa-\$v-windows"/);
+  assert.doesNotMatch(winDoc + readFileSync(new URL('../../docs/release.md', import.meta.url), 'utf8'), /gh release (create|upload) "?v/);
+});

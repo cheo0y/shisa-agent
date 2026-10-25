@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs, { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ICON_STYLE, ICON_TOP, styleAt, composeIcon, iconPlacement, isOpaque, swapRB, iconStillUrls, iconCharacter } from '../src/app-icon.js';
+import { ICON_STYLE, ICON_TOP, ICON_BOTTOM, styleAt, composeIcon, defaultIconRGBA, iconPlacement, isOpaque, swapRB, iconStillUrls, iconCharacter } from '../src/app-icon.js';
+import { renderFace, FACE } from '../src/default-face.js';
 import { resolveAsset } from '../src/assets.js';
 import { applyCharacters } from '../src/character-registry.js';
 import { sanitizeAppPrefs } from '../src/settings.js';
@@ -76,20 +77,46 @@ test('swapRB: RGBA ↔ BGRA', () => {
   assert.deepEqual([...swapRB(Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]))], [3, 2, 1, 4, 7, 6, 5, 8]);
 });
 
-test('iconStillUrls: 캐릭터마다 눈 뜬 그림, 모두 cy-asset 이 내주는 주소', () => {
-  const sh = iconStillUrls('shisa');
-  assert.equal(sh[0], 'cy-asset://app/character/eyes_open@2x.png'); // 시사는 큰 그림부터
-  assert.equal(iconStillUrls('nope')[0], sh[0]); // 모르는 id 는 시사
-  assert.deepEqual(iconStillUrls('usagi'), ['cy-asset://app/characters/usagi/eyes_open.png']);
-  for (const id of ['shisa', 'hachi', 'rakko', 'momonga', 'usagi', 'kani', 'chiikawa', 'kuri']) {
-    for (const u of iconStillUrls(id)) assert.ok(resolveAsset(u), u);
-  }
-  // 레포 그림이 실제로 있다(정지 그림이 없으면 아이콘은 기본으로 — 그래도 기본 캐릭터는 다 있어야)
+const BUILTIN = ['shisa', 'hachi', 'rakko', 'momonga', 'usagi', 'kani', 'chiikawa', 'kuri'];
+const builtinRow = (id, extra = {}) => ({ id, builtin: true, defaults: {}, override: null, ...extra });
+
+test('iconStillUrls: 레포에 그림이 없으니 넣은 그림·예전 그림이 없으면 모두 [](기본 그림 아이콘)', () => {
+  // 0.4.0: 레포에는 캐릭터 그림이 없다
   const repo = path.join(HERE, '..', '..', 'assets');
-  for (const id of ['usagi', 'hachi', 'kuri']) assert.ok(fs.existsSync(path.join(repo, 'characters', id, 'eyes_open.png')), id);
+  assert.equal(fs.existsSync(path.join(repo, 'character', 'eyes_open.png')), false);
+  for (const id of ['usagi', 'hachi', 'kuri']) assert.equal(fs.existsSync(path.join(repo, 'characters', id, 'eyes_open.png')), false, id);
+  for (const id of BUILTIN) assert.deepEqual(iconStillUrls(id), [], id);
+  assert.deepEqual(iconStillUrls('nope'), []); // 모르는 id 는 시사
 });
 
-test('iconStillUrls: 직접 만든 캐릭터는 그 눈 뜬 그림, 없으면 [](기본 아이콘)', () => {
+test('iconStillUrls: 넣은 그림 > 0.3.x 예전 그림(local) > 기본 그림, 모두 cy-asset 이 내주는 주소', () => {
+  try {
+    applyCharacters({ characters: [
+      // 시사: 예전 그림(큰 그림 @2x 도 있으면 그것부터)
+      builtinRow('shisa', { local: ['character/eyes_open.png', 'character/eyes_open@2x.png', 'character/eyes_closed.png', 'character/eyes_closed@2x.png'] }),
+      // 우사기: 넣은 그림이 예전 그림을 이긴다
+      builtinRow('usagi', { media: { eyes_open: 'eyes_open-0a1b2c3d.png' }, local: ['characters/usagi/eyes_open.png'] }),
+      // 하치와레: 예전 그림만
+      builtinRow('hachi', { local: ['characters/hachi/eyes_open.png'] }),
+      // 쿠리: 예전 영상만 있고 정지 그림은 없다 → 기본 그림
+      builtinRow('kuri', { local: ['characters/kuri/cheer.webm'] }),
+    ] });
+    assert.deepEqual(iconStillUrls('shisa'), ['cy-asset://app/character/eyes_open@2x.png', 'cy-asset://app/character/eyes_open.png']);
+    assert.deepEqual(iconStillUrls('usagi'), ['cy-asset://app/user-characters/usagi/eyes_open-0a1b2c3d.png']);
+    assert.deepEqual(resolveAsset(iconStillUrls('usagi')[0])?.user, { id: 'usagi', file: 'eyes_open-0a1b2c3d.png' });
+    assert.deepEqual(iconStillUrls('hachi'), ['cy-asset://app/characters/hachi/eyes_open.png']);
+    assert.deepEqual(iconStillUrls('kuri'), []);
+    assert.deepEqual(iconStillUrls('rakko'), []); // 목록엔 없다 → 기본 그림
+    for (const id of BUILTIN) for (const u of iconStillUrls(id)) assert.ok(resolveAsset(u), u);
+    // 더 예전의 개인 그림 하나(character.png)
+    applyCharacters({ characters: [builtinRow('shisa', { local: ['character.png'] })] });
+    assert.deepEqual(iconStillUrls('shisa'), ['cy-asset://app/character.png']);
+  } finally {
+    applyCharacters(null);
+  }
+});
+
+test('iconStillUrls: 직접 만든 캐릭터는 그 눈 뜬 그림, 없으면 [](기본 그림 아이콘)', () => {
   const U = 'u-icon1234';
   const V = 'u-noeyes12';
   try {
@@ -107,13 +134,34 @@ test('iconStillUrls: 직접 만든 캐릭터는 그 눈 뜬 그림, 없으면 []
   }
 });
 
-test('iconCharacter: 시사·꺼짐·모르는 id 는 null(앱 번들 아이콘 그대로)', () => {
+test('iconCharacter: 끄면 null(기본 그림 아이콘), 켜면 고른 캐릭터(시사도), 모르는 id 는 시사', () => {
   assert.equal(iconCharacter('usagi'), 'usagi');
   assert.equal(iconCharacter('usagi', true), 'usagi');
   assert.equal(iconCharacter('usagi', false), null);
-  assert.equal(iconCharacter('shisa'), null);
-  assert.equal(iconCharacter('u-unknown1'), null); // 목록을 받기 전 사용자 캐릭터 → 시사
-  assert.equal(iconCharacter(undefined), null);
+  assert.equal(iconCharacter('shisa'), 'shisa'); // 0.3.x 예전 시사 그림이 남아 있으면 그 그림으로
+  assert.equal(iconCharacter('shisa', false), null);
+  assert.equal(iconCharacter('u-unknown1'), 'shisa'); // 목록을 받기 전 사용자 캐릭터 → 시사
+  assert.equal(iconCharacter(undefined), 'shisa');
+});
+
+test('defaultIconRGBA: 기본 그림(눈 뜬 얼굴)을 캐릭터 상자 크기로 그려 둥근 사각형에 얹는다(그림 파일 없이)', () => {
+  for (const [style, size] of [[ICON_STYLE.mac, 1024], [ICON_STYLE.mac, 128], [ICON_STYLE.win, 256]]) {
+    const ch = renderFace(styleAt(style, size).char);
+    const want = composeIcon(size, style, ch, iconPlacement(ch.w, ch.h, size, style));
+    assert.ok(Buffer.from(defaultIconRGBA(size, style)).equals(Buffer.from(want)), `${size}`);
+  }
+  const size = 256;
+  const out = defaultIconRGBA(size, ICON_STYLE.mac);
+  assert.deepEqual(px(out, size, 0, 0), [0, 0, 0, 0]); // 모서리
+  // 얼굴 가운데 볼(눈·입 사이 아닌 자리)은 기본 그림 민트색 사이
+  const s = styleAt(ICON_STYLE.mac, size);
+  const at = iconPlacement(s.char, s.char, size, ICON_STYLE.mac);
+  const cheek = px(out, size, at.x + Math.round(s.char * 0.3), at.y + Math.round(s.char * 0.6));
+  const { top, bottom } = FACE.head;
+  for (let k = 0; k < 3; k++) assert.ok(cheek[k] >= Math.min(top[k], bottom[k]) - 2 && cheek[k] <= Math.max(top[k], bottom[k]) + 2, `${cheek}`);
+  // 배경은 0.4.0 앱 아이콘과 같은 옅은 민트(보라 아님)
+  assert.deepEqual(ICON_TOP, [250, 253, 251]);
+  assert.deepEqual(ICON_BOTTOM, [222, 240, 234]);
 });
 
 test('src/png.js: 만든 PNG 를 다시 읽으면 같다(앱이 nativeImage.toPNG 를 읽고 아이콘을 PNG 로 넘긴다)', () => {
@@ -143,15 +191,19 @@ test('main: 켤 때·캐릭터를 바꿀 때·설정을 바꿀 때 아이콘을 
   assert.match(m, /for \(const w of BrowserWindow\.getAllWindows\(\)\) if \(!w\.isDestroyed\(\)\) w\.setIcon\(img\);/);
   assert.match(m, /app\.on\('browser-window-created', \(_e, w\) => \{ if \(winIcon && process\.platform === 'win32'\) w\.setIcon\(winIcon\); \}\);/);
   assert.match(m, /tray\?\.setImage\(trayImage\(\)\);/);
-  // 기본으로 돌아갈 땐 시사 그림을 같은 방식으로(못 읽으면 그대로 둔다)
-  assert.match(m, /const src = still \?\? characterStill\('shisa'\);\s*if \(!src\) return;/);
+  // 끔·그림 없음은 기본 그림 아이콘(그림 파일 없이 그린다)
+  assert.match(m, /const img = still \? iconFromStill\(still, style, size\) : defaultIcon\(style, size\);/);
+  assert.match(m, /defaultIconRGBA\(size, style\)/);
+  // 윈도우 트레이: 그림이 없으면 기본 그림(assets/character.png)
+  assert.match(m, /characterStill\(pick\)\?\.img\) \|\| nativeImage\.createFromPath\(path\.join\(__dirname, 'assets', 'character\.png'\)\)/);
   // cy-asset 과 같은 자리에서 그림을 찾는다(사용자 캐릭터는 데몬 목록에 있는 파일만)
   assert.match(m, /const file = assetFile\(a\);\s*if \(!file\) return new Response\('not found', \{ status: 404 \}\);/);
 });
 
-test('아이콘 만드는 스크립트(맥 icns · 윈도우 ico)도 같은 그림 함수를 쓴다', () => {
+test('아이콘 만드는 스크립트(맥 icns · 윈도우 ico)도 같은 기본 그림 함수를 쓰고 그림 파일을 읽지 않는다', () => {
   const mac = readFileSync(new URL('../scripts/make-icon.mjs', import.meta.url), 'utf8');
   const win = readFileSync(new URL('../../windows/make-ico.mjs', import.meta.url), 'utf8');
-  assert.match(mac, /composeIcon\(S, ICON_STYLE\.mac, ch, at\)/);
-  assert.match(win, /composeIcon\(S, ICON_STYLE\.win, ch, at\)/);
+  assert.match(mac, /defaultIconRGBA\(S, ICON_STYLE\.mac\)/);
+  assert.match(win, /defaultIconRGBA\(S, ICON_STYLE\.win\)/);
+  for (const src of [mac, win]) assert.doesNotMatch(src, /eyes_open|character\.png|decodePNG/);
 });

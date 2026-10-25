@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BLINK, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, STILL_SRCS, VIDEOS, DANCE_MAX_MS } from '../src/character.js';
+import { BLINK, nextBlinkDelay, blinkPlan, initialActivity, activityReducer, viewOf, STILL_SRCS, DEFAULT_OPEN, DANCE_MAX_MS } from '../src/character.js';
 import { resolveAsset } from '../src/assets.js';
 
 const seq = (...xs) => { let i = 0; return () => xs[i++ % xs.length]; };
@@ -63,10 +63,10 @@ test('활동: 춤 > 공부 > 정지, 춤이 끝나면 그 전 상태로', () => 
   assert.ok(DANCE_MAX_MS >= 8000);
 });
 
-test('그림·영상 주소는 모두 cy-asset 허용 목록 안(번들 대체 그림 빼고)', () => {
-  const urls = [...STILL_SRCS.filter((u) => u.startsWith('cy-asset:')), ...Object.values(VIDEOS).flatMap((v) => [v.src, v.poster]),
+test('예전 그림 주소는 모두 cy-asset 허용 목록 안, 마지막 대체 그림은 기본 그림', () => {
+  const urls = ['cy-asset://app/character/eyes_open.png', 'cy-asset://app/character.png', 'cy-asset://app/character/studying.webm', 'cy-asset://app/character/dance.png',
     'cy-asset://app/character/eyes_closed.png', 'cy-asset://app/character/eyes_open@2x.png', 'cy-asset://app/character/eyes_closed@2x.png'];
   for (const u of urls) assert.ok(resolveAsset(u), u);
-  assert.equal(STILL_SRCS[0], 'cy-asset://app/character/eyes_open.png');
-  assert.equal(STILL_SRCS[1], 'cy-asset://app/character.png');
+  assert.deepEqual(STILL_SRCS, [DEFAULT_OPEN]);
+  assert.equal(DEFAULT_OPEN, '../assets/default/eyes_open.svg');
 });

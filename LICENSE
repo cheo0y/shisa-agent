@@ -24,12 +24,14 @@ SOFTWARE.
 
 Character art notice
 
-The MIT license above covers the source code only. The character and reaction
-images and videos in assets/ and docs/images/ are fan art of Chiikawa
-(ちいかわ, © Nagano). They are NOT covered by the MIT license, may be used for
-non-commercial purposes only, and all rights to the original characters belong
-to their respective owners. Replace them with your own art before
-redistributing a modified version or using it commercially.
+The MIT license above covers this repository. Starting with v0.4.0 this
+repository and its release builds contain no character images, videos or
+reaction stickers. The default face and app icons are drawn from code in
+desktop/src/default-face.js and are covered by the MIT license. The names of
+the built-in characters refer to Chiikawa (ちいかわ, © Nagano / chiikawa
+committee); all rights to the original characters belong to their respective
+owners. Images that users add to their own installation stay on their own
+computer and are not part of this repository.
 
 Third-party code vendored in desktop/renderer/vendor/ keeps its own license;
 see THIRD_PARTY_NOTICES.md.

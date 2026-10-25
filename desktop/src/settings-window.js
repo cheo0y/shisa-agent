@@ -108,7 +108,12 @@ export function setupSettings(deps) {
   });
 
   // 캐릭터 만들기·고치기·지우기(데몬 /characters). 그림은 바이트로(채팅 첨부처럼), 저장 이름은 데몬이 짓는다
-  ipcMain.handle('characters-list', (e) => (isMine(e) ? deps.request('GET', '/characters') : denied()));
+  // 기본 캐릭터마다 예전 버전 그림 중 있는 것(local)을 메인이 붙인다 — 다른 창이 받는 목록과 같은 모양
+  ipcMain.handle('characters-list', async (e) => {
+    if (!isMine(e)) return denied();
+    const r = await deps.request('GET', '/characters');
+    return r?.ok && deps.decorateCharacters ? { ...r, data: deps.decorateCharacters(r.data) } : r;
+  });
   ipcMain.handle('characters-create', (e, body) => {
     const b = isMine(e) ? sanitizeCharacterBody(body, true) : null;
     return b ? deps.request('POST', '/characters', b, 30000) : denied();

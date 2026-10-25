@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { CHARACTERS, CHARACTER_IDS, characterAssets, okCharacter, VIDEOS, clipList } from '../src/character.js';
+import { CHARACTERS, CHARACTER_IDS, characterAssets, okCharacter, clipList } from '../src/character.js';
 import { CHARACTER_CLIPS } from '../src/character-clips.js';
 import { resolveAsset } from '../src/assets.js';
+import { known, useLegacy } from './legacy-helper.js';
 import { sanitizeSettingsPatch } from '../src/settings.js';
 import { cannedReply, resetCanned, CANNED_KEYS } from '../src/canned.js';
 import { CHARACTER_CANNED } from '../src/character-canned.js';
@@ -14,7 +15,8 @@ import { personaFor, systemFor, isStockPersona, SISA_BASE, CHARACTER_BASES } fro
 
 const OTHERS = CHARACTER_IDS.filter((id) => id !== 'shisa');
 const ASSETS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets');
-const fileOf = (url) => path.join(ASSETS, resolveAsset(url).rel);
+// 0.3.x 에서 올라와 예전 그림이 다 깔려 있는 경우(0.4.0 레포엔 그림이 없다 — 기본 그림 쪽은 default-art.test.js)
+useLegacy();
 
 test('캐릭터: 여덟, 모르는 id 는 시사', () => {
   assert.deepEqual(CHARACTER_IDS, ['shisa', 'hachi', 'rakko', 'momonga', 'usagi', 'kani', 'chiikawa', 'kuri']);
@@ -22,37 +24,26 @@ test('캐릭터: 여덟, 모르는 id 는 시사', () => {
   assert.equal(characterAssets('nope').id, 'shisa');
 });
 
-test('캐릭터 그림·영상: 주소가 다 허용 목록에 있고 레포 assets 에 실제 파일이 있다(배포에 같이 들어간다)', () => {
+test('캐릭터 그림·영상(예전 그림): 주소가 다 허용 목록 안 예전 그림 이름', () => {
   for (const id of CHARACTER_IDS) {
     const a = characterAssets(id);
     const urls = [a.open, ...(a.closed ? [a.closed] : []), ...Object.values(a.videos).filter(Boolean).flatMap((v) => [v.src, v.poster])];
     for (const u of urls) {
       assert.ok(resolveAsset(u), `${id}: ${u} 허용 목록에 없음`);
-      assert.ok(fs.existsSync(fileOf(u)), `${id}: ${u} 파일 없음`);
+      assert.ok(known(u), `${id}: ${u} 파일 없음`);
     }
     assert.equal(a.stills[0], a.open);
   }
   // 시사는 예전 자리 그대로
-  assert.deepEqual(characterAssets('shisa').videos, VIDEOS);
+  const sv = characterAssets('shisa').videos;
+  assert.deepEqual([sv.studying.src, sv.studying.poster, sv.dancing.src, sv.dancing.poster], ['cy-asset://app/character/studying.webm', 'cy-asset://app/character/studying.png', 'cy-asset://app/character/dance.webm', 'cy-asset://app/character/dance.png']);
+  assert.equal(characterAssets('shisa').retina, true);
   // 우사기는 임의로 각색한 감은 눈을 사용하지 않는다. 기존 캐릭터의 깜빡임은 유지한다.
   for (const id of OTHERS.filter((id) => id !== 'usagi')) assert.ok(characterAssets(id).closed, id);
   assert.equal(characterAssets('usagi').closed, null);
   assert.equal(resolveAsset('cy-asset://app/characters/usagi/eyes_closed.png'), null);
   assert.equal(characterAssets('rakko').videos.dancing.scene, true);
   assert.equal(characterAssets('hachi').videos.dancing.scene, false);
-});
-
-test('캐릭터 영상: 알파 캐릭터는 VP9 알파, 장면은 정사각형 512', () => {
-  for (const id of OTHERS) {
-    const meta = JSON.parse(fs.readFileSync(path.join(ASSETS, 'characters', id, 'video.json'), 'utf8'));
-    for (const name of Object.keys(meta)) {
-      assert.equal(meta[name].size, 512, `${id}/${name}`);
-      const item = Object.values(CHARACTER_CLIPS[id]).flat().find((x) => x?.file === name);
-      assert.ok(item, `${id}/${name}: clips.json 에 없는 영상`);
-      assert.equal(meta[name].scene, item.scene === true, `${id}/${name} scene`);
-      assert.ok(meta[name].frames > 0);
-    }
-  }
 });
 
 test('설정 저장 본문: character 는 아는 id 만', () => {
@@ -64,17 +55,13 @@ test('설정 저장 본문: character 는 아는 id 만', () => {
 
 test('우사기: 집중·알림·춤·응원은 각각 로컬 포스터와 투명 루프를 사용한다', () => {
   const a = characterAssets('usagi');
-  const meta = JSON.parse(fs.readFileSync(path.join(ASSETS, 'characters/usagi/video.json'), 'utf8'));
   const states = { study: a.videos.studying, plan: a.clips.plan, dance: a.clips.dance, cheer: a.clips.cheer };
   assert.match(a.clips.lunch.src, /usagi\/lunch\.webm$/, '점심은 먹는 영상(투명)');
   assert.equal(a.clips.lunch.scene, false);
   assert.equal(new Set(Object.values(states).map((v) => v.src)).size, 4);
   for (const [name, v] of Object.entries(states)) {
     assert.equal(v.scene, false);
-    assert.ok(fs.existsSync(fileOf(v.poster)) && fs.existsSync(fileOf(v.src)), name);
-    assert.equal(meta[name].alpha, true, name);
-    assert.equal(meta[name].frames, meta[name].fps * meta[name].duration, name);
-    assert.equal(meta[name].size, 512, name);
+    assert.ok(known(v.poster) && known(v.src), name);
   }
   for (const rel of ['artwork/usagi/idle.png', 'characters/usagi/source.png', 'characters/usagi/video.json']) {
     assert.equal(resolveAsset(`cy-asset://app/${rel}`), null, '원본·메타데이터를 렌더러에 노출하지 않는다');
@@ -221,8 +208,8 @@ test('춤 영상 종류: 일정 알림·춤·응원마다 캐릭터 파일, 없�
     const a = characterAssets(id);
     for (const k of ['plan', 'dance', 'cheer']) {
       const c = clipFor(a, k);
-      assert.ok(resolveAsset(c.src) && fs.existsSync(fileOf(c.src)), `${id}/${k}: ${c.src}`);
-      assert.ok(resolveAsset(c.poster) && fs.existsSync(fileOf(c.poster)), `${id}/${k}: ${c.poster}`);
+      assert.ok(resolveAsset(c.src) && known(c.src), `${id}/${k}: ${c.src}`);
+      assert.ok(resolveAsset(c.poster) && known(c.poster), `${id}/${k}: ${c.poster}`);
     }
     assert.equal(clipFor(a, 'nope'), clipFor(a, 'plan'));
   }

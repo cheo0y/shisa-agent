@@ -2,7 +2,9 @@
 
 시사 비서의 데스크톱 앱(Electron)입니다. 늘 화면 위에 떠 있는 캐릭터와 머리 위 말풍선, 캐릭터를 누르면 열리는 대시보드 패널, 두 번 누르면 뜨는 채팅 입력창으로 이뤄져 있습니다. macOS와 윈도우를 지원합니다. 윈도우 설치·실행은 [windows/README.md](../windows/README.md)를 참고하세요.
 
-설정의 캐릭터 목록에서 **우사기**도 고를 수 있습니다. [우사기 조사·대사·이미지 설명](../docs/usagi-character.md), [이미지 원본과 준비 방법](../artwork/usagi/README.md)을 참고하세요. 가짜 데몬은 `FAKE_CHARACTER=usagi npm run fake-daemon`으로 시작할 수 있습니다.
+설정의 캐릭터 목록에서 **우사기**도 고를 수 있습니다. 말투를 만든 과정은 [우사기 대사와 출처](../docs/usagi-character.md)를 참고하세요. 가짜 데몬은 `FAKE_CHARACTER=usagi npm run fake-daemon`으로 시작할 수 있습니다.
+
+v0.4.0부터 캐릭터 그림·영상은 앱에 들어 있지 않습니다. 그림을 넣지 않은 캐릭터는 `assets/default/`의 기본 그림으로 보이고, 사용자는 설정 창 「캐릭터」에서 캐릭터마다 그림을 넣습니다([캐릭터 그림](#캐릭터-그림)).
 
 ## 실행
 
@@ -37,9 +39,9 @@ npm run package      # → dist/cy-darwin-<arch>/cy.app  (@electron/packager, �
 `../ops/install.sh`가 이걸 빌드해 `~/Applications/cy.app`으로 바꿔 넣고, launchd(`com.cy-agent.desktop`, KeepAlive)가 `~/Applications/cy.app/Contents/MacOS/cy`를 띄웁니다. `sh ../ops/install.sh --dry-run`은 설치하지 않고 만들 plist만 보여 줍니다.
 KeepAlive라서 ⌘Q로 꺼도 launchd가 30초 뒤에 다시 띄웁니다. 완전히 끄려면 `launchctl bootout gui/$(id -u)/com.cy-agent.desktop`을 실행하세요.
 
-`npm start`(개발 실행)도 Dock·Cmd+Tab에 뜨지만 이름은 "Electron"으로 나옵니다(Cmd+Tab 이름은 번들의 `CFBundleName`에서 오기 때문입니다). Dock 아이콘은 런타임에 `assets/icon.png`로 바꿔 줍니다.
+`npm start`(개발 실행)도 Dock·Cmd+Tab에 뜨지만 이름은 "Electron"으로 나옵니다(Cmd+Tab 이름은 번들의 `CFBundleName`에서 오기 때문입니다). Dock 아이콘은 런타임에 `assets/icon.png`(기본 그림으로 만든 아이콘)로 바꿔 줍니다.
 
-고른 캐릭터가 시사가 아니면 앱 아이콘도 그 캐릭터 그림으로 바꿉니다(설정 「이 앱」의 「앱 아이콘도 고른 캐릭터로」, 기본 켜짐, `src/app-icon.js`). 맥은 `app.dock.setIcon`으로 Dock 아이콘을, Windows는 창마다 `win.setIcon`으로 작업 표시줄 단추 아이콘과 알림 영역(트레이) 그림을 바꿉니다. 켤 때와 캐릭터를 바꿀 때 바로 적용되고, 그림이 없거나 읽지 못하면 시사 아이콘을 씁니다.
+앱 아이콘도 고른 캐릭터 그림으로 바꿉니다(설정 「이 앱」의 「앱 아이콘도 고른 캐릭터로」, 기본 켜짐, `src/app-icon.js`). 그림은 캐릭터 창과 같은 순서로 고릅니다. 그 캐릭터에 직접 넣은 그림이 먼저이고, 없으면 0.3.x가 `~/.cy-agent/assets`에 남긴 예전 그림, 그것도 없으면 기본 그림입니다. 맥은 `app.dock.setIcon`으로 Dock 아이콘을, Windows는 창마다 `win.setIcon`으로 작업 표시줄 단추 아이콘과 알림 영역(트레이) 그림을 바꿉니다. 켤 때와 캐릭터를 바꿀 때 바로 적용됩니다. 그림이 없거나 읽지 못할 때, 설정을 끈 때는 기본 그림 아이콘(앱 번들 아이콘과 같은 그림)을 씁니다.
 이름은 바꾸지 못합니다. Dock 툴팁, 메뉴 막대의 굵은 앱 이름, Cmd+Tab, 스테이지 매니저에 보이는 이름은 macOS가 앱 번들 `Info.plist`의 `CFBundleName`(「시사」)에서 읽기 때문입니다. `app.setName`은 앱 안의 글(「우사기 비서 정보」·「우사기 비서 종료」 같은 메뉴 항목, 창 제목, 트레이 툴팁)만 바꿉니다. 다른 프로세스가 보는 앱 아이콘(`NSRunningApplication.icon`: Finder, 활성 상태 보기 등)도 번들 아이콘 그대로입니다.
 
 ### 배포용 앱 (시사.app, dmg)
@@ -93,12 +95,24 @@ npm run demo -- --exit --shots <dir>  # 끝나면 닫기 + 장면마다 스크�
 | 18 | day | `daily_half_complete` · 제안 승인 · 오류 말풍선 · `daily` · `daily_all_complete` |
 | 19 | outro | 작별 → 연결 끊김(흐림·눈 감음·z) → 다시 연결 |
 
-## 캐릭터 바꾸기
+## 캐릭터 그림
 
-`assets/character.png`를 덮어쓰면 됩니다. 정사각형, 투명 배경, 280×280 이상(140px로 표시, 레티나 2배)을 권장합니다.
-png가 없으면 `assets/character.svg`를 씁니다. 플레이스홀더는 `npm run assets -- --force`로 다시 만들 수 있습니다.
-앱 아이콘(Dock·Cmd+Tab)은 `npm run icon`이 캐릭터를 둥근 사각형 배경에 얹어 `assets/icon.png`(1024px)와 `assets/icon.icns`로 만듭니다(`sips`·`iconutil`). 배경색과 여백은 `scripts/make-icon.mjs` 맨 위 상수로 정합니다. 직접 그린 아이콘을 쓰려면 `assets/icon.icns`·`icon.png`를 덮어쓰고 `npm run package`를 실행하세요. 다만 캐릭터 파일이 아이콘보다 새로우면 package가 아이콘을 다시 만들어 버리니 주의해야 합니다.
-메뉴바 아이콘은 `assets/trayTemplate.png`(16px) / `trayTemplate@2x.png`(32px)로, 검정+투명 템플릿 이미지입니다.
+그림은 캐릭터마다 아래 순서로 고릅니다(`src/character.js` `characterAssets`).
+
+1. 설정 창 「캐릭터」에서 사용자가 넣은 그림·영상. `~/.cy-agent/characters/<id>/`에 저장되고 `cy-asset://app/user-characters/<id>/<저장 이름>`으로 읽습니다. 기본 캐릭터도 같은 방법으로 넣습니다(데몬 `PUT /characters/:id/media/:slot`, `characters/<기본 id>/media.json`).
+2. 0.3.x가 `~/.cy-agent/assets/`에 깔아 둔 예전 그림. 메인 프로세스가 실제로 있는 파일만 목록(`local`)에 붙여 렌더러에 넘깁니다(`src/assets.js` `withLocalFiles`).
+3. 기본 그림 `assets/default/eyes_open.svg`·`eyes_closed.svg`. 눈 감은 그림과 같이 깜빡입니다.
+
+영상이 없는 동작은 정지 그림 그대로입니다. 말풍선 스티커(`reactions/*.jpg`)도 배포하지 않습니다. 예전 버전이 깔아 둔 것이 있으면 쓰고, 없으면 글 말풍선만 뜹니다. 눈 뜬 그림과 눈 감은 그림은 같은 출처에서만 짝을 지어(사용자 그림끼리, 예전 그림끼리, 기본 그림끼리) 깜빡일 때 다른 얼굴이 섞이지 않게 합니다.
+
+## 기본 그림과 아이콘
+
+기본 그림은 그림 파일 없이 `src/default-face.js`의 숫자(원·타원·곡선)로 그립니다. 기존 캐릭터를 본뜨지 않은 단순한 얼굴입니다.
+
+- `npm run assets -- --force`: `assets/default/*.svg`, 윈도우 트레이용 `assets/character.png`, 맥 메뉴 막대 템플릿 `assets/trayTemplate.png`·`trayTemplate@2x.png`를 다시 만듭니다. 테스트가 레포 파일과 그림이 같은지 확인합니다.
+- `npm run icon`: 기본 그림을 둥근 사각형 배경에 얹어 `assets/icon.png`(1024px)와 `assets/icon.icns`를 만듭니다(`sips`·`iconutil`). 배경색과 여백은 `src/app-icon.js`의 `ICON_STYLE`·`ICON_TOP`·`ICON_BOTTOM`으로 정합니다(앱이 Dock 아이콘을 바꿀 때와 윈도우 `make-ico.mjs`도 같은 값을 씁니다).
+- 윈도우 아이콘(.ico)은 `../windows/make-ico.mjs`가 같은 기본 그림으로 만듭니다.
+- `npm run dist`·`npm run dist:win`은 레포 `assets/`에 그림·영상 파일이 섞여 있으면 멈춥니다(캐릭터 그림을 배포하지 않기 위해서입니다).
 
 ## 동작
 
