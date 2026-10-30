@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFakeImap, sampleMessages, type FakeImapOpts } from "./fixtures/fake-imap.ts";
-import { fetchRecentMail, mailFailure } from "./mail-imap.ts";
+import { fetchRecentMail, mailFailure, mailSearch, mailboxes } from "./mail-imap.ts";
 import { mailImapConn, mailTargets, type MailImapConn, type MailTarget } from "./connectors.ts";
 
 const NOW = new Date();
@@ -65,7 +65,8 @@ test("읽기 전용: 서버가 EXAMINE 을 READ-WRITE 로 열면 아무것도 �
 test("코드에 쓰기 호출이 없다: 플래그 바꾸기·지우기·옮기기·복사·보내기", () => {
   const src = readFileSync(new URL("./mail-imap.ts", import.meta.url), "utf8").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(src, /messageFlags(Add|Remove|Set)|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|nodemailer|smtp[A-Za-z]*\(|createTransport/i);
-  assert.match(src, /mailboxOpen\("INBOX", \{ readOnly: true \}\)/);
+  assert.match(src, /mailboxOpen\(name, \{ readOnly: true \}\)/);
+  assert.doesNotMatch(src, /mailboxOpen\([^)]*readOnly: false/);
 });
 
 test("Gmail 이 아닌 서버(X-GM-EXT-1 없음): 거르지 않고 모두, 광고성은 표시만(모델이 거른다)", async () => {
@@ -257,4 +258,50 @@ test("LOGOUT 에 답이 없는 서버: 읽은 결과는 그대로 돌려주고 �
     assert.ok(r.ok, JSON.stringify(r));
     assert.ok(Date.now() - t0 < 5000, `${Date.now() - t0}ms`);
   });
+});
+
+test("폴더(mailbox): 여러 폴더를 EXAMINE 으로 열어 합친다 · 같은 메일은 한 번만 · 없는 폴더는 건너뛴다", async () => {
+  await withServer({ gmail: false, mailboxes: ["INBOX", "Archive"] }, async (port, s) => {
+    const r = await fetchRecentMail(conn(port, { mailbox: ["INBOX", "Nope", "Archive"] }), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+    if (!r.ok) return;
+    // 두 폴더가 같은 메일을 보여 준다: Message-ID 가 있는 11·12 는 한 번씩, 없는 13 은 폴더마다
+    assert.deepEqual(r.items.map((m) => m.uid), [11, 13, 13, 12]);
+    const ex = s.commands.filter((c) => /^EXAMINE /.test(c));
+    assert.deepEqual(ex.map((c) => c.split(" ")[1]), ["INBOX", "Nope", "Archive"]);
+    assert.ok(!s.commands.some((c) => /^SELECT\b/.test(c)));
+    assert.equal(s.commands.filter((c) => /^UID SEARCH/.test(c)).length, 2);
+  });
+  // 문자열 하나도 된다. 그 폴더가 없으면(열린 폴더가 하나도 없으면) 실패
+  await withServer({ gmail: false, mailboxes: ["INBOX"] }, async (port) => {
+    const r = await fetchRecentMail(conn(port, { mailbox: "Nope" }), { now: NOW });
+    assert.equal(r.ok, false);
+  });
+  assert.deepEqual(mailboxes(undefined), ["INBOX"]);
+  assert.deepEqual(mailboxes("Work"), ["Work"]);
+  assert.deepEqual(mailboxes(["A", "B"]), ["A", "B"]);
+  assert.deepEqual(target({ user: USER, password: PASS, mailbox: ["  A ", "", "A", 3, "B"] }).mailbox, ["A", "B"]);
+  assert.equal(target({ user: USER, password: PASS, mailbox: "  " }).mailbox, undefined);
+});
+
+test("검색(search): 허용 키만 · since 는 기간이 정한다 · gmraw 는 프로모션 거르기 뒤에 붙는다", async () => {
+  const old = new Date("2001-01-01T00:00:00Z");
+  await withServer({}, async (port, s) => {
+    const r = await fetchRecentMail(conn(port, { search: { from: "boss@example.com", since: old, gmraw: "has:attachment", uid: "1:*" } }), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+    const q = s.commands.find((c) => /^UID SEARCH/.test(c)) ?? "";
+    assert.match(q, /FROM boss@example\.com/);
+    assert.doesNotMatch(q, /2001/);
+    assert.match(q, /X-GM-RAW -category:promotions -category:social has:attachment/);
+    assert.doesNotMatch(q.replace(/^UID SEARCH/, ""), /\bUID\b/); // 허용 목록 밖(uid)은 거른다
+  });
+  await withServer({ gmail: false }, async (port, s) => {
+    const r = await fetchRecentMail(conn(port, { search: { gmraw: "has:attachment" } }), { now: NOW });
+    assert.ok(r.ok, JSON.stringify(r)); // X-GM-EXT-1 이 없으면 gmraw 는 빼고 읽는다
+    assert.ok(!s.commands.some((c) => /X-GM-RAW/.test(c)));
+  });
+  assert.deepEqual(mailSearch({ seen: false, since: old, foo: 1, not: { gmraw: "x", from: "a" }, or: [{ to: "b" }, { bar: 1 }] }, false), { seen: false, not: { from: "a" }, or: [{ to: "b" }] });
+  assert.deepEqual(mailSearch({ gmraw: " in:sent " }, true), { gmraw: "in:sent" });
+  assert.deepEqual(mailSearch(undefined, true), {});
+  assert.equal(target({ user: USER, password: PASS, search: ["x"] }).search, undefined);
 });

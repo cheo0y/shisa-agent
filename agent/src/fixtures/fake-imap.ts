@@ -16,6 +16,7 @@ export type FakeImapOpts = {
   stallOn?: RegExp;                // 이 명령(예: /^UID FETCH/)부터는 받기만 하고 답하지 않는다(서버가 멈춤)
   dropOn?: RegExp;                 // 이 명령을 받으면 연결을 끊는다(중간에 끊김)
   noBodyStructure?: boolean;       // BODYSTRUCTURE 를 NIL 로 답한다(구조를 못 주는 서버)
+  mailboxes?: string[];            // 있는 폴더 이름(주면 그 밖은 EXAMINE 에 NO [NONEXISTENT]). 폴더마다 같은 메일을 보여 준다
 };
 // sentBytes: FETCH 로 보낸 본문 바이트(첨부까지 받았나 본다) · logins: LOGIN 받은 수(실패 반복 시험)
 export type FakeImap = { port: number; commands: string[]; messages: (FakeMsg & { flags: string[] })[]; sentBytes: () => number; logins: () => number; close: () => Promise<void> };
@@ -154,9 +155,16 @@ export function startFakeImap(o: FakeImapOpts, port = 0): Promise<FakeImap> {
         return ok(`[CAPABILITY ${caps}] logged in`);
       }
       if (!authed) return send(`${tag} BAD not authenticated\r\n`);
-      if (cmd === "LIST") { send(`* LIST (\\HasNoChildren) "/" "INBOX"\r\n`); return ok(); }
+      if (cmd === "LIST") {
+        // LIST "" "" = 구분자 묻기(이름 앞에 INBOX/ 가 붙지 않게). 폴더를 정했으면 물은 이름이 있을 때만 답한다
+        if (o.mailboxes && args[1] === "") send(`* LIST (\\Noselect) "/" ""\r\n`);
+        else if (!o.mailboxes) send(`* LIST (\\HasNoChildren) "/" "INBOX"\r\n`);
+        else if (o.mailboxes.includes(args[1] ?? "")) send(`* LIST (\\HasNoChildren) "/" "${args[1]}"\r\n`);
+        return ok();
+      }
       if (cmd === "NAMESPACE") { send(`* NAMESPACE (("" "/")) NIL NIL\r\n`); return ok(); }
       if (cmd === "SELECT" || cmd === "EXAMINE") {
+        if (o.mailboxes && !o.mailboxes.includes(args[0] ?? "")) { selected = null; return send(`${tag} NO [NONEXISTENT] Unknown Mailbox\r\n`); }
         selected = cmd === "EXAMINE" && !o.readWriteExamine ? "ro" : "rw";
         send(`* FLAGS (\\Seen \\Answered \\Flagged \\Deleted \\Draft)\r\n* ${msgs.length} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 7] ok\r\n* OK [UIDNEXT ${Math.max(0, ...msgs.map((m) => m.uid)) + 1}] ok\r\n`);
         return ok(`[${selected === "ro" ? "READ-ONLY" : "READ-WRITE"}] ${cmd} completed`);
