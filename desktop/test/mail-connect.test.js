@@ -43,6 +43,9 @@ test('보낼 본문 · 메인이 받는 모양(모르는 칸·틀린 서비스�
   assert.equal(cleanMailBody({ preset: 'yahoo', user: 'a', password: 'p' }), null);
   assert.equal(cleanMailBody({ preset: 'gmail', user: 'a', password: 5 }), null);
   assert.equal(cleanMailBody('x'), null);
+  // 폴더(mailbox)·검색(search)은 config.json 에서만 정한다 — 패널이 보내지 않는다(데몬이 저장할 때 파일 값을 지킨다)
+  assert.deepEqual(cleanMailBody({ preset: 'gmail', user: 'a@gmail.com', password: 'p', mailbox: ['INBOX', 'Work'], search: { unseen: true } }), { preset: 'gmail', user: 'a@gmail.com', password: 'p' });
+  assert.deepEqual(mailConnectBody({ service: 'gmail', user: 'a@gmail.com', password: 'p', mailbox: 'Work', search: { unseen: true } }), { preset: 'gmail', user: 'a@gmail.com', password: 'p' });
 });
 
 test('연결 카드: imap 메일은 주소·서비스·가져온 메일 수 · 비밀번호는 받지도 않는다', () => {

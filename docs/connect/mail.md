@@ -91,6 +91,8 @@
 | `accounts[].user` |  | 메일 주소 |
 | `accounts[].password` |  | 앱 비밀번호(또는 서비스 비밀번호). 환경변수 `CY_AGENT_MAIL_PASSWORD`는 첫 계정 비밀번호로 쓰고 파일보다 먼저입니다 |
 | `accounts[].host` / `port` | `custom`만 · 포트 993 | IMAP 서버 |
+| `accounts[].mailbox` | `INBOX` | 읽을 폴더. 문자열 하나 또는 배열(예: `["INBOX", "Work"]`). 없는 폴더는 건너뛰고, 같은 메일(Message-ID)은 한 번만 씁니다 |
+| `accounts[].search` |  | IMAP 검색 조건(예: `{ "from": "boss@example.com" }`, `{ "seen": false }`). `from`·`to`·`subject`·`text`·`seen`·`flagged`·`or`·`not` 같은 키만 쓰고 기간은 `sinceHours`가 정합니다. Gmail이면 `gmraw`(Gmail 검색어)도 됩니다 |
 | `sinceHours` | `24` | 몇 시간 전까지 받은 메일을 읽을지(모든 계정) |
 | `skipPromotions` | `true` | Gmail 프로모션·소셜 탭을 뺄지(모든 Gmail 계정) |
 

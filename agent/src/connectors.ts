@@ -98,9 +98,11 @@ export type CalendarApiConn = { cap: "calendar"; mode: "api"; calendars: Calenda
 // 메일 IMAP: 계정 여러 개(accounts). password 는 비밀(설정 응답·로그·도움 보내기에 내보내지 않는다).
 // sinceHours: 몇 시간 전까지 받은 메일을 읽나(기본 24, 모든 계정 같이). skipPromotions: Gmail 이면 프로모션·소셜 탭을 서버 검색(X-GM-RAW)에서 뺀다(기본 켬)
 // id: 계정마다 고정 이름(설정에 없으면 주소로 만든다 — 예전 한 계정 모양도 같은 id). 같은 주소는 한 번만
+// mailbox: 읽을 폴더(문자열 또는 배열, 없으면 INBOX). search: imapflow 검색 객체(허용 키만 쓴다 — mail-imap.ts)
 export type MailImapAccount = {
   id: string; preset: MailPresetId | "custom"; host: string; port: number; secure: boolean;
   user: string; login?: string; password?: string; // login: 서버 로그인 이름(비면 user)
+  mailbox?: string | string[]; search?: Record<string, unknown>;
 };
 export type MailImapConn = { cap: "mail"; mode: "imap"; accounts: MailImapAccount[]; sinceHours: number; skipPromotions: boolean };
 // 가져오기 하나(계정 하나 + 같이 쓰는 기간·거르기)
@@ -232,12 +234,24 @@ export function mailImapAccount(c: Record<string, any>, envPassword?: string): M
   // Gmail 앱 비밀번호는 4글자씩 띄어 보여 준다 — 띄어쓰기를 빼고 쓴다. 다른 서비스 비밀번호는 앞뒤 공백만
   const clean = (v: string | undefined) => (v === undefined ? undefined : presetName === "gmail" ? v.replace(/\s+/g, "") : v.trim());
   const password = clean(pw(envPassword) ?? pw(c?.password));
+  const mailbox = mailboxOf(c?.mailbox);
+  const search = c?.search && typeof c.search === "object" && !Array.isArray(c.search) ? (c.search as Record<string, unknown>) : undefined;
   return {
     id: okAccountId(c?.id) ? c.id : mailAccountId(user),
     preset: presetName as MailImapAccount["preset"], host, port, secure, user,
     ...(str(c?.login) ? { login: str(c?.login) } : {}), // 로그인 이름이 주소와 다를 때(네이버·다음은 아이디만 받기도 한다)
     ...(password ? { password } : {}),
+    ...(mailbox ? { mailbox } : {}),
+    ...(search ? { search } : {}),
   };
+}
+
+// 폴더 설정 → 문자열 하나 또는 배열(빈 이름·같은 이름은 뺀다). 쓸 게 없으면 undefined(INBOX)
+function mailboxOf(v: unknown): string | string[] | undefined {
+  if (typeof v === "string") return v.trim() || undefined;
+  if (!Array.isArray(v)) return undefined;
+  const list = [...new Set(v.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))];
+  return list.length ? list : undefined;
 }
 
 // connectors.mail(mode imap) → 연결(계정 여러 개). 계정 수 상한 없음. 틀린 계정은 빼고, 같은 주소는 앞의 것만.

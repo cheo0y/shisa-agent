@@ -85,7 +85,8 @@ export function mailConnectPlan(body: unknown, cur: Conn | undefined, env: NodeJ
   }
   if (password.trim()) account.password = preset === "gmail" ? password.replace(/\s+/g, "") : password.trim();
   // 시험할 연결: 이 계정 하나(기간·거르기는 지금 설정 그대로)
-  const test = mailImapConn({ accounts: [account], sinceHours: sinceHours ?? now?.sinceHours, skipPromotions: now?.skipPromotions }, envFirst && !account.password ? env : {});
+  // 이미 있던 계정이면 그 계정의 폴더·검색으로 시험한다(넘겨 줄 결과가 동기화와 같게). 저장은 connectMail 이 파일 값을 지킨다
+  const test = mailImapConn({ accounts: [{ ...account, ...(same?.mailbox ? { mailbox: same.mailbox } : {}), ...(same?.search ? { search: same.search } : {}) }], sinceHours: sinceHours ?? now?.sinceHours, skipPromotions: now?.skipPromotions }, envFirst && !account.password ? env : {});
   if (test.mode !== "imap") return { error: test.reason?.replace(/^mail: /, "") ?? tr("status.mail_check_cfg") };
   const t = { ...test.accounts[0], sinceHours: test.sinceHours, skipPromotions: test.skipPromotions };
   if (!t.password) return { error: tr("status.mail_need_pw") };
@@ -124,7 +125,11 @@ export async function connectMail(body: unknown, deps: {
     if (i >= 0) {
       const old = v.accounts[i];
       // 비밀번호를 비워 보냈으면 파일에 있던 것을 그대로(환경변수 값을 파일에 쓰지 않는다)
-      v.accounts[i] = { ...plan.account, id: old.id, ...(plan.account.password === undefined && old.password !== undefined ? { password: old.password } : {}) };
+      // 폴더(mailbox)·검색(search)은 패널에서 바꾸지 않으니 파일에 있던 것을 그대로
+      v.accounts[i] = {
+        ...plan.account, id: old.id, ...(plan.account.password === undefined && old.password !== undefined ? { password: old.password } : {}),
+        ...(old.mailbox !== undefined ? { mailbox: old.mailbox } : {}), ...(old.search !== undefined ? { search: old.search } : {}),
+      };
     } else v.accounts.push(plan.account);
     if (plan.sinceHours !== undefined) v.sinceHours = plan.sinceHours;
     const value = mailValue(v);
